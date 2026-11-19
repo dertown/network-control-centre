@@ -80,6 +80,31 @@ The first apply takes about 5 to 10 minutes, mostly the UI and Go build. When it
 open the `ncc_url` output, accept the self-signed certificate, and create the admin account
 and vault passphrase.
 
+## Running from Windows
+
+Use PowerShell (MobaXterm's local terminal also works, but the commands below are PowerShell).
+
+1. Install Terraform and Git: `winget install Hashicorp.Terraform Git.Git`, then open a new PowerShell window.
+2. Get the code: `git clone https://github.com/dertown/network-control-centre.git` and `cd network-control-centre\deploy\proxmox`.
+   This repo's `.gitattributes` keeps `scripts/install-ncc.sh` on LF line endings, which the VM needs.
+3. Create `terraform.tfvars` (see step 2 above). On Windows, set `proxmox_ssh_agent = false` and give
+   the node's root password through the environment instead (step 4).
+4. Make the private key that matches `ssh_public_keys` available to Terraform, one of:
+   - **Pageant / MobAgent**: Terraform uses Pageant as its SSH agent on Windows. In MobaXterm, enable
+     *Settings → SSH → SSH agents → MobAgent* and load your `.ppk`, or load it in Pageant. Leave
+     `ssh_private_key_path` unset.
+   - **Key file**: Terraform cannot read `.ppk` files. In PuTTYgen (or *MobaXterm → Tools → MobaKeyGen*),
+     load the `.ppk` and use *Conversions → Export OpenSSH key*, save it as
+     `C:\Users\<you>\.ssh\id_ed25519`, and set `ssh_private_key_path = "~/.ssh/id_ed25519"`.
+5. Set credentials for this PowerShell session only (single quotes keep the `!` literal):
+
+   ```powershell
+   $env:PROXMOX_VE_API_TOKEN    = 'root@pam!claude=<token secret>'
+   $env:PROXMOX_VE_SSH_PASSWORD = '<root password of the Proxmox node>'
+   ```
+
+6. `terraform init`, then `terraform apply` and type `yes`. When it finishes, open the `ncc_url` it prints.
+
 ## Vault options
 
 - **Built-in vault (default).** After a reboot NCC starts sealed until an admin unseals it in
