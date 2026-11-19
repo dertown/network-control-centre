@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is git-ignored.
+# Do NOT put Proxmox credentials here: export PROXMOX_VE_API_TOKEN instead (see README.md).
+
+proxmox_endpoint = "https://192.168.1.100:8006/"
+proxmox_node     = "pve" # node name from the Proxmox UI tree
+
+vm_ipv4_cidr    = "192.168.1.50/24" # a free address outside your DHCP pool
+vm_ipv4_gateway = "192.168.1.1"
+vm_dns_servers  = ["192.168.1.1"]
+
+ssh_public_keys = [
+  "ssh-ed25519 AAAA... you@laptop",
+]
+# ssh_private_key_path = "~/.ssh/id_ed25519" # omit to use ssh-agent
+
+# ncc_git_ref = "main"
+
+# Optional: unattended unseal of the built-in vault after reboots. Set it through the
+# environment instead of this file:  export TF_VAR_ncc_vault_passphrase='...'
