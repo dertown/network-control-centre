@@ -1,0 +1,9 @@
+/data/
+/bin/
+/ncc
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+*.db
+config.yaml
+*.tsbuildinfo
