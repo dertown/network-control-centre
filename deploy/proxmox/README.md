@@ -80,6 +80,14 @@ The first apply takes about 5 to 10 minutes, mostly the UI and Go build. When it
 open the `ncc_url` output, accept the self-signed certificate, and create the admin account
 and vault passphrase.
 
+## Proxmox 7.x notes
+
+The defaults work on Proxmox 7.3 and later (tested on 7.3-4). On 7.x the provider may report
+`Disk resize ... the server did not include a data object in the response` while creating the
+VM even though the resize succeeded. Check `qm config <vmid>` shows the right disk size, then run
+`terraform untaint proxmox_virtual_environment_vm.ncc` and `terraform apply` again so the VM is
+not recreated. Proxmox 8 does not have this problem.
+
 ## Running from Windows
 
 Use PowerShell (MobaXterm's local terminal also works, but the commands below are PowerShell).
