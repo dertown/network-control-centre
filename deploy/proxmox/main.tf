@@ -1,5 +1,11 @@
 locals {
-  vm_ip = split("/", var.vm_ipv4_cidr)[0]
+  use_dhcp = var.vm_ipv4_cidr == "dhcp"
+
+  # With DHCP the address comes from the QEMU guest agent: the first non-loopback IPv4.
+  vm_ip = local.use_dhcp ? try(
+    [for ip in flatten(proxmox_virtual_environment_vm.ncc.ipv4_addresses) : ip if !startswith(ip, "127.")][0],
+    null
+  ) : split("/", var.vm_ipv4_cidr)[0]
 
   use_hashicorp = var.ncc_vault_backend == "hashicorp"
   hc            = local.use_hashicorp ? var.hashicorp_vault : null
@@ -60,6 +66,27 @@ resource "proxmox_download_file" "cloud_image" {
   overwrite    = false
 }
 
+# Cloud-init vendor data: installs the QEMU guest agent on first boot so Proxmox (and
+# Terraform) can see the VM's IP address. Kept free of secrets; user and SSH keys come
+# from the user_account block below.
+resource "proxmox_virtual_environment_file" "vendor_data" {
+  node_name    = var.proxmox_node
+  datastore_id = var.snippets_datastore
+  content_type = "snippets"
+
+  source_raw {
+    file_name = "${var.vm_name}-vendor-data.yaml"
+    data      = <<-EOT
+      #cloud-config
+      package_update: true
+      packages:
+        - qemu-guest-agent
+      runcmd:
+        - systemctl enable --now qemu-guest-agent
+    EOT
+  }
+}
+
 resource "proxmox_virtual_environment_vm" "ncc" {
   name        = var.vm_name
   description = "Network Control Centre. Managed by Terraform (deploy/proxmox)."
@@ -71,10 +98,12 @@ resource "proxmox_virtual_environment_vm" "ncc" {
   started         = true
   stop_on_destroy = true
 
-  # The guest agent is installed by the deploy step, after the VM first boots, so the
-  # provider must not wait for it while creating the VM.
+  # The guest agent is installed on first boot by the vendor-data snippet below. The
+  # provider waits for it to report the VM's IP address.
   agent {
-    enabled = false
+    enabled = true
+    timeout = "15m"
+    trim    = true
   }
 
   cpu {
@@ -113,13 +142,18 @@ resource "proxmox_virtual_environment_vm" "ncc" {
     ip_config {
       ipv4 {
         address = var.vm_ipv4_cidr
-        gateway = var.vm_ipv4_gateway
+        gateway = local.use_dhcp ? null : var.vm_ipv4_gateway
       }
     }
 
-    dns {
-      servers = var.vm_dns_servers
+    dynamic "dns" {
+      for_each = local.use_dhcp ? [] : [1]
+      content {
+        servers = var.vm_dns_servers
+      }
     }
+
+    vendor_data_file_id = proxmox_virtual_environment_file.vendor_data.id
 
     user_account {
       username = var.vm_user
@@ -130,6 +164,11 @@ resource "proxmox_virtual_environment_vm" "ncc" {
   lifecycle {
     # A new cloud image upstream should not rebuild a running server.
     ignore_changes = [disk[0].file_id]
+
+    precondition {
+      condition     = local.use_dhcp || var.vm_ipv4_gateway != null
+      error_message = "Set vm_ipv4_gateway when vm_ipv4_cidr is a static address."
+    }
   }
 }
 
@@ -142,6 +181,13 @@ resource "terraform_data" "deploy_ncc" {
     sha256(local.deploy_bundle),
     filesha256("${path.module}/scripts/install-ncc.sh"),
   ]
+
+  lifecycle {
+    precondition {
+      condition     = local.vm_ip != null
+      error_message = "The QEMU guest agent did not report an IPv4 address for the VM. Check that the VM got a DHCP lease and that the vendor-data snippet ran (Proxmox VM > Summary > IPs)."
+    }
+  }
 
   connection {
     type        = "ssh"

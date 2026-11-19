@@ -38,6 +38,12 @@ variable "image_datastore" {
   default     = "local"
 }
 
+variable "snippets_datastore" {
+  description = "Datastore for the cloud-init vendor-data snippet that installs the QEMU guest agent. Must allow the 'Snippets' content type (Datacenter > Storage > local > Content)."
+  type        = string
+  default     = "local"
+}
+
 variable "vm_datastore" {
   description = "Datastore for the VM disk and cloud-init drive."
   type        = string
@@ -97,22 +103,24 @@ variable "vm_vlan_id" {
 }
 
 variable "vm_ipv4_cidr" {
-  description = "Static IPv4 address with prefix, for example 192.168.1.50/24. Terraform connects to this address to deploy the app."
+  description = "\"dhcp\" (default), or a static IPv4 address with prefix such as 192.168.1.50/24. With DHCP, Terraform learns the address from the QEMU guest agent; give the VM a DHCP reservation so the NCC URL stays the same."
   type        = string
+  default     = "dhcp"
 
   validation {
-    condition     = can(cidrhost(var.vm_ipv4_cidr, 0))
-    error_message = "vm_ipv4_cidr must look like 192.168.1.50/24."
+    condition     = var.vm_ipv4_cidr == "dhcp" || can(cidrhost(var.vm_ipv4_cidr, 0))
+    error_message = "vm_ipv4_cidr must be \"dhcp\" or look like 192.168.1.50/24."
   }
 }
 
 variable "vm_ipv4_gateway" {
-  description = "Default gateway, for example 192.168.1.1."
+  description = "Default gateway for a static address, for example 192.168.1.1. Ignored with DHCP."
   type        = string
+  default     = null
 }
 
 variable "vm_dns_servers" {
-  description = "DNS resolvers for the VM."
+  description = "DNS resolvers for a static address. Ignored with DHCP, which supplies its own."
   type        = list(string)
   default     = ["1.1.1.1", "9.9.9.9"]
 }

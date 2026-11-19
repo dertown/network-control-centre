@@ -2,13 +2,28 @@
 mock_provider "proxmox" {}
 
 variables {
-  vm_ipv4_cidr    = "192.168.1.50/24"
-  vm_ipv4_gateway = "192.168.1.1"
   ssh_public_keys = ["ssh-ed25519 AAAAtest test@example"]
+}
+
+run "dhcp_by_default" {
+  command = plan
+
+  assert {
+    condition     = proxmox_virtual_environment_vm.ncc.initialization[0].ip_config[0].ipv4[0].address == "dhcp"
+    error_message = "VM should use DHCP by default"
+  }
+  assert {
+    condition     = proxmox_virtual_environment_vm.ncc.agent[0].enabled
+    error_message = "guest agent must be enabled to discover the DHCP address"
+  }
 }
 
 run "local_vault_defaults" {
   command = plan
+  variables {
+    vm_ipv4_cidr    = "192.168.1.50/24"
+    vm_ipv4_gateway = "192.168.1.1"
+  }
 
   assert {
     condition     = yamldecode(local.ncc_config_yaml).vault.backend == "local"
@@ -62,6 +77,14 @@ run "hashicorp_vault" {
     }
     error_message = "hashicorp vault config"
   }
+}
+
+run "static_needs_gateway" {
+  command = plan
+  variables {
+    vm_ipv4_cidr = "192.168.1.50/24"
+  }
+  expect_failures = [proxmox_virtual_environment_vm.ncc]
 }
 
 run "rejects_bad_ip" {

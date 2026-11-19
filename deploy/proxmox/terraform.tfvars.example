@@ -4,9 +4,11 @@
 proxmox_endpoint = "https://192.168.1.100:8006/"
 proxmox_node     = "pve" # node name from the Proxmox UI tree
 
-vm_ipv4_cidr    = "192.168.1.50/24" # a free address outside your DHCP pool
-vm_ipv4_gateway = "192.168.1.1"
-vm_dns_servers  = ["192.168.1.1"]
+# DHCP is the default. Add a DHCP reservation for the VM so its address stays fixed.
+# For a static address instead:
+# vm_ipv4_cidr    = "192.168.1.50/24"
+# vm_ipv4_gateway = "192.168.1.1"
+# vm_dns_servers  = ["192.168.1.1"]
 
 ssh_public_keys = [
   "ssh-ed25519 AAAA... you@laptop",

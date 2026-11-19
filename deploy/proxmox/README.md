@@ -6,8 +6,10 @@ repository on the VM and runs it as a hardened systemd service.
 What `terraform apply` does:
 
 1. The Proxmox node downloads the Ubuntu cloud image into `image_datastore`.
-2. A VM is created from it (2 vCPU, 4 GiB RAM, 20 GiB disk by default) with a static IP,
-   your SSH keys and a passwordless-sudo admin user, via cloud-init.
+2. A VM is created from it (2 vCPU, 4 GiB RAM, 20 GiB disk by default) with your SSH keys and
+   a passwordless-sudo admin user, via cloud-init. It uses DHCP by default (or a static IP), and
+   a small cloud-init vendor-data snippet installs the QEMU guest agent so Terraform can read
+   the address the VM was given.
 3. Terraform SSHes to the VM and runs [`scripts/install-ncc.sh`](scripts/install-ncc.sh), which
    - installs Go (latest stable) and Node.js 22, clones the repo at `ncc_git_ref` and runs `make build`;
    - writes `/etc/ncc/config.yaml` (and the vault passphrase / CA files if you set them), readable
@@ -53,9 +55,19 @@ cp terraform.tfvars.example terraform.tfvars
 $EDITOR terraform.tfvars
 ```
 
-At minimum set `proxmox_node`, `vm_ipv4_cidr`, `vm_ipv4_gateway` and `ssh_public_keys`.
-Check that `image_datastore` (default `local`) allows the *ISO image* content type and
-`vm_datastore` (default `local-lvm`) exists. All variables are documented in [`variables.tf`](variables.tf).
+At minimum set `proxmox_node` and `ssh_public_keys`. The VM uses DHCP unless you set
+`vm_ipv4_cidr` and `vm_ipv4_gateway`. With DHCP, add a reservation for the VM on your router
+once it is created, so the NCC address does not change.
+
+Check the datastores on the node:
+
+- `image_datastore` (default `local`) must allow the *ISO image* content type.
+- `snippets_datastore` (default `local`) must allow *Snippets*. It does not by default; enable it
+  under **Datacenter → Storage → local → Edit → Content**, or on the node:
+  `pvesm set local --content iso,vztmpl,backup,snippets`.
+- `vm_datastore` (default `local-lvm`) must exist.
+
+Snippets are uploaded over SSH to the node, so the provider needs SSH as `root` to it (see above). All variables are documented in [`variables.tf`](variables.tf).
 
 ## 3. Apply
 
