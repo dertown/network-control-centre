@@ -78,6 +78,12 @@ variable "vm_cores" {
   default     = 2
 }
 
+variable "vm_cpu_type" {
+  description = "QEMU CPU model. \"host\" works on every Proxmox version; \"x86-64-v2-AES\" (Proxmox 8+) allows live migration between different CPUs."
+  type        = string
+  default     = "host"
+}
+
 variable "vm_memory_mb" {
   description = "Memory in MiB. The UI build needs about 2 GiB; 4 GiB leaves headroom."
   type        = number
