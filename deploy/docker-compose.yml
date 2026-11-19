@@ -1,0 +1,11 @@
+services:
+  ncc:
+    build: ..
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    volumes:
+      - ncc-data:/data
+      - ./config.yaml:/etc/ncc/config.yaml:ro
+volumes:
+  ncc-data:

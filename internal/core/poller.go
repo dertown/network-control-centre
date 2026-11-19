@@ -1,0 +1,207 @@
+package core
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/dertown/network-control-centre/internal/drivers"
+	"github.com/dertown/network-control-centre/internal/inventory"
+	"github.com/dertown/network-control-centre/internal/vault"
+)
+
+// Hub fans events out to Server-Sent-Event subscribers (the browser).
+type Hub struct {
+	mu   sync.Mutex
+	subs map[chan []byte]struct{}
+}
+
+// NewHub returns an empty hub.
+func NewHub() *Hub { return &Hub{subs: map[chan []byte]struct{}{}} }
+
+// Subscribe returns a channel of JSON events and a cancel func.
+func (h *Hub) Subscribe() (<-chan []byte, func()) {
+	ch := make(chan []byte, 16)
+	h.mu.Lock()
+	h.subs[ch] = struct{}{}
+	h.mu.Unlock()
+	return ch, func() {
+		h.mu.Lock()
+		if _, ok := h.subs[ch]; ok {
+			delete(h.subs, ch)
+			close(ch)
+		}
+		h.mu.Unlock()
+	}
+}
+
+// Publish sends an event to every subscriber, dropping it for slow ones.
+func (h *Hub) Publish(kind string, data any) {
+	b, err := json.Marshal(map[string]any{"type": kind, "data": data})
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for ch := range h.subs {
+		select {
+		case ch <- b:
+		default:
+		}
+	}
+}
+
+// Poller collects inventory from every enabled device target on an interval.
+type Poller struct {
+	DB       *sql.DB
+	Targets  *Targets
+	Vault    vault.Store
+	Hub      *Hub
+	Interval time.Duration
+	Keep     int // snapshots kept per target
+	Log      *slog.Logger
+
+	mu      sync.Mutex
+	running map[int64]bool
+}
+
+// Run polls until ctx ends.
+func (p *Poller) Run(ctx context.Context) {
+	if p.Keep <= 0 {
+		p.Keep = 288
+	}
+	p.running = map[int64]bool{}
+	t := time.NewTicker(p.Interval)
+	defer t.Stop()
+	p.PollAll(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			p.PollAll(ctx)
+		}
+	}
+}
+
+// PollAll polls each enabled device target concurrently.
+func (p *Poller) PollAll(ctx context.Context) {
+	ts, err := p.Targets.List(ctx, CategoryDevice)
+	if err != nil {
+		p.Log.Error("list targets", "err", err)
+		return
+	}
+	var wg sync.WaitGroup
+	for _, t := range ts {
+		if !t.Enabled {
+			continue
+		}
+		wg.Add(1)
+		go func(t Target) {
+			defer wg.Done()
+			if _, err := p.PollOne(ctx, t.ID); err != nil && !errors.Is(err, vault.ErrSealed) {
+				p.Log.Warn("poll failed", "target", t.Name, "err", err)
+			}
+		}(t)
+	}
+	wg.Wait()
+}
+
+// PollOne collects one target now and stores the snapshot.
+func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, error) {
+	p.mu.Lock()
+	if p.running == nil {
+		p.running = map[int64]bool{}
+	}
+	if p.running[id] {
+		p.mu.Unlock()
+		return nil, errors.New("poll already running")
+	}
+	p.running[id] = true
+	p.mu.Unlock()
+	defer func() { p.mu.Lock(); delete(p.running, id); p.mu.Unlock() }()
+
+	t, err := p.Targets.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	snap, err := p.collect(ctx, t)
+	_ = p.Targets.RecordPoll(ctx, t.ID, err)
+	if err != nil {
+		if p.Hub != nil {
+			p.Hub.Publish("poll_error", map[string]any{"target": t.Name, "error": err.Error()})
+		}
+		return nil, err
+	}
+	if p.Hub != nil {
+		p.Hub.Publish("snapshot", map[string]any{"target": t.Name, "devices": len(snap.Devices), "clients": len(snap.Clients)})
+	}
+	return snap, nil
+}
+
+func (p *Poller) collect(ctx context.Context, t *Target) (*inventory.Snapshot, error) {
+	d, err := drivers.Get(t.Kind)
+	if err != nil {
+		return nil, err
+	}
+	creds, err := p.Vault.Get(ctx, t.SecretPath)
+	if err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	res, err := d.Collect(cctx, drivers.Target{ID: t.ID, Name: t.Name, Kind: t.Kind, Address: t.Address, Options: t.Options}, creds)
+	if err != nil {
+		return nil, err
+	}
+	if len(res.OptionUpdates) > 0 {
+		if err := p.Targets.MergeOptions(ctx, t.ID, res.OptionUpdates); err != nil {
+			return nil, err
+		}
+	}
+	return res.Snapshot, SaveSnapshot(ctx, p.DB, t.ID, res.Snapshot, p.Keep)
+}
+
+// SaveSnapshot stores a snapshot and trims old ones.
+func SaveSnapshot(ctx context.Context, db *sql.DB, targetID int64, s *inventory.Snapshot, keep int) error {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO snapshots (target_id, taken_at, data) VALUES (?,?,?)`,
+		targetID, s.TakenAt.Format(time.RFC3339Nano), string(b)); err != nil {
+		return err
+	}
+	if keep > 0 {
+		_, err = db.ExecContext(ctx, `DELETE FROM snapshots WHERE target_id = ? AND id NOT IN
+			(SELECT id FROM snapshots WHERE target_id = ? ORDER BY id DESC LIMIT ?)`, targetID, targetID, keep)
+	}
+	return err
+}
+
+// LatestSnapshots returns the newest snapshot of every device target.
+func LatestSnapshots(ctx context.Context, db *sql.DB) ([]inventory.Snapshot, error) {
+	rows, err := db.QueryContext(ctx, `SELECT s.data FROM snapshots s
+		JOIN (SELECT target_id, MAX(id) AS id FROM snapshots GROUP BY target_id) m ON m.id = s.id
+		JOIN targets t ON t.id = s.target_id WHERE t.enabled = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []inventory.Snapshot
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var s inventory.Snapshot
+		if err := json.Unmarshal([]byte(raw), &s); err == nil {
+			out = append(out, s)
+		}
+	}
+	return out, rows.Err()
+}

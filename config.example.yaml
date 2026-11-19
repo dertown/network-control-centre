@@ -1,0 +1,25 @@
+# Network Control Centre configuration. Copy to config.yaml and adjust.
+
+listen: ":8443"          # HTTPS; a self-signed certificate is created in data_dir unless tls_cert is set
+data_dir: "./data"       # SQLite database, local vault, generated TLS certificate
+poll: 30s                # how often device targets are polled
+
+# tls_cert: /etc/ncc/tls.crt
+# tls_key: /etc/ncc/tls.key
+# plain_http: true        # only behind a reverse proxy that terminates HTTPS
+# behind_tls_proxy: true  # with plain_http, keeps the Secure flag on cookies
+
+vault:
+  backend: local          # "local" (built-in encrypted vault) or "hashicorp"
+
+  # local: unlock at startup without typing the passphrase in the UI (file must be chmod 600)
+  # passphrase_file: /etc/ncc/vault-passphrase
+  # (or set NCC_VAULT_PASSPHRASE)
+
+  # hashicorp:
+  # address: https://vault.home.lan:8200
+  # mount: secret          # KV v2 mount
+  # prefix: ncc            # secrets live under secret/ncc/...
+  # role_id: "..."         # AppRole (recommended), or token: / NCC_VAULT_TOKEN
+  # secret_id: "..."
+  # ca_cert: /etc/ncc/vault-ca.pem

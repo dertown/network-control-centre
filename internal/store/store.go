@@ -1,0 +1,134 @@
+// Package store owns the NCC SQLite database.
+package store
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	_ "modernc.org/sqlite" // pure-Go SQLite driver
+)
+
+// Store wraps the database handle.
+type Store struct {
+	DB *sql.DB
+}
+
+var migrations = []string{
+	`CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY,
+		username TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		role TEXT NOT NULL,
+		totp_secret TEXT NOT NULL DEFAULT '',
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`CREATE TABLE IF NOT EXISTS sessions (
+		token_hash TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		csrf TEXT NOT NULL,
+		expires_at TIMESTAMP NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS audit_log (
+		id INTEGER PRIMARY KEY,
+		ts TIMESTAMP NOT NULL,
+		actor TEXT NOT NULL,
+		action TEXT NOT NULL,
+		target TEXT NOT NULL,
+		detail TEXT NOT NULL,
+		prev_hash TEXT NOT NULL,
+		hash TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS targets (
+		id INTEGER PRIMARY KEY,
+		kind TEXT NOT NULL,          -- device driver or dns provider kind, e.g. unifi, powerdns
+		category TEXT NOT NULL,      -- device | dns
+		name TEXT NOT NULL UNIQUE,
+		address TEXT NOT NULL,
+		options TEXT NOT NULL DEFAULT '{}',
+		secret_path TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		last_poll TIMESTAMP,
+		last_error TEXT NOT NULL DEFAULT ''
+	)`,
+	`CREATE TABLE IF NOT EXISTS snapshots (
+		id INTEGER PRIMARY KEY,
+		target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+		taken_at TIMESTAMP NOT NULL,
+		data TEXT NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS snapshots_target ON snapshots(target_id, taken_at)`,
+	`CREATE TABLE IF NOT EXISTS local_secrets (
+		path TEXT PRIMARY KEY,
+		version INTEGER NOT NULL,
+		wrapped_key BLOB NOT NULL,
+		nonce BLOB NOT NULL,
+		ciphertext BLOB NOT NULL,
+		updated_at TIMESTAMP NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS vault_meta (
+		k TEXT PRIMARY KEY,
+		v BLOB NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS certificates (
+		id INTEGER PRIMARY KEY,
+		name TEXT NOT NULL UNIQUE,
+		subject TEXT NOT NULL,
+		issuer TEXT NOT NULL,
+		sans TEXT NOT NULL,
+		serial TEXT NOT NULL,
+		not_before TIMESTAMP NOT NULL,
+		not_after TIMESTAMP NOT NULL,
+		fingerprint TEXT NOT NULL,
+		cert_pem TEXT NOT NULL,
+		key_secret_path TEXT NOT NULL DEFAULT '',
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
+}
+
+// Open opens (and migrates) the database in dataDir.
+func Open(dataDir string) (*Store, error) {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return nil, err
+	}
+	return OpenPath(filepath.Join(dataDir, "ncc.db"))
+}
+
+// OpenPath opens a database at an explicit path (":memory:" works for tests).
+func OpenPath(path string) (*Store, error) {
+	dsn := path
+	if path != ":memory:" {
+		dsn = "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+	} else {
+		dsn = "file::memory:?_pragma=foreign_keys(1)"
+	}
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1) // SQLite: one writer; keeps :memory: databases shared too
+	for i, m := range migrations {
+		if _, err := db.Exec(m); err != nil {
+			return nil, fmt.Errorf("migration %d: %w", i, err)
+		}
+	}
+	return &Store{DB: db}, nil
+}
+
+// Close closes the database.
+func (s *Store) Close() error { return s.DB.Close() }
+
+// Tx runs fn in a transaction.
+func (s *Store) Tx(ctx context.Context, fn func(*sql.Tx) error) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}

@@ -1,0 +1,14 @@
+{"meta":{"rc":"ok"},"data":[
+ {"mac":"AA:BB:CC:00:00:01","name":"Dream Router 7","model":"UDR7","type":"udm","ip":"192.168.1.1","version":"4.3.6","serial":"AABBCC000001","state":1,"adopted":true,"uptime":86400,
+  "port_table":[{"port_idx":1,"name":"Port 1","up":true,"speed":1000},{"port_idx":2,"name":"Port 2","up":true,"speed":1000},{"port_idx":3,"name":"Port 3","up":true,"speed":1000,"poe_enable":true,"poe_power":"5.20"},{"port_idx":4,"name":"Port 4","up":true,"speed":1000},{"port_idx":5,"name":"WAN","up":true,"speed":2500,"is_uplink":true}],
+  "lldp_table":[{"chassis_id":"10:20:30:40:50:60","port_id":"g1","port_descr":"gigabitEthernet 1","system_name":"office-sw","chassis_descr":"NETGEAR GS308E ProSAFE Plus Switch","local_port_idx":4,"is_wired":true}]},
+ {"mac":"aa:bb:cc:00:00:02","name":"Lounge AP","model":"UAP6MP","type":"uap","ip":"192.168.1.20","version":"6.6.77","state":1,"uptime":3600,
+  "uplink":{"uplink_mac":"aa:bb:cc:00:00:01","uplink_remote_port":3,"port_idx":1,"type":"wire","speed":1000}},
+ {"mac":"aa:bb:cc:00:00:03","name":"Garage AP","model":"UAP6MP","type":"uap","ip":"192.168.1.21","version":"6.6.77","state":0,
+  "uplink":{"uplink_mac":"aa:bb:cc:00:00:02","type":"wireless","speed":866}},
+ {"mac":"aa:bb:cc:00:00:04","name":"Rack switch","model":"USL16LP","type":"usw","ip":"192.168.1.30","version":"7.1.26","state":1,
+  "port_table":[{"port_idx":1,"name":"Port 1","up":true,"speed":1000,"is_uplink":true},{"port_idx":8,"name":"Port 8","up":true,"speed":1000}],
+  "uplink":{"uplink_mac":"aa:bb:cc:00:00:01","uplink_remote_port":1,"port_idx":1,"type":"wire","speed":1000}},
+ {"mac":"aa:bb:cc:00:00:05","name":"Mystery switch","model":"USZZ99","type":"usw","ip":"192.168.1.31","state":1,
+  "uplink":{"uplink_mac":"aa:bb:cc:00:00:04","uplink_remote_port":8,"port_idx":1,"type":"wire","speed":1000}}
+]}
