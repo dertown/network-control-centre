@@ -16,6 +16,7 @@ This first release (the MVP) covers:
   3. When several wired clients share one UniFi switch port, NCC adds an **inferred unmanaged
      switch** on that port, so dumb switches still appear on the map.
 - **Topology map** built from uplinks, LLDP and client tables, with live updates.
+- **VLANs and firewall zones on the map**: networks, port VLAN profiles (untagged and tagged), Wi-Fi to VLAN mapping and zone-based firewall zones (Internal, Guest, DMZ, custom) from UniFi. Clients are coloured by VLAN, DMZ hosts are ringed in red, "Group by VLAN" boxes each network, and clicking a network highlights the links that carry it. Consoles without zone-based firewall get zones guessed from network purpose and name.
 - **PowerDNS**: browse zones and records; add, edit and delete records with a preview step;
   matching **PTR records are created and removed automatically** in your reverse zone.
 - **Vault**: a built-in encrypted vault (AES-256-GCM envelope encryption, Argon2id-derived
