@@ -91,12 +91,64 @@ Then **Settings → Add PowerDNS server** with `http://<pdns host>:8081` and the
 automatic PTR records, create the reverse zone (for example `1.168.192.in-addr.arpa.`) on the
 same server.
 
+### Traffic: top clients, traffic types and sites
+
+The **Traffic** page ranks clients by how much data they moved (last hour, 24 hours, 7 days, or
+since each client connected), shows live download and upload rates, and breaks traffic down by
+type. It uses three sources, each optional beyond the first:
+
+1. **Per-client totals and live rates** come from the UniFi console you already added. Nothing
+   to set up. NCC samples the counters every 5 minutes, so the hour/day/week totals fill in
+   after it has been running for a while.
+2. **Traffic types** (streaming, gaming, social networks, file transfer, VoIP and so on) come from
+   the gateway's deep packet inspection. In UniFi Network turn on **Settings → Traffic & Security
+   → Traffic Identification**. The UniFi API reports these as category numbers; NCC names the
+   categories, and applications show as "category (app N)" because the API does not send names.
+3. **Sites each client looks up** (for example YouTube, Netflix, instagram.com) come from DNS
+   query logs. HTTPS hides what is on a page, so this is as close to "what they are viewing" as
+   the network can see. It needs a PowerDNS **Recursor** or **dnsdist** that your clients use
+   as their resolver (the Authoritative server alone cannot log client lookups). Turn on NCC's
+   receiver in `config.yaml`:
+
+   ```yaml
+   dns_log:
+     listen: ":4242"
+     allow: ["192.168.1.70"]   # the resolver's address; other senders are refused
+   ```
+
+   then point the resolver at it. PowerDNS Recursor 5 (`recursor.yml`):
+
+   ```yaml
+   logging:
+     protobuf_servers:
+       - servers: ["<NCC host>:4242"]
+         logQueries: true
+         logResponses: false
+   ```
+
+   (older Recursors: `protobufServer("<NCC host>:4242", {logQueries=true, logResponses=false})`
+   in the Lua config file). dnsdist:
+
+   ```lua
+   rl = newRemoteLogger("<NCC host>:4242")
+   addAction(AllRule(), RemoteLogAction(rl))
+   ```
+
+   NCC keeps hourly counts per client address and site for 7 days (`dns_log.retain`), not
+   individual queries. Lookups are matched to clients by IP address. If your clients use the
+   router as their DNS server and the router forwards to PowerDNS, every lookup looks like it
+   came from the router; hand out the resolver's address in DHCP instead. The receiver is plain
+   TCP with no authentication, so keep `allow` set and the port off the internet.
+
 ## Try it without touching your network
 
 ```sh
 go run ./cmd/ncc-mock      # pretend UniFi console on :9443 and PowerDNS on :9081
 ./bin/ncc -config config.example.yaml
 ```
+
+To fill the Traffic page's site lists too, uncomment `dns_log` in the config and run
+`go run ./cmd/ncc-mock -dnslog localhost:4242`.
 
 Add a UniFi console at `https://localhost:9443` (user `ncc`, password `demo-password`) and a
 PowerDNS server at `http://localhost:9081` (API key `demo-pdns-key`).
@@ -122,6 +174,7 @@ internal/audit/          hash-chained audit log
 internal/core/           targets, poller, snapshots, topology graph
 internal/drivers/        device driver interface; unifi/
 internal/dns/            DNS provider interface; powerdns/
+internal/dnslog/         PowerDNS Recursor / dnsdist protobuf query-log receiver
 internal/vault/          secret store interface; local and HashiCorp backends
 internal/pki/            certificate inventory
 internal/mocklab/        recorded UniFi data and an in-memory PowerDNS, used by tests and the demo

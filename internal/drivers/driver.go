@@ -25,6 +25,8 @@ type Result struct {
 	Snapshot *inventory.Snapshot
 	// OptionUpdates are persisted back into the target, e.g. a TLS fingerprint pinned on first use.
 	OptionUpdates map[string]string
+	// Traffic is per-client traffic, when the driver can report it.
+	Traffic *inventory.TrafficReport
 }
 
 // Driver collects inventory from one kind of target. Read-only in the MVP.

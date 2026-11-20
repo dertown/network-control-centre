@@ -4,6 +4,7 @@ services:
     restart: unless-stopped
     ports:
       - "8443:8443"
+      - "4242:4242" # DNS query logs (only used when dns_log is configured)
     volumes:
       - ncc-data:/data
       - ./config.yaml:/etc/ncc/config.yaml:ro

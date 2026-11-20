@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/auth"
 	"github.com/dertown/network-control-centre/internal/config"
 	"github.com/dertown/network-control-centre/internal/core"
+	"github.com/dertown/network-control-centre/internal/dnslog"
 	"github.com/dertown/network-control-centre/internal/pki"
 	"github.com/dertown/network-control-centre/internal/store"
 	"github.com/dertown/network-control-centre/internal/vault"
@@ -99,11 +101,27 @@ func run(log *slog.Logger, cfgPath string) error {
 
 	hub := core.NewHub()
 	targets := &core.Targets{DB: st.DB}
-	poller := &core.Poller{DB: st.DB, Targets: targets, Vault: vs, Hub: hub, Interval: cfg.Poll, Log: log}
+	traffic := &core.Traffic{DB: st.DB}
+	poller := &core.Poller{DB: st.DB, Targets: targets, Vault: vs, Hub: hub, Interval: cfg.Poll, Log: log, Traffic: traffic}
+	var dnsLog *dnslog.Collector
+	if cfg.DNSLog.Listen != "" {
+		allow, err := parseAllow(cfg.DNSLog.Allow)
+		if err != nil {
+			return err
+		}
+		dnsLog = &dnslog.Collector{DB: st.DB, Allow: allow, Retain: cfg.DNSLog.Retain, Log: log}
+		go func() {
+			if err := dnsLog.Serve(ctx, cfg.DNSLog.Listen); err != nil {
+				log.Error("dns log receiver stopped", "err", err)
+			}
+		}()
+		log.Info("DNS query log receiver listening", "addr", cfg.DNSLog.Listen, "allow", cfg.DNSLog.Allow)
+	}
 	authSvc := auth.New(st.DB)
 	srv := &api.Server{
 		Store: st, Auth: authSvc, Audit: audit.New(st.DB), Vault: vs, Targets: targets,
 		Poller: poller, Hub: hub, Certs: &pki.Inventory{DB: st.DB, Vault: vs},
+		Traffic: traffic, DNSLog: dnsLog,
 		UI: web.UI(), Log: log, SecureCookies: !cfg.PlainHTTP || cfg.BehindTLSProxy,
 	}
 
@@ -149,4 +167,22 @@ func run(log *slog.Logger, cfgPath string) error {
 		return nil
 	}
 	return err
+}
+
+// parseAllow reads dns_log.allow: plain addresses or CIDR prefixes.
+func parseAllow(in []string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if p, err := netip.ParsePrefix(s); err == nil {
+			out = append(out, p.Masked())
+			continue
+		}
+		a, err := netip.ParseAddr(s)
+		if err != nil {
+			return nil, fmt.Errorf("dns_log.allow: %q is not an address or CIDR", s)
+		}
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	return out, nil
 }

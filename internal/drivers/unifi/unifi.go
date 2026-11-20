@@ -263,6 +263,16 @@ type rawClient struct {
 	Network  string `json:"network"`
 	VLAN     int    `json:"vlan"`
 	ESSID    string `json:"essid"`
+	Uptime   int64  `json:"uptime"`
+
+	RxBytes      int64     `json:"rx_bytes"`
+	TxBytes      int64     `json:"tx_bytes"`
+	WiredRxBytes int64     `json:"wired-rx_bytes"`
+	WiredTxBytes int64     `json:"wired-tx_bytes"`
+	RxRate       flexFloat `json:"rx_bytes-r"`
+	TxRate       flexFloat `json:"tx_bytes-r"`
+	WiredRxRate  flexFloat `json:"wired-rx_bytes-r"`
+	WiredTxRate  flexFloat `json:"wired-tx_bytes-r"`
 }
 
 func firstNonEmpty(s ...string) string {
@@ -384,5 +394,6 @@ func (d Driver) collectWith(ctx context.Context, c *client, t drivers.Target) (*
 		return nil, err
 	}
 	snap := Build(t.Name, devs, clients, time.Now().UTC())
-	return &drivers.Result{Snapshot: snap, OptionUpdates: c.optionUpdates(t)}, nil
+	traffic := collectTraffic(ctx, c, t.Name, clients)
+	return &drivers.Result{Snapshot: snap, OptionUpdates: c.optionUpdates(t), Traffic: traffic}, nil
 }

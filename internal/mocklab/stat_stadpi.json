@@ -1,0 +1,17 @@
+{"meta":{"rc":"ok"},"data":[
+ {"mac":"de:ad:00:00:00:03","by_app":[
+  {"app":12,"cat":4,"tx_bytes":25769803776,"rx_bytes":429496729},
+  {"app":5,"cat":13,"tx_bytes":1073741824,"rx_bytes":107374182},
+  {"app":7,"cat":14,"tx_bytes":2147483648,"rx_bytes":10485760}]},
+ {"mac":"de:ad:00:00:00:04","by_app":[
+  {"app":3,"cat":24,"tx_bytes":2147483648,"rx_bytes":268435456},
+  {"app":1,"cat":0,"tx_bytes":209715200,"rx_bytes":104857600},
+  {"app":12,"cat":4,"tx_bytes":1610612736,"rx_bytes":52428800}]},
+ {"mac":"de:ad:00:00:00:05","by_app":[
+  {"app":2,"cat":8,"tx_bytes":6442450944,"rx_bytes":858993459},
+  {"app":5,"cat":13,"tx_bytes":1610612736,"rx_bytes":214748364},
+  {"app":9,"cat":6,"tx_bytes":322122547,"rx_bytes":322122547}]},
+ {"mac":"de:ad:00:00:00:01","by_app":[
+  {"app":4,"cat":3,"tx_bytes":1073741824,"rx_bytes":16106127360},
+  {"app":7,"cat":14,"tx_bytes":536870912,"rx_bytes":10485760}]}
+]}

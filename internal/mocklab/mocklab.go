@@ -24,6 +24,16 @@ var StatDevice []byte
 //go:embed stat_sta.json
 var StatSta []byte
 
+// StatStaDPI is a recorded UniFi stat/stadpi (per-client DPI, by application) response.
+//
+//go:embed stat_stadpi.json
+var StatStaDPI []byte
+
+// StatSiteDPI is a recorded UniFi stat/sitedpi (site DPI, by category) response.
+//
+//go:embed stat_sitedpi.json
+var StatSiteDPI []byte
+
 // UniFi returns a handler that behaves like a UniFi OS console for the read-only API NCC uses.
 // It accepts username "ncc" with password "demo-password", or API key "demo-key".
 func UniFi() http.Handler {
@@ -59,6 +69,8 @@ func UniFi() http.Handler {
 	}
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/device", serve(StatDevice))
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/sta", serve(StatSta))
+	mux.HandleFunc("POST /proxy/network/api/s/default/stat/stadpi", serve(StatStaDPI))
+	mux.HandleFunc("POST /proxy/network/api/s/default/stat/sitedpi", serve(StatSiteDPI))
 	return mux
 }
 

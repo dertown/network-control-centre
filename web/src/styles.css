@@ -147,3 +147,18 @@ dl.kv dd { margin: 0; }
   .topo { flex-direction: column; }
   .topo-side { width: 100%; }
 }
+
+/* Traffic page */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.seg button { background: var(--surface); color: var(--ink); border: 0; border-radius: 0; padding: 6px 12px; margin: 0; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; align-items: start; }
+.bar { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; min-width: 60px; flex: 1; }
+.bar span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+td.barcell { width: 40%; }
+.barwrap { display: flex; align-items: center; gap: 8px; min-width: 180px; }
+.barwrap .small { white-space: nowrap; min-width: 56px; text-align: right; }
+th.num, td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+table.compact td { padding-top: 5px; padding-bottom: 5px; }
+.tile-value.small-value { font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

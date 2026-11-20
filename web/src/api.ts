@@ -56,3 +56,15 @@ export interface Cert {
   status: "ok" | "expiring" | "critical" | "expired"; chain_length: number;
 }
 export interface AuditEntry { id: number; ts: string; actor: string; action: string; target: string; detail: string }
+export interface AppUsage { cat: number; app: number; category: string; name: string; down_bytes: number; up_bytes: number }
+export interface SiteCount { site: string; service?: string; count: number }
+export interface TrafficClient {
+  mac: string; name: string; ip?: string; vendor?: string; wired: boolean; network?: string; ssid?: string;
+  down_bytes: number; up_bytes: number; down_rate: number; up_rate: number; uptime_s?: number;
+  apps?: AppUsage[]; online: boolean; window_down: number; window_up: number; sites?: SiteCount[];
+}
+export interface DNSLogStatus { enabled: boolean; listen?: string; received: number; last_message?: string; senders?: string[] }
+export interface TrafficView {
+  window: string; taken_at?: string; dpi: boolean; dpi_notes?: string[]; categories: AppUsage[];
+  clients: TrafficClient[]; sites: SiteCount[]; unmatched_sources?: string[]; dns_log: DNSLogStatus;
+}
