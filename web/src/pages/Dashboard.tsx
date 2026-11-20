@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, Cert, Client, Device, Target, TrafficView } from "../api";
+import { api, Cert, Client, Device, Loop, Target, TrafficView } from "../api";
+import { LoopList } from "../loops";
 import { ago, kindLabel } from "../live";
 import { Icon, IconName, kindIcon } from "../icons";
 import { Donut, Meter, Sparkline } from "../charts";
@@ -12,6 +13,7 @@ export function Dashboard({ tick }: { tick: number }) {
   const [targets, setTargets] = useState<Target[]>([]);
   const [certs, setCerts] = useState<Cert[]>([]);
   const [traffic, setTraffic] = useState<TrafficView | null>(null);
+  const [loops, setLoops] = useState<Loop[]>([]);
   const [hist, setHist] = useState({ clients: recent("clients"), down: recent("down"), up: recent("up") });
 
   useEffect(() => {
@@ -22,6 +24,7 @@ export function Dashboard({ tick }: { tick: number }) {
     }).catch(() => {});
     api<Target[]>("GET", "/api/targets").then(setTargets).catch(() => {});
     api<Cert[]>("GET", "/api/certs").then(setCerts).catch(() => {});
+    api<Loop[]>("GET", "/api/loops").then(setLoops).catch(() => {});
     api<TrafficView>("GET", "/api/traffic?window=session").then((t) => {
       setTraffic(t);
       const online = t.clients.filter((c) => c.online);
@@ -64,6 +67,18 @@ export function Dashboard({ tick }: { tick: number }) {
             ? `${offline.length} of ${infra.length} managed devices are offline. Everything else is reporting normally.`
             : `All ${infra.length} managed devices are online and reporting.`}
       </p>
+
+      {loops.length > 0 && (() => {
+        const critical = loops.filter((l) => l.severity === "critical");
+        return (
+          <div className={`banner ${critical.length ? "bad" : "warn"}`} role="alert">
+            <Icon name="alert" size={16} />
+            <strong>{loops.length} switching loop{loops.length === 1 ? "" : "s"}</strong>
+            <span>{(critical[0] ?? loops[0]).summary}{loops.length > 1 ? ` (and ${loops.length - 1} more)` : ""}</span>
+            <a href="#/topology">See ports on the map →</a>
+          </div>
+        );
+      })()}
 
       <div className="tiles">
         <Tile label="Devices online" icon="devices" tone={health} href="#/devices"
@@ -203,6 +218,16 @@ export function Dashboard({ tick }: { tick: number }) {
               </ul>
             )}
           </section>
+
+          {loops.length > 0 && (
+            <section className="card">
+              <div className="card-head">
+                <h2><Icon name="alert" size={16} /> Switching loops</h2>
+                <a href="#/topology">Map →</a>
+              </div>
+              <LoopList compact loops={loops} />
+            </section>
+          )}
 
           {offline.length > 0 && (
             <section className="card">

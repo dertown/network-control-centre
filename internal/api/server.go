@@ -103,6 +103,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/devices", v(s.listDevices))
 	mux.Handle("GET /api/clients", v(s.listClients))
 	mux.Handle("GET /api/topology", v(s.topology))
+	mux.Handle("GET /api/loops", v(s.loops))
 	mux.Handle("GET /api/traffic", v(s.traffic))
 
 	mux.Handle("GET /api/dns/{server}/zones", v(s.dnsZones))

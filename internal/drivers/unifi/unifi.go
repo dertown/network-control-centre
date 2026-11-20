@@ -239,6 +239,11 @@ type rawPort struct {
 	PoEEnable bool      `json:"poe_enable"`
 	PoEPower  flexFloat `json:"poe_power"`
 	IsUplink  bool      `json:"is_uplink"`
+	StpState  string    `json:"stp_state"` // forwarding | blocking | discarding | disabled ...
+	// AggregatedBy is the port index of the link aggregation (LAG) this port belongs to,
+	// false or 0 when it is not aggregated.
+	AggregatedBy flexInt `json:"aggregated_by"`
+	OpMode       string  `json:"op_mode"` // switch | mirror | aggregate
 
 	PortconfID      string   `json:"portconf_id"`
 	NativeNetworkID string   `json:"native_networkconf_id"`
@@ -494,7 +499,9 @@ func (d Driver) collectWith(ctx context.Context, c *client, t drivers.Target) (*
 		return nil, err
 	}
 	cfg := collectSiteConfig(ctx, c)
-	snap := Build(t.Name, devs, clients, cfg, time.Now().UTC())
+	now := time.Now().UTC()
+	snap := Build(t.Name, devs, clients, cfg, now)
+	snap.Loops = DetectLoops(t.Name, devs, collectEvents(ctx, c), snap, now)
 	traffic := collectTraffic(ctx, c, t.Name, clients)
 	return &drivers.Result{Snapshot: snap, OptionUpdates: c.optionUpdates(t), Traffic: traffic}, nil
 }

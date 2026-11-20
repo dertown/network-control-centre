@@ -50,14 +50,21 @@ export interface NodePort { name: string; up: boolean; uplink?: boolean; profile
 export interface GNode {
   id: string; label: string; kind: string; make?: string; model?: string; ip?: string; online: boolean; discovery?: string;
   clients?: number; parent?: string; network?: string; vlan?: number; zone?: string; ssid?: string; ports?: NodePort[];
+  loops?: string[];
 }
-export interface GEdge { id: string; source: string; target: string; label?: string; medium: string; speed_mbps?: number; origin: string; networks?: string[] }
+export interface GEdge { id: string; source: string; target: string; label?: string; medium: string; speed_mbps?: number; origin: string; networks?: string[]; loops?: string[] }
 export interface GNetwork {
   id: string; name: string; purpose?: string; vlan?: number; subnet?: string; zone?: string; zone_name?: string;
   zone_source?: "firewall" | "inferred"; isolated?: boolean; internet_access: boolean; ssids?: string[]; target: string;
   clients: number; devices: number;
 }
-export interface Graph { nodes: GNode[]; edges: GEdge[]; networks?: GNetwork[] }
+export interface Graph { nodes: GNode[]; edges: GEdge[]; networks?: GNetwork[]; loops?: Loop[] }
+export interface LoopPort { device: string; device_name: string; port?: number; port_name?: string; stp?: string }
+export interface LoopLink { a: string; a_port?: string; b: string; b_port?: string }
+export interface Loop {
+  id: string; severity: "critical" | "warning"; kind: "self" | "parallel" | "cycle" | "stp" | "event";
+  summary: string; detail?: string; ports: LoopPort[]; links?: LoopLink[]; count?: number; seen_at?: string; target: string;
+}
 export interface Zone { name: string; kind?: string; serial?: number }
 export interface RRSet { name: string; type: string; ttl: number; records: string[] }
 export interface Change { op: "REPLACE" | "DELETE"; rrset: RRSet }

@@ -407,3 +407,20 @@ table.compact td { padding-top: 7px; padding-bottom: 7px; }
 .vlan-ports { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
 .vlan-ports th, .vlan-ports td { text-align: left; vertical-align: top; padding: 3px 4px; border-bottom: 1px solid var(--line); }
 .vlan-list { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 4px; }
+
+/* Switching loops */
+.loop-card { border-left: 3px solid var(--warn); }
+.loop-card.bad { border-left-color: var(--bad); }
+.loop-card h2 { margin-bottom: 2px; }
+.loop-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 8px; }
+.loop-item { padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface); display: grid; gap: 6px; }
+.loop-item.bad { background: var(--bad-bg); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+.loop-item.warn { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.loop-item.on { box-shadow: 0 0 0 2px var(--accent) inset; }
+.loop-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.loop-summary { flex: 1 1 220px; min-width: 0; font-size: 13.5px; }
+.loop-ports { display: flex; flex-wrap: wrap; gap: 6px; }
+.loop-port { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-size: 12px; }
+.loop-detail { margin: 0; }
+.banner.bad { background: var(--bad-bg); color: var(--ink); border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); }
+.banner a { margin-left: auto; }

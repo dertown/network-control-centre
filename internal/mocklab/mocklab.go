@@ -7,8 +7,10 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	_ "embed"
 )
@@ -61,7 +63,65 @@ var TrafficV2 []byte
 
 // UniFi returns a handler that behaves like a UniFi OS console for the read-only API NCC uses.
 // It accepts username "ncc" with password "demo-password", or API key "demo-key".
-func UniFi() http.Handler {
+func UniFi() http.Handler { return unifi(false) }
+
+// UniFiWithLoops is UniFi with two switching loops cabled in: Rack switch ports 14 and 15
+// are patched to each other (nothing blocks it), and a second cable from Dream Router port 2
+// to Mystery switch port 2 closes a ring that spanning tree is holding shut. The event log
+// has the matching loop-protection event.
+func UniFiWithLoops() http.Handler { return unifi(true) }
+
+// LoopDevices returns StatDevice with the loops of UniFiWithLoops cabled in.
+func LoopDevices() []byte {
+	var env struct {
+		Meta any              `json:"meta"`
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(StatDevice, &env); err != nil {
+		panic(err)
+	}
+	port := func(idx int, stp string) map[string]any {
+		return map[string]any{"port_idx": idx, "name": "Port " + itoa(idx), "up": true, "speed": 1000, "stp_state": stp}
+	}
+	lldp := func(local int, chassis, portID string) map[string]any {
+		return map[string]any{"chassis_id": chassis, "port_id": portID, "local_port_idx": local, "is_wired": true}
+	}
+	add := func(d map[string]any, key string, v ...map[string]any) {
+		list, _ := d[key].([]any)
+		for _, x := range v {
+			list = append(list, x)
+		}
+		d[key] = list
+	}
+	for _, d := range env.Data {
+		switch strings.ToLower(d["mac"].(string)) {
+		case "aa:bb:cc:00:00:01": // Dream Router 7: port 2 cabled to Mystery switch port 2
+			add(d, "lldp_table", lldp(2, "aa:bb:cc:00:00:05", "Port 2"))
+		case "aa:bb:cc:00:00:04": // Rack switch: port 14 patched into port 15
+			add(d, "port_table", port(14, "forwarding"), port(15, "forwarding"))
+			add(d, "lldp_table", lldp(14, "aa:bb:cc:00:00:04", "Port 15"), lldp(15, "aa:bb:cc:00:00:04", "Port 14"))
+		case "aa:bb:cc:00:00:05": // Mystery switch: STP blocks the extra cable on port 2
+			add(d, "port_table", port(1, "forwarding"), port(2, "blocking"))
+			add(d, "lldp_table", lldp(2, "aa:bb:cc:00:00:01", "eth2"))
+		}
+	}
+	b, err := json.Marshal(env)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func itoa(i int) string { b, _ := json.Marshal(i); return string(b) }
+
+// loopEvents is a stat/event response with a loop-protection event on Rack switch port 14.
+func loopEvents() []byte {
+	ms := time.Now().Add(-10 * time.Minute).UnixMilli()
+	return []byte(`{"meta":{"rc":"ok"},"data":[{"key":"EVT_SW_DetectedLoop","sw":"aa:bb:cc:00:00:04","sw_name":"Rack switch",` +
+		`"port":14,"time":` + strconv.FormatInt(ms, 10) + `,"msg":"Switch[Rack switch] detected a network loop on port 14 and disabled it"}]}`)
+}
+
+func unifi(loops bool) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]any
@@ -93,7 +153,19 @@ func UniFi() http.Handler {
 		}
 	}
 	mux.HandleFunc("GET /proxy/network/api/self/sites", serve([]byte(`{"meta":{"rc":"ok"},"data":[{"name":"default","desc":"Home"}]}`)))
-	mux.HandleFunc("GET /proxy/network/api/s/default/stat/device", serve(StatDevice))
+	devices, events := StatDevice, []byte(`{"meta":{"rc":"ok"},"data":[]}`)
+	if loops {
+		devices = LoopDevices()
+	}
+	mux.HandleFunc("GET /proxy/network/api/s/default/stat/device", serve(devices))
+	mux.HandleFunc("GET /proxy/network/api/s/default/stat/alarm", serve([]byte(`{"meta":{"rc":"ok"},"data":[]}`)))
+	mux.HandleFunc("GET /proxy/network/api/s/default/stat/event", func(w http.ResponseWriter, r *http.Request) {
+		if loops {
+			serve(loopEvents())(w, r)
+			return
+		}
+		serve(events)(w, r)
+	})
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/sta", serve(StatSta))
 	// Like a Network 9+ console: application data comes from the v2 traffic API and the
 	// legacy DPI calls answer "ok" with no rows.

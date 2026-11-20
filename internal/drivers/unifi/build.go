@@ -91,6 +91,7 @@ func Build(target string, devs []rawDevice, clients []rawClient, cfg *siteConfig
 			port := inv.Port{
 				Index: p.PortIdx, Name: p.Name, Up: p.Up, SpeedMbps: p.Speed,
 				PoE: p.PoEEnable, PoEWatts: float64(p.PoEPower), Uplink: p.IsUplink,
+				STP: strings.ToLower(p.StpState),
 			}
 			// a gateway's uplink port is its WAN, not a switched LAN port
 			if !(isGateway && p.IsUplink) {

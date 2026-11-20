@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/dertown/network-control-centre/internal/inventory"
@@ -25,6 +26,8 @@ type Node struct {
 	Zone    string     `json:"zone,omitempty"`
 	SSID    string     `json:"ssid,omitempty"`
 	Ports   []NodePort `json:"ports,omitempty"`
+	// Loops lists the ids of the loops this device has a port in.
+	Loops []string `json:"loops,omitempty"`
 }
 
 // NodePort is a switch or router port's VLAN setup, for ports with VLAN detail.
@@ -55,6 +58,8 @@ type Edge struct {
 	Origin    string `json:"origin"`
 	// Networks carried on the link, by network id.
 	Networks []string `json:"networks,omitempty"`
+	// Loops lists the ids of the loops this link is part of.
+	Loops []string `json:"loops,omitempty"`
 }
 
 // Graph is the whole map.
@@ -63,11 +68,13 @@ type Graph struct {
 	Edges []Edge `json:"edges"`
 	// Networks are the VLANs and firewall zones the targets reported.
 	Networks []GNetwork `json:"networks"`
+	// Loops are the switching loops found, worst first.
+	Loops []inventory.Loop `json:"loops"`
 }
 
 // BuildGraph merges snapshots into one graph. Clients are included when withClients is set.
 func BuildGraph(snaps []inventory.Snapshot, withClients bool) Graph {
-	g := Graph{Nodes: []Node{}, Edges: []Edge{}, Networks: []GNetwork{}}
+	g := Graph{Nodes: []Node{}, Edges: []Edge{}, Networks: []GNetwork{}, Loops: Loops(snaps)}
 	nets := map[string]int{} // network id -> index in g.Networks
 	for _, s := range snaps {
 		for _, n := range s.Networks {
@@ -148,6 +155,7 @@ func BuildGraph(snaps []inventory.Snapshot, withClients bool) Graph {
 				Networks: l.Networks})
 		}
 	}
+	markLoops(&g, seen, edgeSeen)
 	if withClients {
 		for _, s := range snaps {
 			for _, c := range s.Clients {
@@ -189,5 +197,80 @@ func rank(kind string) int {
 		return 3
 	default:
 		return 4
+	}
+}
+
+// Loops returns every target's loops, critical first.
+func Loops(snaps []inventory.Snapshot) []inventory.Loop {
+	out := []inventory.Loop{}
+	for _, s := range snaps {
+		out = append(out, s.Loops...)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Severity == inventory.LoopCritical && out[j].Severity != inventory.LoopCritical
+	})
+	return out
+}
+
+// markLoops tags the devices and links of each loop. A loop's first cable between two
+// devices is the link already on the map; further cables between the same pair, and a
+// cable from a device back to itself, are added as extra links so every cable shows.
+func markLoops(g *Graph, seen, edgeSeen map[string]bool) {
+	nodeAt := map[string]int{}
+	for i, n := range g.Nodes {
+		nodeAt[n.ID] = i
+	}
+	edgeAt := map[string]int{}
+	for i, e := range g.Edges {
+		a, b := e.Source, e.Target
+		if a > b {
+			a, b = b, a
+		}
+		edgeAt[a+"|"+b] = i
+	}
+	tag := func(list []string, id string) []string {
+		for _, x := range list {
+			if x == id {
+				return list
+			}
+		}
+		return append(list, id)
+	}
+	for _, l := range g.Loops {
+		for _, p := range l.Ports {
+			if i, ok := nodeAt[p.Device]; ok {
+				g.Nodes[i].Loops = tag(g.Nodes[i].Loops, l.ID)
+			}
+		}
+		used := map[string]bool{}
+		for k, ln := range l.Links {
+			if !seen[ln.A] || !seen[ln.B] {
+				continue
+			}
+			a, b := ln.A, ln.B
+			if a > b {
+				a, b = b, a
+			}
+			pair := a + "|" + b
+			label := ln.APort
+			if ln.BPort != "" {
+				if label != "" {
+					label += " ↔ "
+				}
+				label += ln.BPort
+			}
+			if i, ok := edgeAt[pair]; ok && a != b && !used[pair] {
+				used[pair] = true
+				g.Edges[i].Loops = tag(g.Edges[i].Loops, l.ID)
+				continue
+			}
+			used[pair] = true
+			id := fmt.Sprintf("loop-%s-%d", l.ID, k)
+			if edgeSeen[id] {
+				continue
+			}
+			edgeSeen[id] = true
+			g.Edges = append(g.Edges, Edge{ID: id, Source: ln.A, Target: ln.B, Label: label, Medium: "wired", Origin: "loop", Loops: []string{l.ID}})
+		}
 	}
 }

@@ -45,3 +45,42 @@ func TestBuildGraphNetworks(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildGraphMarksLoops(t *testing.T) {
+	s := inventory.Snapshot{
+		Devices: []inventory.Device{{ID: "a", Name: "A"}, {ID: "b", Name: "B"}, {ID: "c", Name: "C"}},
+		Links:   []inventory.Link{{A: "a", B: "b", APort: "Port 1", BPort: "Port 1", Source: "uplink"}},
+		Loops: []inventory.Loop{
+			{ID: "l1", Severity: inventory.LoopWarning, Kind: inventory.LoopParallel,
+				Ports: []inventory.LoopPort{{Device: "a", Port: 1}, {Device: "a", Port: 2}, {Device: "b", Port: 1}},
+				Links: []inventory.Link{{A: "a", APort: "Port 1", B: "b", BPort: "Port 1"}, {A: "a", APort: "Port 2", B: "b"}}},
+			{ID: "l2", Severity: inventory.LoopCritical, Kind: inventory.LoopSelf,
+				Ports: []inventory.LoopPort{{Device: "c", Port: 5}, {Device: "c", Port: 6}},
+				Links: []inventory.Link{{A: "c", APort: "Port 5", B: "c", BPort: "Port 6"}}},
+		},
+	}
+	g := BuildGraph([]inventory.Snapshot{s}, false)
+	if len(g.Loops) != 2 || g.Loops[0].ID != "l2" {
+		t.Fatalf("loops not sorted critical first: %+v", g.Loops)
+	}
+	if len(g.Edges) != 3 {
+		t.Fatalf("want the uplink plus 2 loop edges, got %+v", g.Edges)
+	}
+	if len(g.Edges[0].Loops) != 1 || g.Edges[0].Loops[0] != "l1" {
+		t.Errorf("existing link not tagged: %+v", g.Edges[0])
+	}
+	var self *Edge
+	for i := range g.Edges {
+		if g.Edges[i].Source == "c" && g.Edges[i].Target == "c" {
+			self = &g.Edges[i]
+		}
+	}
+	if self == nil || self.Origin != "loop" || self.Label != "Port 5 ↔ Port 6" {
+		t.Errorf("self loop edge: %+v", self)
+	}
+	for _, n := range g.Nodes {
+		if len(n.Loops) != 1 {
+			t.Errorf("node %s loops %v", n.ID, n.Loops)
+		}
+	}
+}

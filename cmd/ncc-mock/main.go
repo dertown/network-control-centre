@@ -6,6 +6,8 @@
 // UniFi console:  https://localhost:9443   user "ncc", password "demo-password" (or API key "demo-key")
 // PowerDNS API:   http://localhost:9081    API key "demo-pdns-key"
 //
+// With -loops the pretend network has two switching loops cabled in, for loop detection.
+//
 // With -dnslog localhost:4242 it also plays a PowerDNS Recursor streaming query logs to
 // NCC's dns_log receiver, so the Traffic page shows sites per client.
 package main
@@ -28,11 +30,17 @@ import (
 
 func main() {
 	dnsTo := flag.String("dnslog", "", "send pretend DNS query logs to this NCC dns_log address, e.g. localhost:4242")
+	loops := flag.Bool("loops", false, "cable two switching loops into the pretend network, to try loop detection")
 	flag.Parse()
 	if *dnsTo != "" {
 		go sendDNS(*dnsTo)
 	}
-	unifi := httptest.NewUnstartedServer(mocklab.UniFi())
+	handler := mocklab.UniFi()
+	if *loops {
+		handler = mocklab.UniFiWithLoops()
+		log.Printf("pretend network has switching loops (-loops)")
+	}
+	unifi := httptest.NewUnstartedServer(handler)
 	l, err := netListen(":9443")
 	if err != nil {
 		log.Fatal(err)

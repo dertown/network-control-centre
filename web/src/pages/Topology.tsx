@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, { Core } from "cytoscape";
-import { api, Graph, GEdge, GNetwork, GNode } from "../api";
+import { api, Graph, GEdge, GNetwork, GNode, Loop } from "../api";
+import { LoopList, worstLoop } from "../loops";
 import { discoveryLabel, kindLabel } from "../live";
 import { topoStyle } from "../topoStyle";
 import { groupID, groupNodes, networkColors, trunkLabel, vlanText, zonePill, zoneText } from "./topoVlan";
@@ -34,6 +35,7 @@ export function Topology({ tick }: { tick: number }) {
   const [focus, setFocus] = useState<string | null>(null);
   const [graph, setGraph] = useState<Graph | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
+  const [loopFocus, setLoopFocus] = useState<string | null>(null);
   const lastMode = useRef(grouped);
   const showClients = withClients || grouped;
 
@@ -44,6 +46,8 @@ export function Topology({ tick }: { tick: number }) {
   const nets = useMemo(() => new Map((graph?.networks ?? []).map((n) => [n.id, n])), [graph]);
   const colors = useMemo(() => networkColors(graph?.networks, cssVar("--muted")), [graph]);
   const lanNets = (graph?.networks ?? []).filter((n) => n.purpose !== "wan");
+  const loops = graph?.loops ?? [];
+  const loopsByID = useMemo(() => new Map((graph?.loops ?? []).map((l) => [l.id, l])), [graph]);
 
   useEffect(() => {
     if (!ref.current || !graph) return;
@@ -66,10 +70,14 @@ export function Topology({ tick }: { tick: number }) {
             ...n, netColor: n.network ? colors.get(n.network) : undefined,
             parent: grouped && n.kind === "client" && n.network && boxed.has(n.network) ? groupID(n.network) : undefined,
             display: n.kind === "client" || !n.model || n.model === n.label ? n.label : `${n.label}\n${n.model}`,
+            loopSev: worstLoop(n.loops, loopsByID),
           },
         })),
         ...graph.edges.map((e) => ({
-          data: { ...e, label: trunkLabel(e), netColor: e.origin === "client" && e.networks?.length === 1 ? colors.get(e.networks[0]) : undefined },
+          data: {
+            ...e, label: e.origin === "loop" ? e.label : trunkLabel(e), loopSev: worstLoop(e.loops, loopsByID),
+            netColor: e.origin === "client" && e.networks?.length === 1 ? colors.get(e.networks[0]) : undefined,
+          },
         })),
       ],
       style: topoStyle(),
@@ -89,7 +97,24 @@ export function Topology({ tick }: { tick: number }) {
     inst.on("tap", "edge", (ev) => setSelected({ type: "edge", edge: ev.target.data() as GEdge }));
     inst.on("tap", (ev) => { if (ev.target === inst) setSelected(null); });
     cy.current = inst;
-  }, [graph, grouped, colors]);
+  }, [graph, grouped, colors, loopsByID]);
+
+  // focus one loop: fade everything that is not on it
+  useEffect(() => {
+    const inst = cy.current;
+    if (!inst) return;
+    inst.elements().removeClass("loop-dim loop-hit");
+    if (!loopFocus) return;
+    const on = (ele: cytoscape.SingularElementArgument) => ((ele.data("loops") as string[] | undefined) ?? []).includes(loopFocus);
+    const hits = inst.elements().filter(on);
+    hits.addClass("loop-hit");
+    inst.elements().difference(hits.union(hits.connectedNodes())).addClass("loop-dim");
+    if (hits.length) {
+      // frame the loop, without zooming far in on a loop that sits on one switch
+      inst.fit(hits.union(hits.connectedNodes()), 80);
+      if (inst.zoom() > 1.3) { inst.zoom(1.3); inst.center(hits); }
+    }
+  }, [loopFocus, graph, grouped]);
 
   // focus one network: fade what is not on it, thicken the links that carry it
   useEffect(() => {
@@ -128,6 +153,13 @@ export function Topology({ tick }: { tick: number }) {
         <button onClick={relayout}>Re-arrange</button>
         <span className="muted small">Solid lines are cables, dashed lines are wireless. Dashed outlines are switches NCC found but UniFi does not manage. Red outline: offline. Clients are coloured by VLAN; a red ring marks a DMZ host.</span>
       </div>
+      {loops.length > 0 && (
+        <section className={`card loop-card ${loops.some((l) => l.severity === "critical") ? "bad" : "warn"}`} aria-label="Switching loops">
+          <h2>{loops.length} switching loop{loops.length === 1 ? "" : "s"} found</h2>
+          <p className="muted small">Each entry names the switch and the exact ports. Red: nothing is stopping the loop. Amber: spanning tree has shut one port, so the extra path is held closed.</p>
+          <LoopList loops={loops} focus={loopFocus} onFocus={setLoopFocus} />
+        </section>
+      )}
       {lanNets.length > 0 && (
         <div className="vlan-legend" role="group" aria-label="Networks">
           {lanNets.map((n) => (
@@ -161,6 +193,12 @@ export function Topology({ tick }: { tick: number }) {
               {sel.zone && (<><dt>Zone</dt><dd><span className={`pill ${zonePill[sel.zone] ?? ""}`}>{zoneText(nets.get(sel.network ?? "") ?? { zone: sel.zone })}</span></dd></>)}
               {sel.ssid && (<><dt>SSID</dt><dd>{sel.ssid}</dd></>)}
             </dl>
+            {sel.loops?.length ? (
+              <>
+                <h3 className="small">Loops on this device</h3>
+                <LoopList compact loops={sel.loops.map((id) => loopsByID.get(id)).filter((l): l is Loop => !!l)} focus={loopFocus} onFocus={setLoopFocus} />
+              </>
+            ) : null}
             {sel.ports && sel.ports.length > 0 && (
               <>
                 <h3 className="small">Port VLANs</h3>
@@ -187,16 +225,22 @@ export function Topology({ tick }: { tick: number }) {
         )}
         {selected?.type === "edge" && (
           <aside className="card topo-side">
-            <h2>Link</h2>
+            <h2>{selected.edge.origin === "loop" ? "Looping cable" : "Link"}</h2>
             <dl className="kv">
               {selected.edge.label && (<><dt>Ports</dt><dd>{selected.edge.label}</dd></>)}
               <dt>Medium</dt><dd>{selected.edge.medium === "wireless" ? "Wireless" : "Cable"}</dd>
               {selected.edge.speed_mbps ? (<><dt>Speed</dt><dd>{selected.edge.speed_mbps} Mbps</dd></>) : null}
             </dl>
-            <h3 className="small">Networks carried</h3>
+            {selected.edge.origin !== "loop" && <h3 className="small">Networks carried</h3>}
             {selected.edge.networks?.length
               ? <ul className="vlan-list">{selected.edge.networks.map((id) => <li key={id}><NetName id={id} nets={nets} colors={colors} /></li>)}</ul>
-              : <p className="muted small">Unknown. UniFi did not report VLAN settings for this port.</p>}
+              : selected.edge.origin === "loop" ? null : <p className="muted small">Unknown. UniFi did not report VLAN settings for this port.</p>}
+            {selected.edge.loops?.length ? (
+              <>
+                <h3 className="small">Part of</h3>
+                <LoopList compact loops={selected.edge.loops.map((id) => loopsByID.get(id)).filter((l): l is Loop => !!l)} focus={loopFocus} onFocus={setLoopFocus} />
+              </>
+            ) : null}
           </aside>
         )}
         {selected?.type === "network" && nets.get(selected.id) && (() => {
