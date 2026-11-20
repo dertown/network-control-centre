@@ -1,0 +1,128 @@
+{
+ "client_usage_by_app": [
+  {
+   "client": {
+    "mac": "de:ad:00:00:00:03",
+    "name": "tv",
+    "is_wired": true
+   },
+   "usage_by_app": [
+    {
+     "application": 12,
+     "category": 4,
+     "bytes_received": 25769803776,
+     "bytes_transmitted": 429496729,
+     "total_bytes": 26199300505,
+     "activity_seconds": 3600
+    },
+    {
+     "application": 5,
+     "category": 13,
+     "bytes_received": 1073741824,
+     "bytes_transmitted": 107374182,
+     "total_bytes": 1181116006,
+     "activity_seconds": 3600
+    },
+    {
+     "application": 7,
+     "category": 14,
+     "bytes_received": 2147483648,
+     "bytes_transmitted": 10485760,
+     "total_bytes": 2157969408,
+     "activity_seconds": 3600
+    }
+   ]
+  },
+  {
+   "client": {
+    "mac": "de:ad:00:00:00:04",
+    "name": "phone",
+    "is_wired": true
+   },
+   "usage_by_app": [
+    {
+     "application": 3,
+     "category": 24,
+     "bytes_received": 2147483648,
+     "bytes_transmitted": 268435456,
+     "total_bytes": 2415919104,
+     "activity_seconds": 3600
+    },
+    {
+     "application": 1,
+     "category": 0,
+     "bytes_received": 209715200,
+     "bytes_transmitted": 104857600,
+     "total_bytes": 314572800,
+     "activity_seconds": 3600
+    },
+    {
+     "application": 12,
+     "category": 4,
+     "bytes_received": 1610612736,
+     "bytes_transmitted": 52428800,
+     "total_bytes": 1663041536,
+     "activity_seconds": 3600
+    }
+   ]
+  },
+  {
+   "client": {
+    "mac": "de:ad:00:00:00:05",
+    "name": "desk-pc",
+    "is_wired": true
+   },
+   "usage_by_app": [
+    {
+     "application": 2,
+     "category": 8,
+     "bytes_received": 6442450944,
+     "bytes_transmitted": 858993459,
+     "total_bytes": 7301444403,
+     "activity_seconds": 3600
+    },
+    {
+     "application": 5,
+     "category": 13,
+     "bytes_received": 1610612736,
+     "bytes_transmitted": 214748364,
+     "total_bytes": 1825361100,
+     "activity_seconds": 3600
+    },
+    {
+     "application": 9,
+     "category": 6,
+     "bytes_received": 322122547,
+     "bytes_transmitted": 322122547,
+     "total_bytes": 644245094,
+     "activity_seconds": 3600
+    }
+   ]
+  },
+  {
+   "client": {
+    "mac": "de:ad:00:00:00:01",
+    "name": "nas",
+    "is_wired": true
+   },
+   "usage_by_app": [
+    {
+     "application": 4,
+     "category": 3,
+     "bytes_received": 1073741824,
+     "bytes_transmitted": 16106127360,
+     "total_bytes": 17179869184,
+     "activity_seconds": 3600
+    },
+    {
+     "application": 7,
+     "category": 14,
+     "bytes_received": 536870912,
+     "bytes_transmitted": 10485760,
+     "total_bytes": 547356672,
+     "activity_seconds": 3600
+    }
+   ]
+  }
+ ]
+}

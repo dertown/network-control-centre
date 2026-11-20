@@ -45,6 +45,8 @@ type TrafficReport struct {
 	Categories []AppUsage `json:"categories,omitempty"`
 	// DPI is true when the gateway returned application data.
 	DPI bool `json:"dpi"`
+	// DPISource names where the application data came from.
+	DPISource string `json:"dpi_source,omitempty"`
 	// DPINote explains why DPI data is missing.
 	DPINote string `json:"dpi_note,omitempty"`
 }

@@ -37,6 +37,7 @@ type TrafficView struct {
 	TakenAt    *time.Time           `json:"taken_at,omitempty"`
 	DPI        bool                 `json:"dpi"`
 	DPINotes   []string             `json:"dpi_notes,omitempty"`
+	DPISources []string             `json:"dpi_sources,omitempty"`
 	Categories []inventory.AppUsage `json:"categories"`
 	Clients    []TrafficClient      `json:"clients"`
 	Sites      []dnslog.SiteCount   `json:"sites"`
@@ -69,6 +70,9 @@ func (s *Server) traffic(w http.ResponseWriter, r *http.Request) {
 				view.TakenAt = &t
 			}
 			view.DPI = view.DPI || rep.DPI
+			if rep.DPISource != "" {
+				view.DPISources = append(view.DPISources, rep.DPISource)
+			}
 			if rep.DPINote != "" {
 				view.DPINotes = append(view.DPINotes, rep.Target+": "+rep.DPINote)
 			}
