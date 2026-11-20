@@ -9,6 +9,12 @@ poll: 30s                # how often device targets are polled
 # plain_http: true        # only behind a reverse proxy that terminates HTTPS
 # behind_tls_proxy: true  # with plain_http, keeps the Secure flag on cookies
 
+# DNS query logs from PowerDNS Recursor or dnsdist, for the Traffic page's "sites" lists.
+# dns_log:
+#   listen: ":4242"
+#   allow: ["192.168.1.70"]  # resolver addresses allowed to send logs
+#   retain: 168h             # how long hourly counts are kept
+
 vault:
   backend: local          # "local" (built-in encrypted vault) or "hashicorp"
 

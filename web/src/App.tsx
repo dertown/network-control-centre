@@ -4,6 +4,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Topology } from "./pages/Topology";
 import { Devices } from "./pages/Devices";
 import { DNS } from "./pages/DNS";
+import { Traffic } from "./pages/Traffic";
 import { Vault } from "./pages/Vault";
 import { Settings } from "./pages/Settings";
 import { Audit } from "./pages/Audit";
@@ -14,6 +15,7 @@ const pages = [
   { id: "dashboard", label: "Dashboard" },
   { id: "topology", label: "Topology" },
   { id: "devices", label: "Devices" },
+  { id: "traffic", label: "Traffic" },
   { id: "dns", label: "DNS" },
   { id: "vault", label: "Vault & certificates" },
   { id: "settings", label: "Settings" },
@@ -96,6 +98,7 @@ export default function App() {
         {page === "dashboard" && <Dashboard tick={tick} />}
         {page === "topology" && <Topology tick={tick} />}
         {page === "devices" && <Devices tick={tick} />}
+        {page === "traffic" && <Traffic tick={tick} />}
         {page === "dns" && <DNS user={user} />}
         {page === "vault" && <Vault user={user} vault={vault} onVault={setVault} />}
         {page === "settings" && <Settings user={user} tick={tick} />}

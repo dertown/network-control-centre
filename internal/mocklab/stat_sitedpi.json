@@ -1,0 +1,10 @@
+{"meta":{"rc":"ok"},"data":[{"by_cat":[
+ {"cat":4,"tx_bytes":27380416512,"rx_bytes":481925529},
+ {"cat":3,"tx_bytes":1073741824,"rx_bytes":16106127360},
+ {"cat":8,"tx_bytes":6442450944,"rx_bytes":858993459},
+ {"cat":13,"tx_bytes":2684354560,"rx_bytes":322122546},
+ {"cat":14,"tx_bytes":2684354560,"rx_bytes":20971520},
+ {"cat":24,"tx_bytes":2147483648,"rx_bytes":268435456},
+ {"cat":6,"tx_bytes":322122547,"rx_bytes":322122547},
+ {"cat":0,"tx_bytes":209715200,"rx_bytes":104857600}
+]}]}

@@ -19,6 +19,14 @@ type Config struct {
 	Vault          VaultConfig   `yaml:"vault"`            //
 	PlainHTTP      bool          `yaml:"plain_http"`       // serve plain HTTP, e.g. behind a reverse proxy that terminates HTTPS
 	BehindTLSProxy bool          `yaml:"behind_tls_proxy"` // with plain_http: the proxy uses HTTPS, so cookies still get the Secure flag
+	DNSLog         DNSLogConfig  `yaml:"dns_log"`          // optional DNS query log receiver
+}
+
+// DNSLogConfig turns on the receiver for PowerDNS Recursor / dnsdist protobuf query logs.
+type DNSLogConfig struct {
+	Listen string        `yaml:"listen"` // e.g. ":4242"; empty turns the receiver off
+	Allow  []string      `yaml:"allow"`  // resolver addresses or CIDRs allowed to send logs
+	Retain time.Duration `yaml:"retain"` // default 7 days
 }
 
 // VaultConfig picks the secret backend.

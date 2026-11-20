@@ -63,6 +63,7 @@ type Poller struct {
 	Hub      *Hub
 	Interval time.Duration
 	Keep     int // snapshots kept per target
+	Traffic  *Traffic
 	Log      *slog.Logger
 
 	mu      sync.Mutex
@@ -161,6 +162,11 @@ func (p *Poller) collect(ctx context.Context, t *Target) (*inventory.Snapshot, e
 	if len(res.OptionUpdates) > 0 {
 		if err := p.Targets.MergeOptions(ctx, t.ID, res.OptionUpdates); err != nil {
 			return nil, err
+		}
+	}
+	if res.Traffic != nil && p.Traffic != nil {
+		if err := p.Traffic.Record(ctx, res.Traffic); err != nil && p.Log != nil {
+			p.Log.Warn("record traffic", "target", t.Name, "err", err)
 		}
 	}
 	return res.Snapshot, SaveSnapshot(ctx, p.DB, t.ID, res.Snapshot, p.Keep)

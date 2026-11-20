@@ -80,9 +80,10 @@ func newNCC(t *testing.T) (*httptest.Server, *core.Poller) {
 	hub := core.NewHub()
 	targets := &core.Targets{DB: st.DB}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	poller := &core.Poller{DB: st.DB, Targets: targets, Vault: vs, Hub: hub, Interval: time.Hour, Log: log}
+	traffic := &core.Traffic{DB: st.DB}
+	poller := &core.Poller{DB: st.DB, Targets: targets, Vault: vs, Hub: hub, Interval: time.Hour, Log: log, Traffic: traffic}
 	srv := &api.Server{Store: st, Auth: auth.New(st.DB), Audit: audit.New(st.DB), Vault: vs, Targets: targets,
-		Poller: poller, Hub: hub, Certs: &pki.Inventory{DB: st.DB, Vault: vs}, Log: log}
+		Poller: poller, Hub: hub, Certs: &pki.Inventory{DB: st.DB, Vault: vs}, Log: log, Traffic: traffic}
 	return httptest.NewServer(srv.Handler()), poller
 }
 
@@ -165,6 +166,21 @@ func TestEndToEnd(t *testing.T) {
 	if len(ts) != 1 || len(ts[0].Options["tls_fingerprint"]) != 64 {
 		t.Fatalf("fingerprint not pinned: %+v", ts)
 	}
+	// traffic: the TV streams the most since it connected
+	var tv api.TrafficView
+	if code := c.do("GET", "/api/traffic?window=session", nil, &tv); code != 200 {
+		t.Fatalf("traffic: %d", code)
+	}
+	if !tv.DPI || len(tv.Clients) < 5 || tv.Clients[0].Name != "tv" || len(tv.Clients[0].Apps) == 0 {
+		t.Fatalf("traffic view: dpi=%v clients=%+v", tv.DPI, tv.Clients)
+	}
+	if tv.Categories[0].Category != "Streaming media" {
+		t.Fatalf("top category: %+v", tv.Categories[0])
+	}
+	if code := c.do("GET", "/api/traffic?window=forever", nil, nil); code != 400 {
+		t.Fatalf("bad window: %d", code)
+	}
+
 	var graph core.Graph
 	c.do("GET", "/api/topology?clients=1", nil, &graph)
 	if len(graph.Nodes) < 10 || len(graph.Edges) < 8 {

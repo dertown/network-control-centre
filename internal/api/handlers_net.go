@@ -151,6 +151,9 @@ func (s *Server) deleteTarget(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	if s.Traffic != nil {
+		s.Traffic.Forget(t.Name)
+	}
 	_ = s.Audit.Record(r.Context(), actor(r), "target.delete", "target/"+t.Name, nil)
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }

@@ -86,6 +86,26 @@ var migrations = []string{
 		key_secret_path TEXT NOT NULL DEFAULT '',
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`,
+	// traffic_samples holds each client's byte counters every few minutes, so NCC can
+	// say how much a client used in the last hour or day.
+	`CREATE TABLE IF NOT EXISTS traffic_samples (
+		mac TEXT NOT NULL,
+		ts INTEGER NOT NULL,          -- unix seconds
+		down_bytes INTEGER NOT NULL,  -- counter since the client connected
+		up_bytes INTEGER NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
+		ip TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (mac, ts)
+	)`,
+	// dns_queries counts DNS lookups per client address, site (e.g. youtube.com) and hour.
+	`CREATE TABLE IF NOT EXISTS dns_queries (
+		client_ip TEXT NOT NULL,
+		site TEXT NOT NULL,
+		hour INTEGER NOT NULL,        -- unix seconds, truncated to the hour
+		count INTEGER NOT NULL,
+		PRIMARY KEY (client_ip, site, hour)
+	)`,
+	`CREATE INDEX IF NOT EXISTS dns_queries_hour ON dns_queries(hour)`,
 }
 
 // Open opens (and migrates) the database in dataDir.

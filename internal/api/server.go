@@ -16,6 +16,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/audit"
 	"github.com/dertown/network-control-centre/internal/auth"
 	"github.com/dertown/network-control-centre/internal/core"
+	"github.com/dertown/network-control-centre/internal/dnslog"
 	"github.com/dertown/network-control-centre/internal/pki"
 	"github.com/dertown/network-control-centre/internal/store"
 	"github.com/dertown/network-control-centre/internal/vault"
@@ -31,7 +32,9 @@ type Server struct {
 	Poller  *core.Poller
 	Hub     *core.Hub
 	Certs   *pki.Inventory
-	UI      fs.FS // built web UI; nil serves a placeholder
+	Traffic *core.Traffic     // per-client traffic; nil disables the Traffic page data
+	DNSLog  *dnslog.Collector // DNS query log receiver; nil when dns_log is not configured
+	UI      fs.FS             // built web UI; nil serves a placeholder
 	Log     *slog.Logger
 	// SecureCookies sets the Secure flag; true unless running plain HTTP in development.
 	SecureCookies bool
@@ -99,6 +102,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/devices", v(s.listDevices))
 	mux.Handle("GET /api/clients", v(s.listClients))
 	mux.Handle("GET /api/topology", v(s.topology))
+	mux.Handle("GET /api/traffic", v(s.traffic))
 
 	mux.Handle("GET /api/dns/{server}/zones", v(s.dnsZones))
 	mux.Handle("GET /api/dns/{server}/zones/{zone}/records", v(s.dnsRecords))
