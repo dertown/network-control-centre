@@ -1,5 +1,6 @@
 import cytoscape from "cytoscape";
 import { iconURI, kindIcon } from "./icons";
+import { vlanStyle } from "./pages/topoVlan";
 
 function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -18,7 +19,7 @@ const shapes: Record<string, string> = {
 // again after a theme change and pass the result to cy.style().
 export function topoStyle(): cytoscape.StylesheetStyle[] {
   const ink = cssVar("--ink"), quiet = cssVar("--muted"), lineStrong = cssVar("--line-strong"), surface = cssVar("--surface"),
-    bad = cssVar("--bad");
+    bad = cssVar("--bad"), warn = cssVar("--warn");
   const tone: Record<string, string> = {
     gateway: cssVar("--c1"),
     switch: cssVar("--c2"),
@@ -72,5 +73,6 @@ export function topoStyle(): cytoscape.StylesheetStyle[] {
     { selector: "edge:selected", style: { "line-color": tone.gateway } },
   ];
   // @types/cytoscape lags behind the library (no underlay-* yet), so the sheet is typed loosely
-  return sheet as unknown as cytoscape.StylesheetStyle[];
+  // the VLAN / firewall-zone layer goes last so it overrides the base colours
+  return [...(sheet as unknown as cytoscape.StylesheetStyle[]), ...vlanStyle({ bad, warn, muted: quiet, surface, ink })];
 }

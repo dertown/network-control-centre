@@ -21,8 +21,13 @@ import (
 //     model guessed from the LLDP system name and description.
 //  3. Ports where several wired clients share one UniFi switch port: an unmanaged switch
 //     must sit there, so an "inferred" node is added and the clients hang off it.
-func Build(target string, devs []rawDevice, clients []rawClient, now time.Time) *inv.Snapshot {
+//
+// cfg (optional) adds networks, VLANs and firewall zones: each port's native and tagged
+// networks, the networks each link carries, and the network each client and device is in.
+func Build(target string, devs []rawDevice, clients []rawClient, cfg *siteConfig, now time.Time) *inv.Snapshot {
 	snap := &inv.Snapshot{Target: target, TakenAt: now}
+	ix := buildNetIndex(target, cfg)
+	snap.Networks = ix.nets
 	byMAC := map[string]*inv.Device{}
 	order := []string{}
 	linkSeen := map[string]bool{}
@@ -49,6 +54,18 @@ func Build(target string, devs []rawDevice, clients []rawClient, now time.Time) 
 		}
 		return "Port " + strconv.Itoa(idx)
 	}
+	// portNets lists the networks on a device port, or nil when unknown.
+	portNets := func(d *inv.Device, idx int) []string {
+		if d == nil || idx <= 0 {
+			return nil
+		}
+		for _, p := range d.Ports {
+			if p.Index == idx {
+				return carried(p)
+			}
+		}
+		return nil
+	}
 
 	// 1. adopted devices
 	for _, r := range devs {
@@ -65,12 +82,23 @@ func Build(target string, devs []rawDevice, clients []rawClient, now time.Time) 
 			Managed: r.Adopted == nil || *r.Adopted, Discovery: inv.SourceController,
 			Target: target, SeenAt: now,
 		}
+		overrides := map[int]*rawPortOverride{}
+		for i := range r.PortOverrides {
+			overrides[r.PortOverrides[i].PortIdx] = &r.PortOverrides[i]
+		}
+		isGateway := d.Kind == inv.KindGateway
 		for _, p := range r.PortTable {
-			d.Ports = append(d.Ports, inv.Port{
+			port := inv.Port{
 				Index: p.PortIdx, Name: p.Name, Up: p.Up, SpeedMbps: p.Speed,
 				PoE: p.PoEEnable, PoEWatts: float64(p.PoEPower), Uplink: p.IsUplink,
-			})
+			}
+			// a gateway's uplink port is its WAN, not a switched LAN port
+			if !(isGateway && p.IsUplink) {
+				port.Profile, port.NativeNetwork, port.TaggedNetworks = ix.port(p, overrides[p.PortIdx])
+			}
+			d.Ports = append(d.Ports, port)
 		}
+		d.Network = ix.byIP(d.IP)
 		byMAC[mac] = d
 		order = append(order, mac)
 	}
@@ -88,10 +116,14 @@ func Build(target string, devs []rawDevice, clients []rawClient, now time.Time) 
 		if strings.EqualFold(r.Uplink.Type, "wireless") {
 			medium = "wireless"
 		}
+		nets := portNets(parent, r.Uplink.UplinkRemotePort)
+		if medium == "wireless" {
+			nets = ix.switched // a wireless mesh uplink bridges every network
+		}
 		addLink(inv.Link{
 			A: up, APort: portName(parent, r.Uplink.UplinkRemotePort),
 			B: me, BPort: portName(byMAC[me], r.Uplink.PortIdx),
-			Medium: medium, SpeedMbps: r.Uplink.Speed, Source: "uplink",
+			Medium: medium, SpeedMbps: r.Uplink.Speed, Source: "uplink", Networks: nets,
 		})
 		uplinkPorts[up+"#"+strconv.Itoa(r.Uplink.UplinkRemotePort)] = true
 		uplinkPorts[me+"#"+strconv.Itoa(r.Uplink.PortIdx)] = true
@@ -136,7 +168,7 @@ func Build(target string, devs []rawDevice, clients []rawClient, now time.Time) 
 				order = append(order, nb)
 			}
 			addLink(inv.Link{A: me, APort: lp, B: nb, BPort: firstNonEmpty(n.PortDescr, n.PortID),
-				Medium: "wired", Source: "lldp"})
+				Medium: "wired", Source: "lldp", Networks: portNets(local, n.LocalPortIdx)})
 		}
 	}
 
@@ -168,6 +200,9 @@ func Build(target string, devs []rawDevice, clients []rawClient, now time.Time) 
 			if d.IP == "" {
 				d.IP = r.IP
 			}
+			if d.Network == "" {
+				d.Network = ix.client(r)
+			}
 			if d.Make == "unknown" && r.OUI != "" {
 				d.Make = r.OUI
 			}
@@ -176,6 +211,13 @@ func Build(target string, devs []rawDevice, clients []rawClient, now time.Time) 
 		c := inv.Client{
 			MAC: mac, Name: firstNonEmpty(r.Name, r.Hostname, r.MAC), IP: r.IP, Vendor: r.OUI,
 			Wired: r.IsWired, Network: r.Network, VLAN: r.VLAN, SSID: r.ESSID,
+			NetworkID: ix.client(r),
+		}
+		if n, ok := ix.byID[c.NetworkID]; ok {
+			c.Network = n.Name
+			if c.VLAN == 0 {
+				c.VLAN = n.VLAN
+			}
 		}
 		if r.IsWired {
 			sw := inv.NormMAC(r.SwMAC)
@@ -223,7 +265,7 @@ func Build(target string, devs []rawDevice, clients []rawClient, now time.Time) 
 			Target: target, SeenAt: now,
 		}
 		order = append(order, id)
-		addLink(inv.Link{A: k.mac, APort: pn, B: id, Medium: "wired", Source: "inferred"})
+		addLink(inv.Link{A: k.mac, APort: pn, B: id, Medium: "wired", Source: "inferred", Networks: portNets(parent, k.port)})
 		for _, i := range idxs {
 			snap.Clients[i].ParentID = id
 			snap.Clients[i].ParentPort = ""

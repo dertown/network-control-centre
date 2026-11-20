@@ -186,6 +186,18 @@ func TestEndToEnd(t *testing.T) {
 	if len(graph.Nodes) < 10 || len(graph.Edges) < 8 {
 		t.Fatalf("graph too small: %d nodes %d edges", len(graph.Nodes), len(graph.Edges))
 	}
+	netZones := map[string]string{}
+	for _, n := range graph.Networks {
+		netZones[n.Name] = n.Zone
+	}
+	if netZones["DMZ"] != "dmz" || netZones["Guest"] != "hotspot" || len(graph.Networks) != 5 {
+		t.Fatalf("topology networks: %+v", graph.Networks)
+	}
+	for _, n := range graph.Nodes {
+		if n.Label == "web-dmz" && (n.Zone != "dmz" || n.VLAN != 50) {
+			t.Fatalf("DMZ client on the map: %+v", n)
+		}
+	}
 
 	// add PowerDNS, list zones, add an A record with PTR
 	var dnsT core.Target

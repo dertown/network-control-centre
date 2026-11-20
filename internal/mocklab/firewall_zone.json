@@ -1,0 +1,9 @@
+[
+ {"_id":"z_internal","name":"Internal","zone_key":"internal","network_ids":["net_default"]},
+ {"_id":"z_external","name":"External","zone_key":"external","network_ids":["net_wan"]},
+ {"_id":"z_gateway","name":"Gateway","zone_key":"gateway","network_ids":[]},
+ {"_id":"z_vpn","name":"Vpn","zone_key":"vpn","network_ids":[]},
+ {"_id":"z_hotspot","name":"Hotspot","zone_key":"hotspot","network_ids":["net_guest"]},
+ {"_id":"z_dmz","name":"Dmz","zone_key":"dmz","network_ids":["net_dmz"]},
+ {"_id":"z_iot","name":"IoT","zone_key":"","network_ids":["net_iot"]}
+]

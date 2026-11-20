@@ -1,0 +1,7 @@
+{"meta":{"rc":"ok"},"data":[
+ {"_id":"net_default","name":"Default","purpose":"corporate","networkgroup":"LAN","vlan_enabled":false,"ip_subnet":"192.168.1.1/24","enabled":true,"internet_access_enabled":true},
+ {"_id":"net_guest","name":"Guest","purpose":"guest","networkgroup":"LAN","vlan_enabled":true,"vlan":20,"ip_subnet":"192.168.20.1/24","enabled":true},
+ {"_id":"net_iot","name":"IoT","purpose":"corporate","networkgroup":"LAN","vlan_enabled":true,"vlan":"30","ip_subnet":"192.168.30.1/24","network_isolation_enabled":true,"enabled":true},
+ {"_id":"net_dmz","name":"DMZ","purpose":"corporate","networkgroup":"LAN","vlan_enabled":true,"vlan":50,"ip_subnet":"192.168.50.1/24","enabled":true},
+ {"_id":"net_wan","name":"Internet 1","purpose":"wan","wan_networkgroup":"WAN","enabled":true}
+]}
