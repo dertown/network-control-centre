@@ -34,7 +34,7 @@ func deviceByID(s *inv.Snapshot, id string) *inv.Device {
 }
 
 func TestBuildDiscoversMakeAndModel(t *testing.T) {
-	snap := Build("home", load[rawDevice](t, "stat_device.json"), load[rawClient](t, "stat_sta.json"), time.Now())
+	snap := Build("home", load[rawDevice](t, "stat_device.json"), load[rawClient](t, "stat_sta.json"), nil, time.Now())
 
 	cases := []struct{ id, kind, make, model string }{
 		{"aa:bb:cc:00:00:01", inv.KindGateway, "Ubiquiti", "Dream Router 7"},

@@ -29,7 +29,10 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
 
 export interface User { id: number; username: string; role: "viewer" | "operator" | "admin"; mfa: boolean }
 export interface VaultStatus { backend: string; initialized: boolean; sealed: boolean; detail?: string }
-export interface Port { index: number; name: string; up: boolean; speed_mbps?: number; poe?: boolean; poe_watts?: number; uplink?: boolean }
+export interface Port {
+  index: number; name: string; up: boolean; speed_mbps?: number; poe?: boolean; poe_watts?: number; uplink?: boolean;
+  profile?: string; native_network?: string; tagged_networks?: string[];
+}
 export interface Device {
   id: string; name: string; kind: string; make: string; model: string; model_code: string; mac: string;
   ip?: string; firmware?: string; serial?: string; online: boolean; uptime_s?: number; managed: boolean;
@@ -37,15 +40,24 @@ export interface Device {
 }
 export interface Client {
   mac: string; name: string; ip?: string; vendor?: string; wired: boolean; parent_id?: string;
-  parent_port?: string; network?: string; vlan?: number; ssid?: string;
+  parent_port?: string; network?: string; vlan?: number; network_id?: string; ssid?: string;
 }
 export interface Target {
   id: number; kind: string; category: "device" | "dns"; name: string; address: string;
   options: Record<string, string>; secret_path: string; enabled: boolean; last_poll?: string; last_error: string;
 }
-export interface GNode { id: string; label: string; kind: string; make?: string; model?: string; ip?: string; online: boolean; discovery?: string; clients?: number; parent?: string }
-export interface GEdge { id: string; source: string; target: string; label?: string; medium: string; speed_mbps?: number; origin: string }
-export interface Graph { nodes: GNode[]; edges: GEdge[] }
+export interface NodePort { name: string; up: boolean; uplink?: boolean; profile?: string; native?: string; tagged?: string[] }
+export interface GNode {
+  id: string; label: string; kind: string; make?: string; model?: string; ip?: string; online: boolean; discovery?: string;
+  clients?: number; parent?: string; network?: string; vlan?: number; zone?: string; ssid?: string; ports?: NodePort[];
+}
+export interface GEdge { id: string; source: string; target: string; label?: string; medium: string; speed_mbps?: number; origin: string; networks?: string[] }
+export interface GNetwork {
+  id: string; name: string; purpose?: string; vlan?: number; subnet?: string; zone?: string; zone_name?: string;
+  zone_source?: "firewall" | "inferred"; isolated?: boolean; internet_access: boolean; ssids?: string[]; target: string;
+  clients: number; devices: number;
+}
+export interface Graph { nodes: GNode[]; edges: GEdge[]; networks?: GNetwork[] }
 export interface Zone { name: string; kind?: string; serial?: number }
 export interface RRSet { name: string; type: string; ttl: number; records: string[] }
 export interface Change { op: "REPLACE" | "DELETE"; rrset: RRSet }

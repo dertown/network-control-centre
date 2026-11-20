@@ -205,6 +205,12 @@ type rawPort struct {
 	PoEEnable bool      `json:"poe_enable"`
 	PoEPower  flexFloat `json:"poe_power"`
 	IsUplink  bool      `json:"is_uplink"`
+
+	PortconfID      string   `json:"portconf_id"`
+	NativeNetworkID string   `json:"native_networkconf_id"`
+	Forward         string   `json:"forward"`
+	TaggedVLANMgmt  string   `json:"tagged_vlan_mgmt"`
+	ExcludedIDs     []string `json:"excluded_networkconf_ids"`
 }
 
 type rawUplink struct {
@@ -248,22 +254,25 @@ type rawDevice struct {
 	PortTable []rawPort `json:"port_table"`
 	Uplink    rawUplink `json:"uplink"`
 	LLDPTable []rawLLDP `json:"lldp_table"`
+
+	PortOverrides []rawPortOverride `json:"port_overrides"`
 }
 
 type rawClient struct {
-	MAC      string `json:"mac"`
-	Name     string `json:"name"`
-	Hostname string `json:"hostname"`
-	IP       string `json:"ip"`
-	OUI      string `json:"oui"`
-	IsWired  bool   `json:"is_wired"`
-	SwMAC    string `json:"sw_mac"`
-	SwPort   int    `json:"sw_port"`
-	APMAC    string `json:"ap_mac"`
-	Network  string `json:"network"`
-	VLAN     int    `json:"vlan"`
-	ESSID    string `json:"essid"`
-	Uptime   int64  `json:"uptime"`
+	MAC       string `json:"mac"`
+	Name      string `json:"name"`
+	Hostname  string `json:"hostname"`
+	IP        string `json:"ip"`
+	OUI       string `json:"oui"`
+	IsWired   bool   `json:"is_wired"`
+	SwMAC     string `json:"sw_mac"`
+	SwPort    int    `json:"sw_port"`
+	APMAC     string `json:"ap_mac"`
+	Network   string `json:"network"`
+	NetworkID string `json:"network_id"`
+	VLAN      int    `json:"vlan"`
+	ESSID     string `json:"essid"`
+	Uptime    int64  `json:"uptime"`
 
 	RxBytes      int64     `json:"rx_bytes"`
 	TxBytes      int64     `json:"tx_bytes"`
@@ -393,7 +402,8 @@ func (d Driver) collectWith(ctx context.Context, c *client, t drivers.Target) (*
 	if err != nil {
 		return nil, err
 	}
-	snap := Build(t.Name, devs, clients, time.Now().UTC())
+	cfg := collectSiteConfig(ctx, c)
+	snap := Build(t.Name, devs, clients, cfg, time.Now().UTC())
 	traffic := collectTraffic(ctx, c, t.Name, clients)
 	return &drivers.Result{Snapshot: snap, OptionUpdates: c.optionUpdates(t), Traffic: traffic}, nil
 }

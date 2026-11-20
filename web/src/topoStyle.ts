@@ -1,5 +1,6 @@
 import cytoscape from "cytoscape";
 import { iconURI, kindIcon } from "./icons";
+import { vlanStyle } from "./pages/topoVlan";
 
 function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -18,7 +19,7 @@ const shapes: Record<string, string> = {
 // again after a theme change and pass the result to cy.style().
 export function topoStyle(): cytoscape.StylesheetStyle[] {
   const ink = cssVar("--ink"), quiet = cssVar("--muted"), lineStrong = cssVar("--line-strong"), surface = cssVar("--surface"),
-    bad = cssVar("--bad");
+    bad = cssVar("--bad"), warn = cssVar("--warn");
   const tone: Record<string, string> = {
     gateway: cssVar("--c1"),
     switch: cssVar("--c2"),
@@ -70,6 +71,16 @@ export function topoStyle(): cytoscape.StylesheetStyle[] {
     { selector: "edge[medium = 'wireless']", style: { "line-style": "dashed", "line-dash-pattern": [6, 4], "line-color": tone.ap, "line-opacity": 0.7 } },
     { selector: "edge[origin = 'client']", style: { label: "", width: 1, "line-opacity": 0.6 } },
     { selector: "edge:selected", style: { "line-color": tone.gateway } },
+    // VLAN / DMZ rules from the VLAN view, then the tweaks they need on top of this look
+    ...(vlanStyle({ bad, warn, muted: quiet, surface, ink }) as unknown as { selector: string; style: Record<string, unknown> }[]),
+    // a client coloured by its VLAN is a solid dot; the icon would be unreadable at that size
+    { selector: "node[kind = 'client'][netColor]", style: { "background-opacity": 0.9, "background-image": "none" } },
+    { selector: "node[kind = 'client'][zone = 'dmz']", style: { "underlay-color": bad, "underlay-opacity": 0.18, "underlay-padding": 4 } },
+    // VLAN boxes are containers, not devices: no icon, halo or label plate
+    { selector: "node.vlan-group", style: {
+      "background-image": "none", "underlay-opacity": 0, "text-background-opacity": 0, "font-size": 11.5,
+      "text-valign": "top", "text-margin-y": -6,
+    } },
   ];
   // @types/cytoscape lags behind the library (no underlay-* yet), so the sheet is typed loosely
   return sheet as unknown as cytoscape.StylesheetStyle[];

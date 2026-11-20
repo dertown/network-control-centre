@@ -18,6 +18,30 @@ type Node struct {
 	Discovery string `json:"discovery,omitempty"`
 	Clients   int    `json:"clients,omitempty"`
 	Parent    string `json:"parent,omitempty"`
+	// Network is the network id the node sits in (a client's VLAN, a device's management
+	// network); VLAN and Zone are copied from that network for convenience.
+	Network string     `json:"network,omitempty"`
+	VLAN    int        `json:"vlan,omitempty"`
+	Zone    string     `json:"zone,omitempty"`
+	SSID    string     `json:"ssid,omitempty"`
+	Ports   []NodePort `json:"ports,omitempty"`
+}
+
+// NodePort is a switch or router port's VLAN setup, for ports with VLAN detail.
+type NodePort struct {
+	Name    string   `json:"name"`
+	Up      bool     `json:"up"`
+	Uplink  bool     `json:"uplink,omitempty"`
+	Profile string   `json:"profile,omitempty"`
+	Native  string   `json:"native,omitempty"`
+	Tagged  []string `json:"tagged,omitempty"`
+}
+
+// GNetwork is a network (VLAN) on the map, with its firewall zone and member counts.
+type GNetwork struct {
+	inventory.Network
+	Clients int `json:"clients"`
+	Devices int `json:"devices"`
 }
 
 // Edge is a topology link for the map.
@@ -29,17 +53,52 @@ type Edge struct {
 	Medium    string `json:"medium"`
 	SpeedMbps int    `json:"speed_mbps,omitempty"`
 	Origin    string `json:"origin"`
+	// Networks carried on the link, by network id.
+	Networks []string `json:"networks,omitempty"`
 }
 
 // Graph is the whole map.
 type Graph struct {
 	Nodes []Node `json:"nodes"`
 	Edges []Edge `json:"edges"`
+	// Networks are the VLANs and firewall zones the targets reported.
+	Networks []GNetwork `json:"networks"`
 }
 
 // BuildGraph merges snapshots into one graph. Clients are included when withClients is set.
 func BuildGraph(snaps []inventory.Snapshot, withClients bool) Graph {
-	g := Graph{Nodes: []Node{}, Edges: []Edge{}}
+	g := Graph{Nodes: []Node{}, Edges: []Edge{}, Networks: []GNetwork{}}
+	nets := map[string]int{} // network id -> index in g.Networks
+	for _, s := range snaps {
+		for _, n := range s.Networks {
+			if _, dup := nets[n.ID]; dup {
+				continue
+			}
+			nets[n.ID] = len(g.Networks)
+			g.Networks = append(g.Networks, GNetwork{Network: n})
+		}
+	}
+	// clients per network are counted whether or not clients are drawn
+	counted := map[string]bool{}
+	for _, s := range snaps {
+		for _, c := range s.Clients {
+			if i, ok := nets[c.NetworkID]; ok && !counted[c.MAC] {
+				counted[c.MAC] = true
+				g.Networks[i].Clients++
+			}
+		}
+	}
+	member := func(n *Node, id string, client bool) {
+		i, ok := nets[id]
+		if !ok {
+			return
+		}
+		net := &g.Networks[i]
+		n.Network, n.VLAN, n.Zone = id, net.VLAN, net.Zone
+		if !client {
+			net.Devices++
+		}
+	}
 	seen := map[string]bool{}
 	for _, s := range snaps {
 		for _, d := range s.Devices {
@@ -47,8 +106,17 @@ func BuildGraph(snaps []inventory.Snapshot, withClients bool) Graph {
 				continue
 			}
 			seen[d.ID] = true
-			g.Nodes = append(g.Nodes, Node{ID: d.ID, Label: d.Name, Kind: d.Kind, Make: d.Make, Model: d.Model,
-				IP: d.IP, Online: d.Online, Discovery: d.Discovery, Clients: d.Clients})
+			n := Node{ID: d.ID, Label: d.Name, Kind: d.Kind, Make: d.Make, Model: d.Model,
+				IP: d.IP, Online: d.Online, Discovery: d.Discovery, Clients: d.Clients}
+			member(&n, d.Network, false)
+			for _, p := range d.Ports {
+				if p.NativeNetwork == "" && len(p.TaggedNetworks) == 0 && p.Profile == "" {
+					continue
+				}
+				n.Ports = append(n.Ports, NodePort{Name: p.Name, Up: p.Up, Uplink: p.Uplink, Profile: p.Profile,
+					Native: p.NativeNetwork, Tagged: p.TaggedNetworks})
+			}
+			g.Nodes = append(g.Nodes, n)
 		}
 	}
 	edgeSeen := map[string]bool{}
@@ -76,7 +144,8 @@ func BuildGraph(snaps []inventory.Snapshot, withClients bool) Graph {
 				}
 				label += l.BPort
 			}
-			add(Edge{Source: l.A, Target: l.B, Label: label, Medium: l.Medium, SpeedMbps: l.SpeedMbps, Origin: l.Source})
+			add(Edge{Source: l.A, Target: l.B, Label: label, Medium: l.Medium, SpeedMbps: l.SpeedMbps, Origin: l.Source,
+				Networks: l.Networks})
 		}
 	}
 	if withClients {
@@ -86,12 +155,21 @@ func BuildGraph(snaps []inventory.Snapshot, withClients bool) Graph {
 					continue
 				}
 				seen[c.MAC] = true
-				g.Nodes = append(g.Nodes, Node{ID: c.MAC, Label: c.Name, Kind: "client", Make: c.Vendor, IP: c.IP, Online: true, Parent: c.ParentID})
+				n := Node{ID: c.MAC, Label: c.Name, Kind: "client", Make: c.Vendor, IP: c.IP, Online: true, Parent: c.ParentID, SSID: c.SSID}
+				member(&n, c.NetworkID, true)
+				if n.Network == "" && c.VLAN > 0 {
+					n.VLAN = c.VLAN
+				}
+				g.Nodes = append(g.Nodes, n)
 				medium := "wireless"
 				if c.Wired {
 					medium = "wired"
 				}
-				add(Edge{Source: c.ParentID, Target: c.MAC, Label: c.ParentPort, Medium: medium, Origin: "client"})
+				e := Edge{Source: c.ParentID, Target: c.MAC, Label: c.ParentPort, Medium: medium, Origin: "client"}
+				if n.Network != "" {
+					e.Networks = []string{n.Network}
+				}
+				add(e)
 			}
 		}
 	}
