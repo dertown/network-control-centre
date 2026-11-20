@@ -92,6 +92,7 @@ func UniFi() http.Handler {
 			_, _ = w.Write(b)
 		}
 	}
+	mux.HandleFunc("GET /proxy/network/api/self/sites", serve([]byte(`{"meta":{"rc":"ok"},"data":[{"name":"default","desc":"Home"}]}`)))
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/device", serve(StatDevice))
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/sta", serve(StatSta))
 	// Like a Network 9+ console: application data comes from the v2 traffic API and the
