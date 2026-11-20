@@ -44,6 +44,11 @@ and the **vault passphrase**. Keep the passphrase safe: without it, stored crede
 decrypted. After a restart the vault is sealed until an admin unseals it in the UI (or set
 `passphrase_file` / `NCC_VAULT_PASSPHRASE` for unattended starts).
 
+### Proxmox VE
+
+[`deploy/proxmox`](deploy/proxmox) has Terraform that creates an Ubuntu VM on Proxmox and
+deploys NCC on it as a systemd service. See its README.
+
 ### Docker
 
 ```sh
