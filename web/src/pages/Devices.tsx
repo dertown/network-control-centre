@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, Device } from "../api";
 import { discoveryLabel, kindLabel, uptime } from "../live";
+import { Icon, kindIcon } from "../icons";
 
 export function Devices({ tick }: { tick: number }) {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -48,7 +49,7 @@ export function Devices({ tick }: { tick: number }) {
             {shown.map((d) => (
               <Fragment key={d.id}>
                 <tr className="clickable" onClick={() => setOpen(open === d.id ? null : d.id)}>
-                  <td><strong>{d.name}</strong></td>
+                  <td><span className="devname"><span className={`kind-chip k-${d.kind}`}><Icon name={kindIcon[d.kind] ?? "unknown"} size={16} /></span><strong>{d.name}</strong></span></td>
                   <td>{kindLabel[d.kind] ?? d.kind}</td>
                   <td>{d.make}</td>
                   <td title={d.detail}>{d.model}{d.model_code && d.model_code !== d.model && <span className="muted small"> {d.model_code}</span>}</td>
