@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dertown/network-control-centre/internal/dns"
 	"github.com/dertown/network-control-centre/internal/drivers"
 	"github.com/dertown/network-control-centre/internal/inventory"
 	"github.com/dertown/network-control-centre/internal/vault"
@@ -55,7 +56,8 @@ func (h *Hub) Publish(kind string, data any) {
 	}
 }
 
-// Poller collects inventory from every enabled device target on an interval.
+// Poller collects inventory from every enabled device target, and checks that
+// every enabled DNS server answers, on an interval.
 type Poller struct {
 	DB       *sql.DB
 	Targets  *Targets
@@ -88,9 +90,9 @@ func (p *Poller) Run(ctx context.Context) {
 	}
 }
 
-// PollAll polls each enabled device target concurrently.
+// PollAll polls each enabled target concurrently.
 func (p *Poller) PollAll(ctx context.Context) {
-	ts, err := p.Targets.List(ctx, CategoryDevice)
+	ts, err := p.Targets.List(ctx, "")
 	if err != nil {
 		p.Log.Error("list targets", "err", err)
 		return
@@ -111,7 +113,8 @@ func (p *Poller) PollAll(ctx context.Context) {
 	wg.Wait()
 }
 
-// PollOne collects one target now and stores the snapshot.
+// PollOne collects one device target now and stores the snapshot, or checks
+// one DNS target. A DNS check returns a nil snapshot.
 func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, error) {
 	p.mu.Lock()
 	if p.running == nil {
@@ -129,6 +132,20 @@ func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, er
 	if err != nil {
 		return nil, err
 	}
+	if t.Category == CategoryDNS {
+		err := p.checkDNS(ctx, t)
+		_ = p.Targets.RecordPoll(ctx, t.ID, err)
+		if p.Hub != nil {
+			ev := map[string]any{"target": t.Name}
+			kind := "dns_status"
+			if err != nil {
+				kind = "poll_error"
+				ev["error"] = err.Error()
+			}
+			p.Hub.Publish(kind, ev)
+		}
+		return nil, err
+	}
 	snap, err := p.collect(ctx, t)
 	_ = p.Targets.RecordPoll(ctx, t.ID, err)
 	if err != nil {
@@ -141,6 +158,20 @@ func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, er
 		p.Hub.Publish("snapshot", map[string]any{"target": t.Name, "devices": len(snap.Devices), "clients": len(snap.Clients)})
 	}
 	return snap, nil
+}
+
+func (p *Poller) checkDNS(ctx context.Context, t *Target) error {
+	prov, err := dns.Get(t.Kind)
+	if err != nil {
+		return err
+	}
+	creds, err := p.Vault.Get(ctx, t.SecretPath)
+	if err != nil {
+		return err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return dns.Check(cctx, prov, dns.Server{ID: t.ID, Name: t.Name, Kind: t.Kind, Address: t.Address, Options: t.Options}, creds)
 }
 
 func (p *Poller) collect(ctx context.Context, t *Target) (*inventory.Snapshot, error) {
