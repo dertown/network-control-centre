@@ -83,6 +83,5 @@ export function topoStyle(): cytoscape.StylesheetStyle[] {
     } },
   ];
   // @types/cytoscape lags behind the library (no underlay-* yet), so the sheet is typed loosely
-  // the VLAN / firewall-zone layer goes last so it overrides the base colours
-  return [...(sheet as unknown as cytoscape.StylesheetStyle[]), ...vlanStyle({ bad, warn, muted: quiet, surface, ink })];
+  return sheet as unknown as cytoscape.StylesheetStyle[];
 }
