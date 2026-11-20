@@ -72,8 +72,9 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
         )}
         {adding && <AddTarget kind={adding} onDone={() => { setAdding(null); load(); }} />}
       </section>
+      <ChangePassword />
       <MFA user={user} />
-      {isAdmin && <Users />}
+      {isAdmin && <Users me={user} />}
     </>
   );
 }
@@ -152,6 +153,45 @@ function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) {
   );
 }
 
+function ChangePassword() {
+  const empty = { current: "", next: "", confirm: "" };
+  const [f, setF] = useState(empty);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const set = (k: keyof typeof empty) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr("");
+    setMsg("");
+    if (f.next !== f.confirm) {
+      setErr("The new passwords do not match.");
+      return;
+    }
+    try {
+      await api("POST", "/api/me/password", { current_password: f.current, new_password: f.next });
+      setF(empty);
+      setMsg("Password changed. Any other browsers signed in as you have been logged out.");
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  return (
+    <section className="card">
+      <h2>Change my password</h2>
+      <form onSubmit={save}>
+        <div className="row">
+          <label>Current password<input type="password" value={f.current} onChange={set("current")} autoComplete="current-password" required /></label>
+          <label>New password (12+)<input type="password" value={f.next} onChange={set("next")} autoComplete="new-password" minLength={12} required /></label>
+          <label>Confirm new password<input type="password" value={f.confirm} onChange={set("confirm")} autoComplete="new-password" minLength={12} required /></label>
+        </div>
+        <button className="primary">Change password</button>
+      </form>
+      {err && <div className="error">{err}</div>}
+      {msg && <p className="small">{msg}</p>}
+    </section>
+  );
+}
+
 function MFA({ user }: { user: User }) {
   const [setup, setSetup] = useState<{ secret: string; uri: string } | null>(null);
   const [code, setCode] = useState("");
@@ -187,10 +227,13 @@ function MFA({ user }: { user: User }) {
   );
 }
 
-function Users() {
+function Users({ me }: { me: User }) {
   const [users, setUsers] = useState<User[]>([]);
   const [f, setF] = useState({ username: "", password: "", role: "viewer" });
   const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [resetting, setResetting] = useState<User | null>(null);
+  const [newPw, setNewPw] = useState("");
   const load = () => api<User[]>("GET", "/api/users").then(setUsers).catch(() => {});
   useEffect(() => { load(); }, []);
   const add = async (e: React.FormEvent) => {
@@ -204,13 +247,62 @@ function Users() {
       setErr((e as Error).message);
     }
   };
+  const reset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetting) return;
+    setErr("");
+    setMsg("");
+    try {
+      await api("PUT", `/api/users/${resetting.id}/password`, { password: newPw });
+      setMsg(`Password for ${resetting.username} was reset and they were logged out everywhere.`);
+      setResetting(null);
+      setNewPw("");
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  const del = async (u: User) => {
+    if (!window.confirm(`Delete the user ${u.username}? They will be logged out and cannot sign in again.`)) return;
+    setErr("");
+    setMsg("");
+    try {
+      await api("DELETE", `/api/users/${u.id}`);
+      setMsg(`Deleted ${u.username}.`);
+      load();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
   return (
     <section className="card">
       <h2>Users</h2>
       <table>
-        <thead><tr><th>Username</th><th>Role</th><th>MFA</th></tr></thead>
-        <tbody>{users.map((u) => <tr key={u.id}><td>{u.username}</td><td>{u.role}</td><td>{u.mfa ? "on" : "off"}</td></tr>)}</tbody>
+        <thead><tr><th>Username</th><th>Role</th><th>MFA</th><th /></tr></thead>
+        <tbody>
+          {users.map((u) => (
+            <tr key={u.id}>
+              <td>{u.username}{u.id === me.id && <span className="muted small"> (you)</span>}</td>
+              <td>{u.role}</td>
+              <td>{u.mfa ? "on" : "off"}</td>
+              <td className="actions">
+                {u.id !== me.id && <button className="link" onClick={() => { setResetting(u); setNewPw(""); }}>Reset password</button>}
+                {u.id !== me.id && <button className="link danger" onClick={() => del(u)}>Delete</button>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
       </table>
+      {resetting && (
+        <form className="subcard" onSubmit={reset}>
+          <h3>Reset password for {resetting.username}</h3>
+          <p className="muted small">They will be logged out of every browser and must sign in with the new password.</p>
+          <div className="row">
+            <input type="password" placeholder="new password (12+)" value={newPw} onChange={(e) => setNewPw(e.target.value)} autoComplete="new-password" minLength={12} required />
+            <button className="primary">Set password</button>
+            <button type="button" onClick={() => setResetting(null)}>Cancel</button>
+          </div>
+        </form>
+      )}
       <form className="row" onSubmit={add}>
         <input placeholder="username" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} />
         <input type="password" placeholder="password (12+)" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} autoComplete="new-password" />
@@ -222,6 +314,7 @@ function Users() {
         <button>Add user</button>
       </form>
       {err && <div className="error">{err}</div>}
+      {msg && <p className="small">{msg}</p>}
     </section>
   );
 }

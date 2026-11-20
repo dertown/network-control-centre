@@ -57,6 +57,18 @@ func New(db *sql.DB) *Service { return &Service{db: db, SessionTTL: 12 * time.Ho
 // ErrBadLogin hides whether the user or the password was wrong.
 var ErrBadLogin = errors.New("invalid username, password or code")
 
+// Errors returned by the user-management calls.
+var (
+	ErrNoUser        = errors.New("no such user")
+	ErrWrongPassword = errors.New("your current password is wrong")
+	ErrSamePassword  = errors.New("the new password must be different from the current one")
+	ErrLastAdmin     = errors.New("cannot remove the last admin account")
+	ErrWeakPassword  = errors.New("password must be at least 12 characters")
+)
+
+// MinPasswordLen is the shortest password NCC accepts.
+const MinPasswordLen = 12
+
 // ---- password hashing (Argon2id, PHC string format) ----
 
 // HashPassword returns an Argon2id PHC string.
@@ -145,7 +157,7 @@ func (s *Service) CountUsers(ctx context.Context) (int, error) {
 // CreateUser adds an account.
 func (s *Service) CreateUser(ctx context.Context, username, password, role string) (*User, error) {
 	username = strings.TrimSpace(username)
-	if username == "" || len(password) < 12 {
+	if username == "" || len(password) < MinPasswordLen {
 		return nil, errors.New("username required and password must be at least 12 characters")
 	}
 	if !ValidRole(role) {
@@ -186,6 +198,111 @@ func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
 func (s *Service) SetTOTP(ctx context.Context, userID int64, secret string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE users SET totp_secret = ? WHERE id = ?`, secret, userID)
 	return err
+}
+
+// GetUser returns one account by id.
+func (s *Service) GetUser(ctx context.Context, id int64) (*User, error) {
+	var u User
+	err := s.db.QueryRowContext(ctx, `SELECT id, username, role, totp_secret FROM users WHERE id = ?`, id).
+		Scan(&u.ID, &u.Username, &u.Role, &u.totp)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoUser
+	}
+	if err != nil {
+		return nil, err
+	}
+	u.MFA = u.totp != ""
+	return &u, nil
+}
+
+// ChangePassword is the self-service change: it needs the current password, and it ends
+// every other session of the user so a stolen cookie stops working. keepToken is the raw
+// cookie token of the session making the change; that one stays logged in.
+func (s *Service) ChangePassword(ctx context.Context, userID int64, current, next, keepToken string) error {
+	if len(next) < MinPasswordLen {
+		return ErrWeakPassword
+	}
+	var hash string
+	err := s.db.QueryRowContext(ctx, `SELECT password_hash FROM users WHERE id = ?`, userID).Scan(&hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNoUser
+	}
+	if err != nil {
+		return err
+	}
+	if !CheckPassword(hash, current) {
+		return ErrWrongPassword
+	}
+	if current == next {
+		return ErrSamePassword
+	}
+	return s.setPassword(ctx, userID, next, keepToken)
+}
+
+// ResetPassword is the admin reset of another user's password. It ends all of that
+// user's sessions.
+func (s *Service) ResetPassword(ctx context.Context, userID int64, next string) error {
+	if len(next) < MinPasswordLen {
+		return ErrWeakPassword
+	}
+	return s.setPassword(ctx, userID, next, "")
+}
+
+func (s *Service) setPassword(ctx context.Context, userID int64, next, keepToken string) error {
+	h, err := HashPassword(next)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, h, userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNoUser
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?`,
+		userID, tokenHash(keepToken)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DeleteUser removes an account and its sessions. It refuses to remove the last admin.
+func (s *Service) DeleteUser(ctx context.Context, userID int64) (*User, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var u User
+	err = tx.QueryRowContext(ctx, `SELECT id, username, role FROM users WHERE id = ?`, userID).Scan(&u.ID, &u.Username, &u.Role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoUser
+	}
+	if err != nil {
+		return nil, err
+	}
+	if u.Role == RoleAdmin {
+		var admins int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = ?`, RoleAdmin).Scan(&admins); err != nil {
+			return nil, err
+		}
+		if admins <= 1 {
+			return nil, ErrLastAdmin
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID); err != nil {
+		return nil, err
+	}
+	return &u, tx.Commit()
 }
 
 // Authenticate checks credentials (and TOTP if enabled).
