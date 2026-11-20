@@ -110,3 +110,29 @@ func TestCollectWithoutDPI(t *testing.T) {
 		t.Fatalf("expected a DPI note: %+v", res.Traffic)
 	}
 }
+
+// The admin typed the site name shown in UniFi ("Home"); the API wants "default".
+func TestCollectResolvesSiteName(t *testing.T) {
+	srv := httptest.NewTLSServer(mocklab.UniFi())
+	defer srv.Close()
+	res, err := Driver{}.Test(context.Background(), drivers.Target{Address: srv.URL, Options: map[string]string{OptSite: "home"}},
+		vault.Secret{"username": "ncc", "password": "demo-password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OptionUpdates[OptSite] != "default" || len(res.Snapshot.Devices) == 0 {
+		t.Fatalf("site not resolved: %+v", res.OptionUpdates)
+	}
+}
+
+func TestPickSite(t *testing.T) {
+	sites := []rawSite{{Name: "default", Desc: "Home"}, {Name: "x7k2p", Desc: "Cabin"}}
+	for want, got := range map[string]string{"default": "default", "Home": "default", "cabin": "x7k2p", "office": ""} {
+		if p := pickSite(want, sites); p != got {
+			t.Errorf("pickSite(%q) = %q, want %q", want, p, got)
+		}
+	}
+	if pickSite("home", []rawSite{{Name: "default", Desc: "Default"}}) != "default" {
+		t.Error("a console with one site should use it")
+	}
+}

@@ -65,21 +65,26 @@ func (e *authError) Error() string {
 	case e.apiKey:
 		return fmt.Sprintf("unifi: the console refused the API key for %s %s (HTTP %d)", e.method, e.path, e.code)
 	default:
-		return fmt.Sprintf("unifi: logged in, but the console refused %s %s (HTTP %d); the account's Network role may not allow it", e.method, e.path, e.code)
+		return fmt.Sprintf("unifi: logged in, but the console refused %s %s (HTTP %d). Check the site name "+
+			"(the API uses the internal name, usually \"default\") and that the account has a Network role such as View Only", e.method, e.path, e.code)
 	}
 }
 
 func (e *authError) Is(target error) bool { return target == ErrUnauthorized }
 
 type client struct {
-	base     string
-	site     string
-	classic  bool
-	apiKey   string
-	csrf     string
-	http     *http.Client
-	pin      *netutil.Pinner
-	targetID int64
+	base string
+	site string
+	// siteChecked is set once the console's site list was read; siteFixed when the
+	// configured site was replaced by the console's internal name for it.
+	siteChecked bool
+	siteFixed   bool
+	classic     bool
+	apiKey      string
+	csrf        string
+	http        *http.Client
+	pin         *netutil.Pinner
+	targetID    int64
 }
 
 func newClient(t drivers.Target) (*client, error) {
@@ -336,11 +341,64 @@ func (d Driver) open(ctx context.Context, t drivers.Target, creds vault.Secret) 
 }
 
 func (c *client) optionUpdates(t drivers.Target) map[string]string {
+	up := map[string]string{}
 	mode := t.Options[OptTLS]
 	if (mode == "" || mode == "pin") && t.Options[OptFingerprint] == "" && c.pin.Seen() != "" {
-		return map[string]string{OptFingerprint: c.pin.Seen()}
+		up[OptFingerprint] = c.pin.Seen()
 	}
-	return nil
+	if c.siteFixed && c.site != t.Options[OptSite] {
+		up[OptSite] = c.site
+	}
+	if len(up) == 0 {
+		return nil
+	}
+	return up
+}
+
+type rawSite struct {
+	Name string `json:"name"` // internal id used in API paths, e.g. "default"
+	Desc string `json:"desc"` // the name shown in UniFi, e.g. "Home"
+}
+
+// resolveSite turns what the admin typed into the site's internal name. UniFi shows a
+// site's description ("Home", "Default") but its API wants the internal name ("default"),
+// and an unknown site answers 401, which looks like a credentials problem. Errors are
+// ignored: the configured name is then used as it is.
+func (c *client) resolveSite(ctx context.Context) {
+	if c.siteChecked {
+		return
+	}
+	path := "/proxy/network/api/self/sites"
+	if c.classic {
+		path = "/api/self/sites"
+	}
+	var env envelope[rawSite]
+	if err := c.req(ctx, http.MethodGet, path, nil, &env); err != nil || len(env.Data) == 0 {
+		return
+	}
+	c.siteChecked = true
+	if s := pickSite(c.site, env.Data); s != "" && s != c.site {
+		c.site, c.siteFixed = s, true
+	}
+}
+
+// pickSite matches a configured site against the console's sites: by internal name, then
+// by the name shown in UniFi, then the only site there is. "" means no match.
+func pickSite(want string, sites []rawSite) string {
+	for _, s := range sites {
+		if s.Name == want {
+			return s.Name
+		}
+	}
+	for _, s := range sites {
+		if strings.EqualFold(strings.TrimSpace(s.Desc), strings.TrimSpace(want)) || strings.EqualFold(s.Name, want) {
+			return s.Name
+		}
+	}
+	if len(sites) == 1 {
+		return sites[0].Name
+	}
+	return ""
 }
 
 // Test implements drivers.Driver: log in and count devices.
@@ -415,6 +473,7 @@ func (Driver) forget(key string) {
 }
 
 func (d Driver) collectWith(ctx context.Context, c *client, t drivers.Target) (*drivers.Result, error) {
+	c.resolveSite(ctx)
 	devs, err := getList[rawDevice](ctx, c, "stat/device")
 	if errors.Is(err, ErrUnauthorized) && c.apiKey != "" && !c.classic {
 		// Some firmware only accepts API keys on the official Integration API.
