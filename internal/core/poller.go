@@ -156,7 +156,8 @@ func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, er
 		return nil, err
 	}
 	if p.Hub != nil {
-		p.Hub.Publish("snapshot", map[string]any{"target": t.Name, "devices": len(snap.Devices), "clients": len(snap.Clients)})
+		p.Hub.Publish("snapshot", map[string]any{"target": t.Name, "devices": len(snap.Devices), "clients": len(snap.Clients),
+			"loops": len(snap.Loops)})
 	}
 	return snap, nil
 }

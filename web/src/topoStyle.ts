@@ -76,6 +76,13 @@ export function topoStyle(): cytoscape.StylesheetStyle[] {
     // a client coloured by its VLAN is a solid dot; the icon would be unreadable at that size
     { selector: "node[kind = 'client'][netColor]", style: { "background-opacity": 0.9, "background-image": "none" } },
     { selector: "node[kind = 'client'][zone = 'dmz']", style: { "underlay-color": bad, "underlay-opacity": 0.18, "underlay-padding": 4 } },
+    // switching loops: red when nothing stops them, amber when spanning tree holds them shut
+    { selector: "edge[loopSev]", style: { width: 4, "line-color": ((e: cytoscape.EdgeSingular) => (e.data("loopSev") === "critical" ? bad : warn)), "line-style": "solid", "line-opacity": 1,
+      color: ((e: cytoscape.EdgeSingular) => (e.data("loopSev") === "critical" ? bad : warn)), "text-border-color": ((e: cytoscape.EdgeSingular) => (e.data("loopSev") === "critical" ? bad : warn)) } },
+    { selector: "edge[origin = 'loop']", style: { "line-style": "dashed", "line-dash-pattern": [8, 4], "loop-direction": "-45deg", "loop-sweep": "-70deg", "control-point-step-size": 60 } },
+    { selector: "node[loopSev]", style: { "underlay-color": ((n: cytoscape.NodeSingular) => (n.data("loopSev") === "critical" ? bad : warn)), "underlay-opacity": 0.22, "underlay-padding": 10 } },
+    { selector: ".loop-dim", style: { opacity: 0.15 } },
+    { selector: "edge.loop-hit", style: { width: 6 } },
     // VLAN boxes are containers, not devices: no icon, halo or label plate
     { selector: "node.vlan-group", style: {
       "background-image": "none", "underlay-opacity": 0, "text-background-opacity": 0, "font-size": 11.5,

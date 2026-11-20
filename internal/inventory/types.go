@@ -55,6 +55,8 @@ type Port struct {
 	PoE       bool    `json:"poe,omitempty"`
 	PoEWatts  float64 `json:"poe_watts,omitempty"`
 	Uplink    bool    `json:"uplink,omitempty"`
+	// STP is the spanning-tree state the switch reports: forwarding, blocking, discarding...
+	STP string `json:"stp,omitempty"`
 	// VLANs: the port profile, the untagged (native) network and the tagged networks, by network id.
 	Profile        string   `json:"profile,omitempty"`
 	NativeNetwork  string   `json:"native_network,omitempty"`
@@ -117,6 +119,49 @@ type Snapshot struct {
 	Clients []Client  `json:"clients"`
 	// Networks are the VLANs and their firewall zones; empty when the driver cannot tell.
 	Networks []Network `json:"networks,omitempty"`
+	// Loops are switching loops: ports cabled back to each other, redundant paths and the
+	// controller's own loop and STP warnings.
+	Loops []Loop `json:"loops,omitempty"`
+}
+
+// Loop severities.
+const (
+	LoopCritical = "critical" // a loop with nothing blocking it, or the switch reported one
+	LoopWarning  = "warning"  // a redundant path that spanning tree is holding shut
+)
+
+// Loop kinds.
+const (
+	LoopSelf     = "self"     // two ports on one switch connect back to each other
+	LoopParallel = "parallel" // a switch has two or more ports into the same neighbour
+	LoopCycle    = "cycle"    // the cables between several devices form a ring
+	LoopSTP      = "stp"      // spanning tree is blocking a port: there is a second path
+	LoopEvent    = "event"    // the controller logged a loop, STP or MAC-flapping event
+)
+
+// Loop is one switching loop NCC found, with the exact switch ports involved.
+type Loop struct {
+	ID       string     `json:"id"`
+	Severity string     `json:"severity"`
+	Kind     string     `json:"kind"`
+	Summary  string     `json:"summary"`
+	Detail   string     `json:"detail,omitempty"`
+	Ports    []LoopPort `json:"ports"`
+	// Links are the cables that make up the loop, between devices (A may equal B).
+	Links  []Link     `json:"links,omitempty"`
+	Count  int        `json:"count,omitempty"` // events: how many times it was logged
+	SeenAt *time.Time `json:"seen_at,omitempty"`
+	Target string     `json:"target"`
+}
+
+// LoopPort is a switch port that takes part in a loop.
+type LoopPort struct {
+	Device     string `json:"device"`
+	DeviceName string `json:"device_name"`
+	Port       int    `json:"port,omitempty"`
+	PortName   string `json:"port_name,omitempty"`
+	// STP is the port's spanning-tree state when the switch reports it (forwarding, blocking...).
+	STP string `json:"stp,omitempty"`
 }
 
 // NormMAC lower-cases a MAC and normalises separators to colons.

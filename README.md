@@ -17,6 +17,14 @@ This first release (the MVP) covers:
      switch** on that port, so dumb switches still appear on the map.
 - **Topology map** built from uplinks, LLDP and client tables, with live updates.
 - **VLANs and firewall zones on the map**: networks, port VLAN profiles (untagged and tagged), Wi-Fi to VLAN mapping and zone-based firewall zones (Internal, Guest, DMZ, custom) from UniFi. Clients are coloured by VLAN, DMZ hosts are ringed in red, "Group by VLAN" boxes each network, and clicking a network highlights the links that carry it. Consoles without zone-based firewall get zones guessed from network purpose and name.
+- **Switching loop detection**: finds switch ports that loop back to each other and names the
+  exact switch and ports, on the Topology map (looping cables drawn in red or amber) and as a
+  Dashboard alert. NCC spots a switch hearing its own LLDP (two of its ports cabled together,
+  directly or through a dumb switch), duplicate cables between two devices, rings of cables
+  through several devices, ports spanning tree is blocking, and UniFi's own loop-protection,
+  STP and MAC-flapping events from the last 24 hours. LAGs are not counted as loops. A loop
+  with an STP-blocked port is shown as contained (amber); one with nothing blocking it is red.
+  Try it with `go run ./cmd/ncc-mock -loops`.
 - **PowerDNS**: browse zones and records; add, edit and delete records with a preview step;
   matching **PTR records are created and removed automatically** in your reverse zone.
 - **Vault**: a built-in encrypted vault (AES-256-GCM envelope encryption, Argon2id-derived
@@ -149,7 +157,8 @@ go run ./cmd/ncc-mock      # pretend UniFi console on :9443 and PowerDNS on :908
 ```
 
 To fill the Traffic page's site lists too, uncomment `dns_log` in the config and run
-`go run ./cmd/ncc-mock -dnslog localhost:4242`.
+`go run ./cmd/ncc-mock -dnslog localhost:4242`. Add `-loops` to cable two switching loops into the
+pretend network.
 
 Add a UniFi console at `https://localhost:9443` (user `ncc`, password `demo-password`) and a
 PowerDNS server at `http://localhost:9081` (API key `demo-pdns-key`).

@@ -241,6 +241,16 @@ func (s *Server) topology(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, core.BuildGraph(snaps, r.URL.Query().Get("clients") == "1"))
 }
 
+// loops lists the switching loops found in the latest poll of every target.
+func (s *Server) loops(w http.ResponseWriter, r *http.Request) {
+	snaps, err := core.LatestSnapshots(r.Context(), s.Store.DB)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, core.Loops(snaps))
+}
+
 // events streams live updates as Server-Sent Events.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
