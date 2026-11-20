@@ -31,8 +31,8 @@ type Provider struct{}
 func (Provider) Kind() string { return "powerdns" }
 
 type api struct {
-	base, key string
-	http      *http.Client
+	base, sid, key string
+	http           *http.Client
 }
 
 func newAPI(s dns.Server, creds map[string]string) (*api, error) {
@@ -43,12 +43,14 @@ func newAPI(s dns.Server, creds map[string]string) (*api, error) {
 	if err != nil || u.Host == "" {
 		return nil, fmt.Errorf("powerdns: bad address %q", s.Address)
 	}
+	// Accept an address that already ends in the API path, e.g. http://pdns:8081/api/v1.
+	u.Path = strings.TrimRight(strings.TrimSuffix(strings.TrimSuffix(u.Path, "/api/v1"), "/api"), "/")
 	sid := s.Options["server_id"]
 	if sid == "" {
 		sid = "localhost"
 	}
 	hc, _ := netutil.NewClient(s.Options["tls"], s.Options["tls_fingerprint"], 15*time.Second)
-	return &api{base: u.String() + "/api/v1/servers/" + url.PathEscape(sid), key: creds["api_key"], http: hc}, nil
+	return &api{base: u.String() + "/api/v1/servers/" + url.PathEscape(sid), sid: sid, key: creds["api_key"], http: hc}, nil
 }
 
 func (a *api) do(ctx context.Context, method, path string, body, out any) error {
@@ -83,12 +85,27 @@ func (a *api) do(ctx context.Context, method, path string, body, out any) error 
 		if e.Error == "" {
 			e.Error = strings.TrimSpace(string(raw))
 		}
-		return fmt.Errorf("powerdns: %s %s: HTTP %d: %s", method, path, resp.StatusCode, e.Error)
+		return &httpError{Method: method, Path: path, Status: resp.StatusCode, Msg: e.Error}
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// httpError is a non-2xx answer from the API.
+type httpError struct {
+	Method, Path string
+	Status       int
+	Msg          string
+}
+
+func (e *httpError) Error() string {
+	path := e.Path
+	if path == "" {
+		path = "/"
+	}
+	return fmt.Sprintf("powerdns: %s %s: HTTP %d: %s", e.Method, path, e.Status, e.Msg)
 }
 
 type pdnsZone struct {
@@ -128,6 +145,37 @@ func (Provider) ListZones(ctx context.Context, s dns.Server, creds map[string]st
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// Check implements dns.Checker. It reads the server object, which proves the
+// address, server_id and api_key are all right, and explains the usual failures.
+func (Provider) Check(ctx context.Context, s dns.Server, creds map[string]string) error {
+	a, err := newAPI(s, creds)
+	if err != nil {
+		return err
+	}
+	var info struct {
+		ID         string `json:"id"`
+		DaemonType string `json:"daemon_type"`
+		Version    string `json:"version"`
+	}
+	err = a.do(ctx, http.MethodGet, "", nil, &info)
+	var he *httpError
+	if errors.As(err, &he) {
+		switch he.Status {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return fmt.Errorf("powerdns: the API key was rejected (HTTP %d); check api-key in pdns.conf matches the stored credentials", he.Status)
+		case http.StatusNotFound:
+			return fmt.Errorf("powerdns: HTTP 404 for %s; check that the address is the API base (e.g. http://pdns:8081), that webserver and api are enabled in pdns.conf, and that server_id %q is right", a.base, a.sid)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if info.DaemonType == "recursor" {
+		return errors.New("powerdns: this is a PowerDNS Recursor; NCC needs the Authoritative server API")
+	}
+	return nil
 }
 
 func zonePath(zone string) string { return "/zones/" + url.PathEscape(dns.FQDN(zone)) }

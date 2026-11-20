@@ -181,6 +181,46 @@ func TestEndToEnd(t *testing.T) {
 	if code := c.do("GET", "/api/dns/"+itoa(dnsT.ID)+"/zones", nil, &zones); code != 200 || len(zones) != 2 {
 		t.Fatalf("zones: %d %v", code, zones)
 	}
+
+	// DNS servers are health-checked like devices, and failures show on the target
+	if code := c.do("POST", "/api/targets/"+itoa(dnsT.ID)+"/poll", nil, nil); code != 200 {
+		t.Fatalf("dns check: %d", code)
+	}
+	var badKey, badSID core.Target
+	c.do("POST", "/api/targets", map[string]any{
+		"kind": "powerdns", "category": "dns", "name": "pdns-badkey", "address": pdns.URL,
+		"credentials": map[string]string{"api_key": "wrong"},
+	}, &badKey)
+	c.do("POST", "/api/targets", map[string]any{
+		"kind": "powerdns", "category": "dns", "name": "pdns-badsid", "address": pdns.URL + "/api/v1",
+		"options": map[string]string{"server_id": "nope"}, "credentials": map[string]string{"api_key": "pdns-key"},
+	}, &badSID)
+	for _, id := range []int64{badKey.ID, badSID.ID} {
+		for i := 0; i < 20; i++ { // the background first check may still be running
+			if code := c.do("POST", "/api/targets/"+itoa(id)+"/poll", nil, nil); code == 502 {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	var all []core.Target
+	c.do("GET", "/api/targets?category=dns", nil, &all)
+	status := map[string]core.Target{}
+	for _, tg := range all {
+		status[tg.Name] = tg
+	}
+	if tg := status["pdns"]; tg.LastError != "" || tg.LastPoll == nil {
+		t.Fatalf("good pdns status: %+v", tg)
+	}
+	if e := status["pdns-badkey"].LastError; !strings.Contains(e, "API key was rejected") {
+		t.Fatalf("bad key status: %q", e)
+	}
+	if e := status["pdns-badsid"].LastError; !strings.Contains(e, "HTTP 404") || !strings.Contains(e, `server_id "nope"`) {
+		t.Fatalf("bad server_id status: %q", e)
+	}
+	for _, id := range []int64{badKey.ID, badSID.ID} {
+		c.do("DELETE", "/api/targets/"+itoa(id), nil, nil)
+	}
 	var res struct {
 		Applied  bool           `json:"applied"`
 		Plan     []api.ZonePlan `json:"plan"`

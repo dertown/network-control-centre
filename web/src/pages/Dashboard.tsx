@@ -52,8 +52,8 @@ export function Dashboard({ tick }: { tick: number }) {
                   <td>{t.name}</td>
                   <td>{t.kind}</td>
                   <td className="mono">{t.address}</td>
-                  <td>{t.category === "device" ? ago(t.last_poll) : "on demand"}</td>
-                  <td>{!t.enabled ? <span className="pill">disabled</span> : t.last_error ? <span className="pill bad" title={t.last_error}>error</span> : <span className="pill good">ok</span>}</td>
+                  <td>{ago(t.last_poll)}</td>
+                  <td>{!t.enabled ? <span className="pill">disabled</span> : t.last_error ? <span className="pill bad" title={t.last_error}>error</span> : !t.last_poll ? <span className="pill">not checked</span> : <span className="pill good">ok</span>}</td>
                 </tr>
               ))}
             </tbody>

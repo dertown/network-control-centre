@@ -118,6 +118,10 @@ func (p *PowerDNS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	const base = "/api/v1/servers/localhost/zones"
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if r.URL.Path == "/api/v1/servers/localhost" && r.Method == http.MethodGet {
+		_, _ = w.Write([]byte(`{"type":"Server","id":"localhost","daemon_type":"authoritative","version":"4.9.0-mock"}`))
+		return
+	}
 	if r.URL.Path == base && r.Method == http.MethodGet {
 		var out []map[string]any
 		names := make([]string, 0, len(p.zones))

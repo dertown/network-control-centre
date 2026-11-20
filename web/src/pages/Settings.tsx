@@ -51,11 +51,11 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
                 <td><strong>{t.name}</strong></td>
                 <td>{t.kind}</td>
                 <td className="mono small">{t.address}{t.options.tls_fingerprint && <div className="muted" title={t.options.tls_fingerprint}>cert pinned {t.options.tls_fingerprint.slice(0, 16)}…</div>}</td>
-                <td>{t.category === "device" ? ago(t.last_poll) : "—"}</td>
-                <td>{!t.enabled ? <span className="pill">disabled</span> : t.last_error ? <span className="pill bad" title={t.last_error}>error</span> : <span className="pill good">ok</span>}
+                <td>{ago(t.last_poll)}</td>
+                <td>{!t.enabled ? <span className="pill">disabled</span> : t.last_error ? <span className="pill bad" title={t.last_error}>error</span> : !t.last_poll ? <span className="pill">not checked</span> : <span className="pill good">ok</span>}
                   {t.last_error && <div className="error small">{t.last_error}</div>}</td>
                 <td className="actions">
-                  {t.category === "device" && user.role !== "viewer" && <button className="link" disabled={busy === t.id} onClick={() => poll(t)}>{busy === t.id ? "Polling…" : "Poll now"}</button>}
+                  {user.role !== "viewer" && <button className="link" disabled={busy === t.id} onClick={() => poll(t)}>{busy === t.id ? (t.category === "dns" ? "Checking…" : "Polling…") : (t.category === "dns" ? "Check now" : "Poll now")}</button>}
                   {isAdmin && <button className="link" onClick={() => toggle(t)}>{t.enabled ? "Disable" : "Enable"}</button>}
                   {isAdmin && <button className="link danger" onClick={() => del(t)}>Remove</button>}
                 </td>

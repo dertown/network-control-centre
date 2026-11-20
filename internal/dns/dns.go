@@ -55,6 +55,23 @@ type Provider interface {
 	Apply(ctx context.Context, s Server, creds map[string]string, zone string, changes []Change) error
 }
 
+// Checker is implemented by providers that can test a connection more cheaply
+// than listing zones. Check returns nil when the server answers and accepts
+// the credentials.
+type Checker interface {
+	Check(ctx context.Context, s Server, creds map[string]string) error
+}
+
+// Check tests that a DNS server is reachable and the credentials work. It uses
+// the provider's own Checker when it has one, and otherwise lists the zones.
+func Check(ctx context.Context, p Provider, s Server, creds map[string]string) error {
+	if c, ok := p.(Checker); ok {
+		return c.Check(ctx, s, creds)
+	}
+	_, err := p.ListZones(ctx, s, creds)
+	return err
+}
+
 var (
 	mu        sync.RWMutex
 	providers = map[string]Provider{}

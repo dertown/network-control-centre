@@ -86,9 +86,7 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Audit.Record(r.Context(), actor(r), "target.create", "target/"+t.Name,
 		map[string]string{"kind": t.Kind, "address": t.Address})
-	if t.Category == core.CategoryDevice {
-		go func() { _, _ = s.Poller.PollOne(s.bg(), t.ID) }()
-	}
+	go func() { _, _ = s.Poller.PollOne(s.bg(), t.ID) }()
 	writeJSON(w, 201, t)
 }
 
@@ -187,6 +185,10 @@ func (s *Server) pollTarget(w http.ResponseWriter, r *http.Request) {
 	snap, err := s.Poller.PollOne(r.Context(), id)
 	if err != nil {
 		s.fail(w, err)
+		return
+	}
+	if snap == nil { // DNS server check
+		writeJSON(w, 200, map[string]any{"ok": true})
 		return
 	}
 	writeJSON(w, 200, map[string]any{"devices": len(snap.Devices), "clients": len(snap.Clients), "links": len(snap.Links)})
@@ -300,6 +302,8 @@ func (s *Server) dnsZones(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	zs, err := p.ListZones(r.Context(), srv, creds)
+	// Keep the Settings status in step with what the DNS page just saw.
+	_ = s.Targets.RecordPoll(r.Context(), srv.ID, err)
 	if err != nil {
 		s.fail(w, err)
 		return
