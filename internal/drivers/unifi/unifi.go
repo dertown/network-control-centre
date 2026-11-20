@@ -48,6 +48,29 @@ const (
 // ErrUnauthorized means the credentials were refused.
 var ErrUnauthorized = errors.New("unifi: credentials refused (HTTP 401/403)")
 
+// authError is a 401 or 403 answer. It matches ErrUnauthorized with errors.Is, and says
+// which step was refused so a wrong password can be told apart from a missing permission.
+type authError struct {
+	method, path string
+	code         int
+	login        bool
+	apiKey       bool
+}
+
+func (e *authError) Error() string {
+	switch {
+	case e.login:
+		return fmt.Sprintf("unifi: the console refused the username or password (HTTP %d). Use a local UniFi OS admin "+
+			"(Admins & Users, \"Restrict to local access only\"): UI.com cloud accounts and accounts with two-factor sign-in cannot log in from NCC", e.code)
+	case e.apiKey:
+		return fmt.Sprintf("unifi: the console refused the API key for %s %s (HTTP %d)", e.method, e.path, e.code)
+	default:
+		return fmt.Sprintf("unifi: logged in, but the console refused %s %s (HTTP %d); the account's Network role may not allow it", e.method, e.path, e.code)
+	}
+}
+
+func (e *authError) Is(target error) bool { return target == ErrUnauthorized }
+
 type client struct {
 	base     string
 	site     string
@@ -115,7 +138,7 @@ func (c *client) req(ctx context.Context, method, path string, body any, out any
 		c.csrf = t
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return ErrUnauthorized
+		return &authError{method: method, path: path, code: resp.StatusCode, apiKey: c.apiKey != ""}
 	}
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
@@ -140,7 +163,12 @@ func (c *client) login(ctx context.Context, creds vault.Secret) error {
 	if c.classic {
 		path = "/api/login"
 	}
-	return c.req(ctx, http.MethodPost, path, map[string]any{"username": user, "password": pass, "remember": false}, nil)
+	err := c.req(ctx, http.MethodPost, path, map[string]any{"username": user, "password": pass, "remember": false}, nil)
+	var ae *authError
+	if errors.As(err, &ae) {
+		ae.login = true
+	}
+	return err
 }
 
 func (c *client) logout(ctx context.Context) {

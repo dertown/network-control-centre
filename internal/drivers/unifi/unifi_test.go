@@ -3,6 +3,7 @@ package unifi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -191,8 +192,22 @@ func TestCollectBadPassword(t *testing.T) {
 	defer srv.Close()
 	_, err := Driver{}.Collect(context.Background(), drivers.Target{Address: srv.URL, Options: map[string]string{}},
 		vault.Secret{"username": "ncc", "password": "wrong"})
-	if err == nil {
-		t.Fatal("expected an auth error")
+	if !errors.Is(err, ErrUnauthorized) || !strings.Contains(err.Error(), "refused the username or password") {
+		t.Fatalf("expected a login error that says what to fix, got %v", err)
+	}
+}
+
+// A 403 after a good login is a permission problem, not a wrong password.
+func TestCollectForbiddenAfterLogin(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /proxy/network/api/s/default/stat/device", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(403) })
+	mux.Handle("/", mocklab.UniFi())
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+	_, err := Driver{}.Test(context.Background(), drivers.Target{Address: srv.URL, Options: map[string]string{}},
+		vault.Secret{"username": "ncc", "password": "demo-password"})
+	if !errors.Is(err, ErrUnauthorized) || !strings.Contains(err.Error(), "logged in, but the console refused GET") {
+		t.Fatalf("got %v", err)
 	}
 }
 
