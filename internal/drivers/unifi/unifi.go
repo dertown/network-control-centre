@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/dertown/network-control-centre/internal/drivers"
+	inv "github.com/dertown/network-control-centre/internal/inventory"
 	"github.com/dertown/network-control-centre/internal/netutil"
 	"github.com/dertown/network-control-centre/internal/vault"
 )
@@ -393,7 +394,10 @@ func (d Driver) collectWith(ctx context.Context, c *client, t drivers.Target) (*
 		if ierr != nil {
 			return nil, fmt.Errorf("%v; integration API: %w", err, ierr)
 		}
-		return &drivers.Result{Snapshot: snap, OptionUpdates: c.optionUpdates(t)}, nil
+		traffic := &inv.TrafficReport{Target: t.Name, TakenAt: time.Now().UTC(), Clients: []inv.ClientTraffic{},
+			DPINote: "this console is connected with an API key through the Integration API, which has no traffic data. " +
+				"Use a local UniFi admin username and password for this target to see traffic."}
+		return &drivers.Result{Snapshot: snap, OptionUpdates: c.optionUpdates(t), Traffic: traffic}, nil
 	}
 	if err != nil {
 		return nil, err

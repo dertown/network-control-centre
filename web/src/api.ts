@@ -77,6 +77,6 @@ export interface TrafficClient {
 }
 export interface DNSLogStatus { enabled: boolean; listen?: string; received: number; last_message?: string; senders?: string[] }
 export interface TrafficView {
-  window: string; taken_at?: string; dpi: boolean; dpi_notes?: string[]; categories: AppUsage[];
+  window: string; taken_at?: string; dpi: boolean; dpi_notes?: string[]; dpi_sources?: string[]; categories: AppUsage[];
   clients: TrafficClient[]; sites: SiteCount[]; unmatched_sources?: string[]; dns_log: DNSLogStatus;
 }

@@ -3,7 +3,9 @@ package unifi
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +62,40 @@ func TestCollectReturnsTraffic(t *testing.T) {
 	if res.Traffic == nil || !res.Traffic.DPI || res.Traffic.DPINote != "" || len(res.Traffic.Clients) != len(res.Snapshot.Clients)+1 {
 		t.Fatalf("traffic: %+v", res.Traffic)
 	}
+	// the mock behaves like Network 9+: data comes from the v2 traffic API
+	if res.Traffic.DPISource != "UniFi traffic API (last 24 hours)" {
+		t.Errorf("source: %q", res.Traffic.DPISource)
+	}
+	for _, c := range res.Traffic.Clients {
+		if c.Name == "tv" && (len(c.Apps) != 3 || c.Apps[0].Category != "Streaming media" || c.Apps[0].DownBytes != 25769803776 || c.Apps[0].UpBytes != 429496729) {
+			t.Errorf("tv apps from v2: %+v", c.Apps)
+		}
+	}
+	if len(res.Traffic.Categories) == 0 || res.Traffic.Categories[0].Category != "Streaming media" {
+		t.Errorf("categories built from client rows: %+v", res.Traffic.Categories)
+	}
+}
+
+// An older console without the v2 traffic API: legacy DPI counters are used.
+func TestCollectLegacyDPI(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /proxy/network/v2/api/site/default/traffic", http.NotFound)
+	legacy := func(b []byte) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { w.Write(b) }
+	}
+	mux.HandleFunc("POST /proxy/network/api/s/default/stat/stadpi", legacy(mocklab.StatStaDPI))
+	mux.HandleFunc("POST /proxy/network/api/s/default/stat/sitedpi", legacy(mocklab.StatSiteDPI))
+	mux.Handle("/", mocklab.UniFi())
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+	res, err := Driver{}.Test(context.Background(), drivers.Target{Name: "old", Address: srv.URL, Options: map[string]string{}},
+		vault.Secret{"username": "ncc", "password": "demo-password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Traffic.DPI || res.Traffic.DPISource != "UniFi DPI counters" || len(res.Traffic.Categories) != 8 {
+		t.Fatalf("legacy traffic: %+v", res.Traffic)
+	}
 }
 
 func TestCollectWithoutDPI(t *testing.T) {
@@ -70,7 +106,7 @@ func TestCollectWithoutDPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Traffic == nil || res.Traffic.DPI || res.Traffic.DPINote == "" {
+	if res.Traffic == nil || res.Traffic.DPI || !strings.Contains(res.Traffic.DPINote, "Traffic Identification") {
 		t.Fatalf("expected a DPI note: %+v", res.Traffic)
 	}
 }

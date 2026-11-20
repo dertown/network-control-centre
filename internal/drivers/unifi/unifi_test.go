@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -207,6 +208,9 @@ func TestCollectAPIKey(t *testing.T) {
 		d := deviceByID(res.Snapshot, "aa:bb:cc:00:00:01")
 		if d == nil || d.Model != "Dream Router 7" || d.Kind != inv.KindGateway {
 			t.Fatalf("integOnly=%v: router = %+v", integOnly, d)
+		}
+		if integOnly && (res.Traffic == nil || !strings.Contains(res.Traffic.DPINote, "Integration API")) {
+			t.Fatalf("integration-only console must explain the empty Traffic page: %+v", res.Traffic)
 		}
 	}
 }

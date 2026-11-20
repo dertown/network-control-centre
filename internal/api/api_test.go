@@ -211,8 +211,15 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	// DNS servers are health-checked like devices, and failures show on the target
-	if code := c.do("POST", "/api/targets/"+itoa(dnsT.ID)+"/poll", nil, nil); code != 200 {
-		t.Fatalf("dns check: %d", code)
+	// the check started when the target was added may still be running: retry briefly
+	dnsCode := 0
+	for deadline := time.Now().Add(5 * time.Second); dnsCode != 200 && time.Now().Before(deadline); {
+		if dnsCode = c.do("POST", "/api/targets/"+itoa(dnsT.ID)+"/poll", nil, nil); dnsCode != 200 {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	if dnsCode != 200 {
+		t.Fatalf("dns check: %d", dnsCode)
 	}
 	var badKey, badSID core.Target
 	c.do("POST", "/api/targets", map[string]any{

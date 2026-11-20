@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	inv "github.com/dertown/network-control-centre/internal/inventory"
@@ -160,21 +161,128 @@ func BuildTraffic(target string, clients []rawClient, staDPI []rawStaDPI, siteDP
 	return rep
 }
 
-// collectTraffic fetches DPI data and builds the report. DPI failures are not fatal:
+// ---- UniFi Network 9+ traffic API ----
+//
+// Newer consoles (e.g. the Dream Router 7) fill the dashboard's application chart from
+// GET /proxy/network/v2/api/site/{site}/traffic?start=&end=&includeUnidentified=true
+// (times in epoch milliseconds). The legacy stat/stadpi call still answers "ok" there but
+// often with no rows, so NCC asks the v2 API first and falls back to the legacy one.
+
+type rawV2Usage struct {
+	Application      int   `json:"application"`
+	Category         int   `json:"category"`
+	BytesReceived    int64 `json:"bytes_received"`
+	BytesTransmitted int64 `json:"bytes_transmitted"`
+	TotalBytes       int64 `json:"total_bytes"`
+}
+
+type rawV2Client struct {
+	Client struct {
+		MAC      string `json:"mac"`
+		Name     string `json:"name"`
+		Hostname string `json:"hostname"`
+	} `json:"client"`
+	UsageByApp []rawV2Usage `json:"usage_by_app"`
+}
+
+type rawV2Traffic struct {
+	ClientUsageByApp []rawV2Client `json:"client_usage_by_app"`
+}
+
+// v2StaDPI converts the v2 answer into the legacy per-client shape BuildTraffic reads.
+// bytes_received is what the client received (download), bytes_transmitted what it sent.
+func v2StaDPI(v rawV2Traffic) []rawStaDPI {
+	var out []rawStaDPI
+	for _, cl := range v.ClientUsageByApp {
+		s := rawStaDPI{MAC: cl.Client.MAC}
+		for _, u := range cl.UsageByApp {
+			app := u.Application
+			rx, tx := u.BytesTransmitted, u.BytesReceived // legacy: tx = to the client
+			if rx+tx == 0 && u.TotalBytes > 0 {
+				tx = u.TotalBytes
+			}
+			s.ByApp = append(s.ByApp, rawDPIEntry{App: &app, Cat: u.Category, RxBytes: rx, TxBytes: tx})
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// categoriesFrom adds up per-client application rows into site-wide categories, for when
+// the console gives no site-wide figures of its own.
+func categoriesFrom(sta []rawStaDPI) []rawSiteDPI {
+	by := map[int]*rawDPIEntry{}
+	var order []int
+	for _, s := range sta {
+		for _, e := range s.ByApp {
+			c := by[e.Cat]
+			if c == nil {
+				c = &rawDPIEntry{Cat: e.Cat}
+				by[e.Cat] = c
+				order = append(order, e.Cat)
+			}
+			c.RxBytes += e.RxBytes
+			c.TxBytes += e.TxBytes
+		}
+	}
+	site := rawSiteDPI{}
+	for _, cat := range order {
+		site.ByCat = append(site.ByCat, *by[cat])
+	}
+	return []rawSiteDPI{site}
+}
+
+func hasRows(sta []rawStaDPI) bool {
+	for _, s := range sta {
+		for _, e := range s.ByApp {
+			if e.RxBytes+e.TxBytes > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// collectTraffic fetches application data and builds the report. Failures are not fatal:
 // the report then carries byte counters only and a note saying why.
 func collectTraffic(ctx context.Context, c *client, target string, clients []rawClient) *inv.TrafficReport {
+	now := time.Now().UTC()
+	var notes []string
+
+	// 1. UniFi Network 9+: the v2 traffic API, last 24 hours.
+	var v2 rawV2Traffic
+	q := fmt.Sprintf("traffic?start=%d&end=%d&includeUnidentified=true", now.Add(-24*time.Hour).UnixMilli(), now.UnixMilli())
+	err := c.req(ctx, http.MethodGet, c.v2Path(q), nil, &v2)
+	if sta := v2StaDPI(v2); err == nil && hasRows(sta) {
+		rep := BuildTraffic(target, clients, sta, categoriesFrom(sta), now)
+		rep.DPISource = "UniFi traffic API (last 24 hours)"
+		return rep
+	} else if err != nil {
+		notes = append(notes, "traffic API: "+err.Error())
+	} else {
+		notes = append(notes, "traffic API: no application rows")
+	}
+
+	// 2. Older consoles: legacy DPI counters.
 	staDPI, err1 := postList[rawStaDPI](ctx, c, "stat/stadpi", map[string]any{"type": "by_app"})
 	siteDPI, err2 := postList[rawSiteDPI](ctx, c, "stat/sitedpi", map[string]any{"type": "by_cat"})
-	rep := BuildTraffic(target, clients, staDPI, siteDPI, time.Now().UTC())
+	if err2 != nil && hasRows(staDPI) {
+		siteDPI = categoriesFrom(staDPI)
+	}
+	rep := BuildTraffic(target, clients, staDPI, siteDPI, now)
+	if rep.DPI {
+		rep.DPISource = "UniFi DPI counters"
+		return rep
+	}
 	switch {
 	case err1 != nil && errors.Is(err1, ErrUnauthorized):
-		rep.DPINote = "the console refused the DPI request; the NCC account may need more than View Only access"
+		notes = append(notes, "DPI: the console refused the request; the NCC account may need more than View Only access")
 	case err1 != nil:
-		rep.DPINote = "the console did not return DPI data: " + err1.Error()
-	case err2 != nil && !rep.DPI:
-		rep.DPINote = "the console did not return DPI data: " + err2.Error()
-	case !rep.DPI:
-		rep.DPINote = "no application data yet; turn on Traffic Identification (DPI) in UniFi Network settings"
+		notes = append(notes, "DPI: "+err1.Error())
+	default:
+		notes = append(notes, "DPI: no application rows")
 	}
+	rep.DPINote = "the console returned no application data (" + strings.Join(notes, "; ") +
+		"). Check that Traffic Identification is on in UniFi Network."
 	return rep
 }

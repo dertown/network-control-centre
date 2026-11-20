@@ -108,7 +108,7 @@ export function Traffic({ tick }: { tick: number }) {
       {view.clients.length === 0 && (
         <div className="banner warn">No traffic data yet. Add your UniFi console in <a href="#/settings">Settings</a>; numbers appear after the first poll.</div>
       )}
-      {(view.dpi_notes ?? []).map((n) => <div key={n} className="banner warn">Application types unavailable from {n}.</div>)}
+      {(view.dpi_notes ?? []).map((n) => <div key={n} className="banner warn">No application data from {n}</div>)}
       {win !== "session" && view.clients.length > 0 && view.clients.every((c) => !c.window_down && !c.window_up) && (
         <div className="banner warn">NCC keeps a sample every 5 minutes, so totals for {winLabel} start after it has been running a little while. Choose "Since each client connected" to see the console's own counters now.</div>
       )}
@@ -138,7 +138,7 @@ export function Traffic({ tick }: { tick: number }) {
               </tbody>
             </table>
           )}
-          {view.categories.length > 0 && <p className="muted small">Gateway DPI totals since the console last reset them.</p>}
+          {view.categories.length > 0 && <p className="muted small">From the {(view.dpi_sources ?? []).join(", ") || "gateway's DPI"}{view.dpi_sources?.some((x) => x.includes("counters")) ? ", totals since the console last reset them" : ""}.</p>}
         </section>
         <section className="card">
           <h2>Most looked-up sites</h2>

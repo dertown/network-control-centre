@@ -53,6 +53,12 @@ var RestWLANConf []byte
 //go:embed firewall_zone.json
 var FirewallZones []byte
 
+// TrafficV2 is a recorded UniFi Network 9+ v2 traffic API response (per-client
+// application usage). A console with this API answers the legacy DPI calls with no rows.
+//
+//go:embed traffic_v2.json
+var TrafficV2 []byte
+
 // UniFi returns a handler that behaves like a UniFi OS console for the read-only API NCC uses.
 // It accepts username "ncc" with password "demo-password", or API key "demo-key".
 func UniFi() http.Handler {
@@ -88,8 +94,11 @@ func UniFi() http.Handler {
 	}
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/device", serve(StatDevice))
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/sta", serve(StatSta))
-	mux.HandleFunc("POST /proxy/network/api/s/default/stat/stadpi", serve(StatStaDPI))
-	mux.HandleFunc("POST /proxy/network/api/s/default/stat/sitedpi", serve(StatSiteDPI))
+	// Like a Network 9+ console: application data comes from the v2 traffic API and the
+	// legacy DPI calls answer "ok" with no rows.
+	mux.HandleFunc("GET /proxy/network/v2/api/site/default/traffic", serve(TrafficV2))
+	mux.HandleFunc("POST /proxy/network/api/s/default/stat/stadpi", serve([]byte(`{"meta":{"rc":"ok"},"data":[]}`)))
+	mux.HandleFunc("POST /proxy/network/api/s/default/stat/sitedpi", serve([]byte(`{"meta":{"rc":"ok"},"data":[]}`)))
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/networkconf", serve(RestNetworkConf))
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/portconf", serve(RestPortConf))
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/wlanconf", serve(RestWLANConf))
