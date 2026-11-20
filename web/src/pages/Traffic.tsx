@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, AppUsage, SiteCount, TrafficClient, TrafficView } from "../api";
 import { ago } from "../live";
+import { Icon, IconName } from "../icons";
 
 const windows = [
   { id: "1h", label: "Last hour" },
@@ -113,10 +114,10 @@ export function Traffic({ tick }: { tick: number }) {
       )}
 
       <div className="tiles">
-        <div className="tile"><div className="tile-label">Downloading now</div><div className="tile-value">{rate(liveDown)}</div><div className="muted small">all clients</div></div>
-        <div className="tile"><div className="tile-label">Uploading now</div><div className="tile-value">{rate(liveUp)}</div><div className="muted small">all clients</div></div>
-        <div className="tile"><div className="tile-label">Top client, {winLabel}</div><div className="tile-value small-value">{top && top.window_down + top.window_up > 0 ? top.name : "—"}</div><div className="muted small">{top ? bytes(top.window_down + top.window_up) : ""}</div></div>
-        <div className="tile"><div className="tile-label">Clients online</div><div className="tile-value">{view.clients.filter((c) => c.online).length}</div></div>
+        <div className="tile"><TileHead label="Downloading now" icon="download" tone="c3" /><div className="tile-value">{rate(liveDown)}</div><div className="muted small">all clients</div></div>
+        <div className="tile"><TileHead label="Uploading now" icon="upload" tone="c2" /><div className="tile-value">{rate(liveUp)}</div><div className="muted small">all clients</div></div>
+        <div className="tile"><TileHead label={`Top client, ${winLabel}`} icon="client" /><div className="tile-value small-value">{top && top.window_down + top.window_up > 0 ? top.name : "—"}</div><div className="muted small">{top ? bytes(top.window_down + top.window_up) : ""}</div></div>
+        <div className="tile good"><TileHead label="Clients online" icon="users" tone="good" /><div className="tile-value">{view.clients.filter((c) => c.online).length}</div></div>
       </div>
 
       <div className="two">
@@ -269,4 +270,8 @@ function ClientDetail({ c }: { c: TrafficClient }) {
       </div>
     </div>
   );
+}
+
+function TileHead({ label, icon, tone }: { label: string; icon: IconName; tone?: string }) {
+  return <div className="tile-top"><span className="tile-label">{label}</span><span className={`tile-icon ${tone ?? ""}`}><Icon name={icon} size={17} /></span></div>;
 }

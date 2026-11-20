@@ -2,19 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import cytoscape, { Core } from "cytoscape";
 import { api, Graph, GNode } from "../api";
 import { discoveryLabel, kindLabel } from "../live";
-
-const shapes: Record<string, string> = {
-  gateway: "round-hexagon",
-  switch: "round-rectangle",
-  "unmanaged-switch": "round-rectangle",
-  ap: "ellipse",
-  unknown: "round-diamond",
-  client: "ellipse",
-};
-
-function cssVar(name: string) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
+import { topoStyle } from "../topoStyle";
 
 export function Topology({ tick }: { tick: number }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -29,8 +17,6 @@ export function Topology({ tick }: { tick: number }) {
 
   useEffect(() => {
     if (!ref.current || !graph) return;
-    const ink = cssVar("--ink"), quiet = cssVar("--muted"), line = cssVar("--line"), accent = cssVar("--accent"),
-      bad = cssVar("--bad"), surface = cssVar("--surface");
     const positions = new Map<string, cytoscape.Position>();
     cy.current?.nodes().forEach((n) => { positions.set(n.id(), { ...n.position() }); });
     cy.current?.destroy();
@@ -43,26 +29,7 @@ export function Topology({ tick }: { tick: number }) {
         })),
         ...graph.edges.map((e) => ({ data: { ...e } })),
       ],
-      style: [
-        { selector: "node", style: {
-          shape: ((ele: cytoscape.NodeSingular) => shapes[ele.data("kind")] ?? "ellipse") as unknown as cytoscape.Css.NodeShape,
-          "background-color": surface, "border-width": 2, "border-color": accent,
-          label: "data(display)", "text-wrap": "wrap", "text-valign": "bottom", "text-margin-y": 6,
-          "font-size": 11, color: ink, width: 44, height: 32,
-        } },
-        { selector: "node[kind = 'gateway']", style: { width: 60, height: 44, "border-width": 3 } },
-        { selector: "node[kind = 'unmanaged-switch'], node[kind = 'unknown']", style: { "border-style": "dashed", "border-color": quiet } },
-        { selector: "node[kind = 'client']", style: { width: 14, height: 14, "border-width": 1, "border-color": quiet, "font-size": 9, color: quiet } },
-        { selector: "node[?online][kind != 'client']", style: {} },
-        { selector: "node[!online]", style: { "border-color": bad, "background-color": surface } },
-        { selector: "node:selected", style: { "overlay-opacity": 0.12, "overlay-color": accent } },
-        { selector: "edge", style: {
-          width: 1.5, "line-color": line, "curve-style": "bezier", label: "data(label)", "font-size": 9,
-          color: quiet, "text-rotation": "autorotate", "text-background-color": surface, "text-background-opacity": 1,
-        } },
-        { selector: "edge[medium = 'wireless']", style: { "line-style": "dashed" } },
-        { selector: "edge[origin = 'client']", style: { label: "", width: 1 } },
-      ],
+      style: topoStyle(),
       layout: positions.size
         ? { name: "preset", positions: (n: cytoscape.NodeSingular) => positions.get(n.id()) ?? { x: 0, y: 0 } } as cytoscape.LayoutOptions
         : { name: "breadthfirst", directed: true, spacingFactor: 1.15, roots: graph.nodes.filter((n) => n.kind === "gateway").map((n) => n.id) } as cytoscape.LayoutOptions,
@@ -78,6 +45,15 @@ export function Topology({ tick }: { tick: number }) {
   }, [graph]);
 
   useEffect(() => () => cy.current?.destroy(), []);
+
+  // redraw with the new colours when the theme changes
+  useEffect(() => {
+    const restyle = () => cy.current?.style(topoStyle());
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    window.addEventListener("ncc-theme", restyle);
+    mq.addEventListener("change", restyle);
+    return () => { window.removeEventListener("ncc-theme", restyle); mq.removeEventListener("change", restyle); };
+  }, []);
 
   const relayout = () =>
     cy.current?.layout({ name: "breadthfirst", directed: true, spacingFactor: 1.15, roots: graph?.nodes.filter((n) => n.kind === "gateway").map((n) => n.id) } as cytoscape.LayoutOptions).run();
