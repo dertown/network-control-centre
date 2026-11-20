@@ -317,3 +317,115 @@ func selfSigned(t *testing.T, cn string, life time.Duration) (string, string) {
 }
 
 var _ = context.Background
+
+func TestPasswordManagement(t *testing.T) {
+	ncc, _ := newNCC(t)
+	defer ncc.Close()
+	login := func(user, pw string) (*client, int) {
+		jar, _ := cookiejar.New(nil)
+		c := &client{t: t, base: ncc.URL, hc: &http.Client{Jar: jar}}
+		var out struct {
+			CSRF string `json:"csrf"`
+		}
+		code := c.do("POST", "/api/login", map[string]string{"username": user, "password": pw}, &out)
+		c.csrf = out.CSRF
+		return c, code
+	}
+	setup := &client{t: t, base: ncc.URL, hc: http.DefaultClient}
+	if code := setup.do("POST", "/api/setup", map[string]string{"username": "derek", "password": "first-password-1", "vault_passphrase": "vault passphrase 1"}, nil); code != 201 {
+		t.Fatalf("setup: %d", code)
+	}
+	a, _ := login("derek", "first-password-1")
+	a2, _ := login("derek", "first-password-1") // a second browser
+
+	var guest auth.User
+	a.do("POST", "/api/users", map[string]string{"username": "guest", "password": "guest-password-1", "role": "viewer"}, &guest)
+	g, _ := login("guest", "guest-password-1")
+
+	// self-service change
+	if code := a.do("POST", "/api/me/password", map[string]string{"current_password": "wrong-password!!", "new_password": "second-password-2"}, nil); code != 403 {
+		t.Fatalf("wrong current password: %d", code)
+	}
+	if code := a.do("POST", "/api/me/password", map[string]string{"current_password": "first-password-1", "new_password": "short"}, nil); code != 400 {
+		t.Fatalf("short password: %d", code)
+	}
+	if code := a.do("POST", "/api/me/password", map[string]string{"current_password": "first-password-1", "new_password": "second-password-2"}, nil); code != 200 {
+		t.Fatalf("change: %d", code)
+	}
+	if code := a.do("GET", "/api/me", nil, nil); code != 200 {
+		t.Fatalf("changing browser logged out: %d", code)
+	}
+	if code := a2.do("GET", "/api/me", nil, nil); code != 401 {
+		t.Fatalf("other browser still logged in: %d", code)
+	}
+	if _, code := login("derek", "first-password-1"); code != 401 {
+		t.Fatalf("old password works: %d", code)
+	}
+	if _, code := login("derek", "second-password-2"); code != 200 {
+		t.Fatalf("new password refused: %d", code)
+	}
+
+	// admin-only endpoints
+	if code := g.do("PUT", "/api/users/"+itoa(guest.ID)+"/password", map[string]string{"password": "guest-password-2"}, nil); code != 403 {
+		t.Fatalf("viewer reset a password: %d", code)
+	}
+	if code := g.do("DELETE", "/api/users/"+itoa(guest.ID), nil, nil); code != 403 {
+		t.Fatalf("viewer deleted a user: %d", code)
+	}
+	// a viewer can change their own password
+	if code := g.do("POST", "/api/me/password", map[string]string{"current_password": "guest-password-1", "new_password": "guest-password-2"}, nil); code != 200 {
+		t.Fatalf("viewer self change: %d", code)
+	}
+
+	// admin reset
+	var me struct {
+		User auth.User `json:"user"`
+	}
+	a.do("GET", "/api/me", nil, &me)
+	if code := a.do("PUT", "/api/users/"+itoa(me.User.ID)+"/password", map[string]string{"password": "third-password-3"}, nil); code != 400 {
+		t.Fatalf("admin reset own password without current one: %d", code)
+	}
+	if code := a.do("PUT", "/api/users/9999/password", map[string]string{"password": "third-password-3"}, nil); code != 404 {
+		t.Fatalf("reset missing user: %d", code)
+	}
+	if code := a.do("PUT", "/api/users/"+itoa(guest.ID)+"/password", map[string]string{"password": "guest-password-3"}, nil); code != 200 {
+		t.Fatalf("reset: %d", code)
+	}
+	if code := g.do("GET", "/api/me", nil, nil); code != 401 {
+		t.Fatalf("guest session survived reset: %d", code)
+	}
+	if _, code := login("guest", "guest-password-3"); code != 200 {
+		t.Fatalf("reset password refused: %d", code)
+	}
+
+	// delete
+	if code := a.do("DELETE", "/api/users/"+itoa(me.User.ID), nil, nil); code != 400 {
+		t.Fatalf("admin deleted self: %d", code)
+	}
+	if code := a.do("DELETE", "/api/users/"+itoa(guest.ID), nil, nil); code != 200 {
+		t.Fatalf("delete: %d", code)
+	}
+	if code := a.do("DELETE", "/api/users/"+itoa(guest.ID), nil, nil); code != 404 {
+		t.Fatalf("delete twice: %d", code)
+	}
+	if _, code := login("guest", "guest-password-3"); code != 401 {
+		t.Fatalf("deleted user logged in: %d", code)
+	}
+
+	var entries []audit.Entry
+	a.do("GET", "/api/audit", nil, &entries)
+	seen := map[string]bool{}
+	for _, e := range entries {
+		seen[e.Action] = true
+		for _, pw := range []string{"first-password-1", "second-password-2", "guest-password-3"} {
+			if strings.Contains(e.Detail, pw) {
+				t.Fatalf("password in audit log: %+v", e)
+			}
+		}
+	}
+	for _, act := range []string{"password.change", "password.change.failed", "user.password_reset", "user.delete"} {
+		if !seen[act] {
+			t.Fatalf("no %s audit entry", act)
+		}
+	}
+}

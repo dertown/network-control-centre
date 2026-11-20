@@ -77,6 +77,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/me", v(s.me))
 	mux.Handle("POST /api/me/mfa/start", v(s.mfaStart))
 	mux.Handle("POST /api/me/mfa/confirm", v(s.mfaConfirm))
+	mux.Handle("POST /api/me/password", v(s.changePassword))
 	mux.Handle("GET /api/events", v(s.events))
 	mux.Handle("GET /api/drivers", v(s.listDrivers))
 
@@ -113,6 +114,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/audit/verify", a(s.verifyAudit))
 	mux.Handle("GET /api/users", a(s.listUsers))
 	mux.Handle("POST /api/users", a(s.createUser))
+	mux.Handle("PUT /api/users/{id}/password", a(s.resetPassword))
+	mux.Handle("DELETE /api/users/{id}", a(s.deleteUser))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeErr(w, 404, "no such endpoint") })
 	mux.Handle("/", s.static())

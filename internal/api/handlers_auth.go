@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -154,6 +155,117 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Audit.Record(r.Context(), actor(r), "user.create", "user/"+u.Username, map[string]string{"role": u.Role})
 	writeJSON(w, 201, u)
+}
+
+// changePassword lets any logged-in user change their own password. It needs the current
+// password, and every other session of the user is logged out.
+func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFrom(r)
+	// the current password is a guessable secret, so rate-limit attempts like logins
+	if !s.limiter.allow("pw/" + strconv.FormatInt(sess.User.ID, 10)) {
+		writeErr(w, 429, "too many attempts; wait a few minutes")
+		return
+	}
+	var in struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	var keep string
+	if c, err := r.Cookie(cookieName); err == nil {
+		keep = c.Value
+	}
+	target := "user/" + sess.User.Username
+	switch err := s.Auth.ChangePassword(r.Context(), sess.User.ID, in.CurrentPassword, in.NewPassword, keep); {
+	case errors.Is(err, auth.ErrWrongPassword):
+		_ = s.Audit.Record(r.Context(), sess.User.Username, "password.change.failed", target, map[string]string{"ip": clientIP(r)})
+		writeErr(w, 403, err.Error())
+		return
+	case errors.Is(err, auth.ErrWeakPassword), errors.Is(err, auth.ErrSamePassword):
+		writeErr(w, 400, err.Error())
+		return
+	case err != nil:
+		s.fail(w, err)
+		return
+	}
+	_ = s.Audit.Record(r.Context(), sess.User.Username, "password.change", target, map[string]string{"ip": clientIP(r)})
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func userID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeErr(w, 400, "bad user id")
+		return 0, false
+	}
+	return id, true
+}
+
+// resetPassword lets an admin set another user's password; that user is logged out everywhere.
+// Admins change their own password with POST /api/me/password, which asks for the current one.
+func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) {
+	id, ok := userID(w, r)
+	if !ok {
+		return
+	}
+	if id == sessionFrom(r).User.ID {
+		writeErr(w, 400, "use Change my password for your own account")
+		return
+	}
+	var in struct {
+		Password string `json:"password"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	u, err := s.Auth.GetUser(r.Context(), id)
+	if errors.Is(err, auth.ErrNoUser) {
+		writeErr(w, 404, err.Error())
+		return
+	} else if err != nil {
+		s.fail(w, err)
+		return
+	}
+	switch err := s.Auth.ResetPassword(r.Context(), id, in.Password); {
+	case errors.Is(err, auth.ErrWeakPassword):
+		writeErr(w, 400, err.Error())
+		return
+	case errors.Is(err, auth.ErrNoUser):
+		writeErr(w, 404, err.Error())
+		return
+	case err != nil:
+		s.fail(w, err)
+		return
+	}
+	_ = s.Audit.Record(r.Context(), actor(r), "user.password_reset", "user/"+u.Username, nil)
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
+	id, ok := userID(w, r)
+	if !ok {
+		return
+	}
+	if id == sessionFrom(r).User.ID {
+		writeErr(w, 400, "you cannot delete your own account")
+		return
+	}
+	u, err := s.Auth.DeleteUser(r.Context(), id)
+	switch {
+	case errors.Is(err, auth.ErrNoUser):
+		writeErr(w, 404, err.Error())
+		return
+	case errors.Is(err, auth.ErrLastAdmin):
+		writeErr(w, 409, err.Error())
+		return
+	case err != nil:
+		s.fail(w, err)
+		return
+	}
+	_ = s.Audit.Record(r.Context(), actor(r), "user.delete", "user/"+u.Username, map[string]string{"role": u.Role})
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
 func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {

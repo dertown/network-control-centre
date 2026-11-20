@@ -24,6 +24,9 @@ This first release (the MVP) covers:
 - **Certificates**: import certificates and keys (keys go into the vault) and track expiry.
 - **Security**: HTTPS by default, Argon2id passwords, TOTP two-factor sign-in, roles
   (viewer, operator, admin), CSRF protection, login rate limiting, and a hash-chained audit log.
+- **Accounts**: anyone can change their own password under **Settings** (it asks for the current
+  one and logs out every other browser). Admins can reset another user's password, which logs
+  that user out everywhere, and delete users. The last admin cannot be deleted.
 
 The design and the phased plan are in the project's architecture document. Device writes
 (VLANs, port profiles), BIND (RFC 2136), ACME / Let's Encrypt and more vendors come in later phases.
