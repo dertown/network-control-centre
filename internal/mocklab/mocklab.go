@@ -34,6 +34,25 @@ var StatStaDPI []byte
 //go:embed stat_sitedpi.json
 var StatSiteDPI []byte
 
+// RestNetworkConf, RestPortConf and RestWLANConf are recorded rest/networkconf,
+// rest/portconf and rest/wlanconf responses: a Default LAN, Guest (VLAN 20), IoT (VLAN 30),
+// DMZ (VLAN 50) and a WAN, a trunk and a DMZ port profile, and three SSIDs.
+//
+//go:embed rest_networkconf.json
+var RestNetworkConf []byte
+
+//go:embed rest_portconf.json
+var RestPortConf []byte
+
+//go:embed rest_wlanconf.json
+var RestWLANConf []byte
+
+// FirewallZones is a recorded v2 firewall/zone response (zone-based firewall), with the
+// DMZ network in the DMZ zone and IoT in a custom zone.
+//
+//go:embed firewall_zone.json
+var FirewallZones []byte
+
 // UniFi returns a handler that behaves like a UniFi OS console for the read-only API NCC uses.
 // It accepts username "ncc" with password "demo-password", or API key "demo-key".
 func UniFi() http.Handler {
@@ -71,6 +90,10 @@ func UniFi() http.Handler {
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/sta", serve(StatSta))
 	mux.HandleFunc("POST /proxy/network/api/s/default/stat/stadpi", serve(StatStaDPI))
 	mux.HandleFunc("POST /proxy/network/api/s/default/stat/sitedpi", serve(StatSiteDPI))
+	mux.HandleFunc("GET /proxy/network/api/s/default/rest/networkconf", serve(RestNetworkConf))
+	mux.HandleFunc("GET /proxy/network/api/s/default/rest/portconf", serve(RestPortConf))
+	mux.HandleFunc("GET /proxy/network/api/s/default/rest/wlanconf", serve(RestWLANConf))
+	mux.HandleFunc("GET /proxy/network/v2/api/site/default/firewall/zone", serve(FirewallZones))
 	return mux
 }
 

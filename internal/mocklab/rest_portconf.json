@@ -1,0 +1,5 @@
+{"meta":{"rc":"ok"},"data":[
+ {"_id":"pc_trunk","name":"Trunk to rack","forward":"customize","native_networkconf_id":"net_default","tagged_networkconf_ids":["net_iot","net_dmz"]},
+ {"_id":"pc_dmz","name":"DMZ servers","forward":"native","native_networkconf_id":"net_dmz"},
+ {"_id":"pc_iot","name":"IoT devices","native_networkconf_id":"net_iot","tagged_vlan_mgmt":"block_all"}
+]}
