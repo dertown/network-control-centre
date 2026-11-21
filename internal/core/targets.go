@@ -19,6 +19,8 @@ const (
 	CategoryHypervisor = "hypervisor"
 	// CategoryStorage is a NAS, SMB or NFS server, or a storage device read over SNMP.
 	CategoryStorage = "storage"
+	// CategorySmartHome is a smart home hub (Home Assistant).
+	CategorySmartHome = "smarthome"
 )
 
 // Target is a stored controller, device or DNS server.
@@ -72,7 +74,8 @@ func (r *Targets) Create(ctx context.Context, t *Target) error {
 	if !nameRe.MatchString(t.Name) {
 		return errors.New("name may use letters, digits, dot, dash and underscore (max 63)")
 	}
-	if t.Category != CategoryDevice && t.Category != CategoryDNS && t.Category != CategoryHypervisor && t.Category != CategoryStorage {
+	if t.Category != CategoryDevice && t.Category != CategoryDNS && t.Category != CategoryHypervisor && t.Category != CategoryStorage &&
+		t.Category != CategorySmartHome {
 		return fmt.Errorf("unknown category %q", t.Category)
 	}
 	if t.Options == nil {

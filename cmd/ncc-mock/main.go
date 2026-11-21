@@ -1,4 +1,4 @@
-// Command ncc-mock runs a pretend UniFi console, PowerDNS server, Proxmox VE cluster, vCenter and QNAP and Synology NAS so you can try NCC
+// Command ncc-mock runs a pretend UniFi console, PowerDNS server, Proxmox VE cluster, vCenter, QNAP and Synology NAS and a Home Assistant smart home so you can try NCC
 // without touching a real network.
 //
 //	go run ./cmd/ncc-mock
@@ -9,6 +9,7 @@
 // VMware vCenter: https://localhost:9007   user "ncc", password "demo-password"
 // QNAP NAS:       https://localhost:9050   user "admin", password "demo-password"
 // Synology NAS:   https://localhost:9051   user "ncc", password "demo-password"
+// Home Assistant: http://localhost:9123    long-lived token "demo-ha-token"
 //
 // With -loops the pretend network has two switching loops cabled in, for loop detection.
 //
@@ -79,6 +80,11 @@ func main() {
 		srv.StartTLS()
 		log.Printf("mock %s on https://localhost%s (user %s / demo-password)", m.name, m.addr, m.user)
 	}
+
+	go func() {
+		log.Printf("mock Home Assistant on http://localhost:9123 (token demo-ha-token)")
+		log.Fatal(http.ListenAndServe(":9123", mocklab.HomeAssistant("demo-ha-token")))
+	}()
 
 	vc := simulator.VPX()
 	vc.Machine = 3

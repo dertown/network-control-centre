@@ -1,0 +1,36 @@
+# Home Assistant and its Matter server, for NCC's Smart home page.
+#
+#   docker compose up -d
+#
+# Then open http://<this host>:8123, create your Home Assistant account, add the Matter
+# integration (it finds the Matter server below at ws://localhost:5580/ws), and connect
+# NCC to Home Assistant with a long-lived access token. See README.md next to this file.
+#
+# Both containers use the host's network: Matter and Google Cast find devices with mDNS
+# and talk to them over IPv6 on the local network, which doesn't work through Docker's
+# NAT. The host must have IPv6 enabled on its LAN interface (link-local is enough).
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      TZ: Europe/London
+    volumes:
+      - ./config:/config
+      - /etc/localtime:/etc/localtime:ro
+      - /run/dbus:/run/dbus:ro   # Bluetooth, used to set up brand-new Matter devices
+    depends_on:
+      - matter-server
+
+  matter-server:
+    image: ghcr.io/home-assistant-libs/python-matter-server:stable
+    container_name: matter-server
+    network_mode: host
+    restart: unless-stopped
+    security_opt:
+      - apparmor=unconfined   # needed for Bluetooth commissioning
+    volumes:
+      - ./matter:/data
+      - /run/dbus:/run/dbus:ro

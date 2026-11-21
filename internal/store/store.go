@@ -155,6 +155,13 @@ var migrations = []string{
 		total INTEGER NOT NULL,
 		PRIMARY KEY (target_id, volume, hour)
 	)`,
+	// smarthome_inventory holds the latest read of each smart home hub (Home Assistant):
+	// rooms, devices and entity states.
+	`CREATE TABLE IF NOT EXISTS smarthome_inventory (
+		target_id INTEGER PRIMARY KEY REFERENCES targets(id) ON DELETE CASCADE,
+		taken_at TIMESTAMP NOT NULL,
+		data TEXT NOT NULL
+	)`,
 }
 
 // Open opens (and migrates) the database in dataDir.
