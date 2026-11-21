@@ -140,6 +140,21 @@ var migrations = []string{
 		error TEXT NOT NULL DEFAULT ''
 	)`,
 	`CREATE INDEX IF NOT EXISTS cert_deployments_target ON cert_deployments(target_id, id)`,
+	// storage_inventory holds the latest read of each NAS, SMB, NFS or SNMP storage connection;
+	// storage_samples keeps hourly volume use for the capacity trend.
+	`CREATE TABLE IF NOT EXISTS storage_inventory (
+		target_id INTEGER PRIMARY KEY REFERENCES targets(id) ON DELETE CASCADE,
+		taken_at TIMESTAMP NOT NULL,
+		data TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS storage_samples (
+		target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+		volume TEXT NOT NULL,
+		hour INTEGER NOT NULL,
+		used INTEGER NOT NULL,
+		total INTEGER NOT NULL,
+		PRIMARY KEY (target_id, volume, hour)
+	)`,
 }
 
 // Open opens (and migrates) the database in dataDir.

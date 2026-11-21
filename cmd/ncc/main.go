@@ -33,6 +33,11 @@ import (
 	_ "github.com/dertown/network-control-centre/internal/drivers/unifi"
 	_ "github.com/dertown/network-control-centre/internal/hypervisor/proxmox"
 	_ "github.com/dertown/network-control-centre/internal/hypervisor/vmware"
+	_ "github.com/dertown/network-control-centre/internal/storage/nfs"
+	_ "github.com/dertown/network-control-centre/internal/storage/qnap"
+	_ "github.com/dertown/network-control-centre/internal/storage/smb"
+	_ "github.com/dertown/network-control-centre/internal/storage/snmpnas"
+	_ "github.com/dertown/network-control-centre/internal/storage/synology"
 )
 
 var version = "dev"

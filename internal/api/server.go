@@ -116,6 +116,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/vms/power", o(s.vmPower))
 	mux.Handle("POST /api/vms/settings", a(s.vmSettings))
 	mux.Handle("POST /api/vms/delete", a(s.vmDelete))
+	mux.Handle("GET /api/storage", v(s.listStorage))
+	mux.Handle("GET /api/storage/{id}/history", v(s.storageHistory))
+	mux.Handle("POST /api/storage/power", a(s.storagePower))
+	mux.Handle("POST /api/storage/shares", a(s.storageCreateShare))
+	mux.Handle("POST /api/storage/folders", o(s.storageCreateFolder))
+	mux.Handle("POST /api/storage/snapshots", o(s.storageCreateSnapshot))
+	mux.Handle("POST /api/storage/snapshots/delete", a(s.storageDeleteSnapshot))
 
 	mux.Handle("GET /api/dns/{server}/zones", v(s.dnsZones))
 	mux.Handle("GET /api/dns/{server}/zones/{zone}/records", v(s.dnsRecords))

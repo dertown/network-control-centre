@@ -160,6 +160,18 @@ func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, er
 		}
 		return nil, err
 	}
+	if t.Category == CategoryStorage {
+		inv, err := p.collectStorage(ctx, t)
+		_ = p.Targets.RecordPoll(ctx, t.ID, err)
+		if p.Hub != nil {
+			if err != nil {
+				p.Hub.Publish("poll_error", map[string]any{"target": t.Name, "error": err.Error()})
+			} else {
+				p.Hub.Publish("storage", map[string]any{"target": t.Name, "health": inv.System.Health, "alerts": len(inv.Alerts)})
+			}
+		}
+		return nil, err
+	}
 	snap, err := p.collect(ctx, t)
 	_ = p.Targets.RecordPoll(ctx, t.ID, err)
 	if err != nil {

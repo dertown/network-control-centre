@@ -5,6 +5,7 @@ import { Topology } from "./pages/Topology";
 import { Devices } from "./pages/Devices";
 import { VLANs } from "./pages/VLANs";
 import { VirtualMachines } from "./pages/VirtualMachines";
+import { Storage } from "./pages/Storage";
 import { DNS } from "./pages/DNS";
 import { Traffic } from "./pages/Traffic";
 import { Firewall } from "./pages/Firewall";
@@ -21,6 +22,7 @@ const pages = [
   { id: "topology", label: "Topology", icon: "topology", group: "Monitor" },
   { id: "devices", label: "Devices", icon: "devices", group: "Monitor" },
   { id: "vms", label: "Virtual machines", icon: "vm", group: "Monitor" },
+  { id: "storage", label: "Storage", icon: "nas", group: "Monitor" },
   { id: "traffic", label: "Traffic", icon: "traffic", group: "Monitor" },
   { id: "firewall", label: "Firewall", icon: "firewall", group: "Monitor" },
   { id: "vlans", label: "VLANs", icon: "vlan", group: "Configure" },
@@ -152,6 +154,7 @@ export default function App() {
           {page === "topology" && <Topology tick={tick} />}
           {page === "devices" && <Devices tick={tick} />}
           {page === "vms" && <VirtualMachines tick={tick} user={user} />}
+          {page === "storage" && <Storage tick={tick} user={user} />}
           {page === "traffic" && <Traffic tick={tick} />}
           {page === "firewall" && <Firewall tick={tick} />}
           {page === "vlans" && <VLANs tick={tick} user={user} />}

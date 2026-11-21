@@ -2,13 +2,21 @@ import { Fragment, useEffect, useState } from "react";
 import { api, Target, User } from "../api";
 import { ago } from "../live";
 
-export type Kind = "unifi" | "powerdns" | "proxmox" | "vmware";
+export type Kind = "unifi" | "powerdns" | "proxmox" | "vmware" | StorageKind;
+export type StorageKind = "qnap" | "synology" | "smb" | "nfs" | "snmp";
+const storageKinds: string[] = ["qnap", "synology", "smb", "nfs", "snmp"];
+const snmpBlank = { snmp: "off", snmp_version: "2c", snmp_community: "", snmp_user: "", snmp_auth_proto: "SHA", snmp_auth_pass: "", snmp_priv_proto: "AES", snmp_priv_pass: "" };
 
 const blank = {
   unifi: { name: "dream-router", address: "https://192.168.1.1", site: "default", auth: "password", username: "", password: "", api_key: "", tls: "pin" },
   powerdns: { name: "powerdns", address: "http://192.168.1.10:8081", server_id: "localhost", api_key: "", tls: "verify" },
   proxmox: { name: "proxmox", address: "https://192.168.1.10:8006", auth: "token", token_id: "ncc@pve!monitor", token_secret: "", username: "root@pam", password: "", tls: "pin" },
   vmware: { name: "vcenter", address: "https://vcenter.lan", username: "ncc@vsphere.local", password: "", tls: "pin" },
+  qnap: { name: "qnap", address: "https://192.168.1.50", username: "", password: "", tls: "pin", ...snmpBlank },
+  synology: { name: "synology", address: "https://192.168.1.60:5001", username: "", password: "", tls: "pin" },
+  smb: { name: "fileserver", address: "192.168.1.70", username: "", password: "", domain: "" },
+  nfs: { name: "nfs", address: "192.168.1.80" },
+  snmp: { name: "nas-snmp", address: "192.168.1.50", ...snmpBlank, snmp: "on" },
 };
 
 const titles: Record<Kind, string> = {
@@ -16,7 +24,57 @@ const titles: Record<Kind, string> = {
   powerdns: "Add PowerDNS server",
   proxmox: "Add Proxmox VE",
   vmware: "Add VMware vCenter or ESXi",
+  qnap: "Add QNAP NAS",
+  synology: "Add Synology NAS",
+  smb: "Add SMB file server",
+  nfs: "Add NFS server",
+  snmp: "Add storage over SNMP",
 };
+
+// snmpSecret is the SNMP part of a storage connection's vault secret.
+function snmpSecret(f: Record<string, string>): Record<string, string> {
+  if (f.snmp !== "on") return {};
+  return f.snmp_version === "3"
+    ? { snmp_user: f.snmp_user, snmp_auth_proto: f.snmp_auth_proto, snmp_auth_pass: f.snmp_auth_pass, snmp_priv_proto: f.snmp_priv_proto, snmp_priv_pass: f.snmp_priv_pass }
+    : { snmp_community: f.snmp_community };
+}
+
+function storageSecret(kind: Kind, f: Record<string, string>): Record<string, string> {
+  switch (kind) {
+    case "qnap": return { username: f.username, password: f.password, ...snmpSecret(f) };
+    case "synology": return { username: f.username, password: f.password };
+    case "smb": return f.domain ? { username: f.username, password: f.password, domain: f.domain } : { username: f.username, password: f.password };
+    case "snmp": return snmpSecret({ ...f, snmp: "on" });
+  }
+  return {};
+}
+
+function SNMPFields({ f, set, optional }: { f: Record<string, string>; set: (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; optional?: boolean }) {
+  return (
+    <>
+      {optional && (
+        <label className="check block"><input type="checkbox" checked={f.snmp === "on"} onChange={(e) => set("snmp")({ target: { value: e.target.checked ? "on" : "off" } } as React.ChangeEvent<HTMLInputElement>)} />
+          Also read volume and RAID state over SNMP (QNAP's API doesn't report a degraded or rebuilding volume). Turn SNMP on in Control Panel → Network &amp; File Services → SNMP.</label>
+      )}
+      {f.snmp === "on" && (
+        <div className="row">
+          <label>SNMP version<select value={f.snmp_version} onChange={set("snmp_version")}><option value="2c">v2c (community)</option><option value="3">v3 (user)</option></select></label>
+          {f.snmp_version === "3" ? (
+            <>
+              <label>User<input value={f.snmp_user} onChange={set("snmp_user")} autoComplete="off" /></label>
+              <label>Auth<select value={f.snmp_auth_proto} onChange={set("snmp_auth_proto")}><option>SHA</option><option>SHA256</option><option>MD5</option></select></label>
+              <label>Auth password<input type="password" value={f.snmp_auth_pass} onChange={set("snmp_auth_pass")} autoComplete="new-password" /></label>
+              <label>Privacy<select value={f.snmp_priv_proto} onChange={set("snmp_priv_proto")}><option>AES</option><option>AES256</option><option>DES</option></select></label>
+              <label>Privacy password<input type="password" value={f.snmp_priv_pass} onChange={set("snmp_priv_pass")} autoComplete="new-password" /></label>
+            </>
+          ) : (
+            <label>Community<input type="password" value={f.snmp_community} onChange={set("snmp_community")} autoComplete="off" placeholder="not public" /></label>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
 
 export function Settings({ user, tick }: { user: User; tick: number }) {
   const isAdmin = user.role === "admin";
@@ -66,7 +124,7 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
                 <td>{!t.enabled ? <span className="pill">disabled</span> : t.last_error ? <span className="pill bad" title={t.last_error}>error</span> : !t.last_poll ? <span className="pill">not checked</span> : <span className="pill good">ok</span>}
                   {t.last_error && <div className="error small">{t.last_error}</div>}</td>
                 <td className="actions">
-                  {user.role !== "viewer" && <button className="link" disabled={busy === t.id} onClick={() => poll(t)}>{busy === t.id ? (t.category === "dns" ? "Checking…" : "Polling…") : (t.category === "dns" ? "Check now" : t.category === "hypervisor" ? "Refresh" : "Poll now")}</button>}
+                  {user.role !== "viewer" && <button className="link" disabled={busy === t.id} onClick={() => poll(t)}>{busy === t.id ? (t.category === "dns" ? "Checking…" : "Polling…") : (t.category === "dns" ? "Check now" : t.category === "hypervisor" || t.category === "storage" ? "Refresh" : "Poll now")}</button>}
                   {isAdmin && <button className="link" onClick={() => setEditing(editing === t.id ? null : t.id)}>Edit</button>}
                   {isAdmin && <button className="link" onClick={() => toggle(t)}>{t.enabled ? "Disable" : "Enable"}</button>}
                   {isAdmin && <button className="link danger" onClick={() => del(t)}>Remove</button>}
@@ -86,6 +144,11 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
             <button onClick={() => setAdding("powerdns")}>Add PowerDNS server</button>
             <button onClick={() => setAdding("proxmox")}>Add Proxmox VE</button>
             <button onClick={() => setAdding("vmware")}>Add VMware</button>
+            <button onClick={() => setAdding("qnap")}>Add QNAP</button>
+            <button onClick={() => setAdding("synology")}>Add Synology</button>
+            <button onClick={() => setAdding("smb")}>Add SMB server</button>
+            <button onClick={() => setAdding("nfs")}>Add NFS server</button>
+            <button onClick={() => setAdding("snmp")}>Add SNMP storage</button>
           </div>
         )}
         {adding && <AddTarget kind={adding} onDone={() => { setAdding(null); load(); }} />}
@@ -105,8 +168,13 @@ export function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr("");
-    const body =
-      kind === "unifi"
+    const body = storageKinds.includes(kind)
+      ? {
+          kind, category: "storage", name: f.name, address: f.address.trim(),
+          options: kind === "qnap" || kind === "synology" ? { tls: f.tls, ...(kind === "qnap" && f.snmp === "on" ? { snmp: "on" } : {}) } : {},
+          credentials: storageSecret(kind, f),
+        }
+      : kind === "unifi"
         ? {
             kind, category: "device", name: f.name, address: f.address,
             options: { site: f.site, tls: f.tls },
@@ -161,10 +229,50 @@ export function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) 
           the vault and the self-signed certificate is pinned on first connection.
         </p>
       )}
+      {kind === "qnap" && (
+        <p className="muted small">
+          Use the NAS address as you open it in a browser (QTS 5 serves HTTPS on 443; older firmware uses http://…:8080). Sign in with an
+          <strong> administrator</strong> account without two-step verification; QTS only answers health and SMART calls for admins, so a
+          dedicated <code>ncc</code> admin user is best. Works with QTS and QuTS hero. The password goes in the vault and the NAS certificate
+          is pinned on first connection.
+        </p>
+      )}
+      {kind === "synology" && (
+        <p className="muted small">
+          Use the DSM address (HTTPS is port 5001). Make a DSM user for NCC in the <strong>administrators</strong> group without two-factor
+          sign-in. NCC reads pools, volumes, disks, shares and Btrfs snapshots, and can create shares and snapshots, and restart or shut
+          down the NAS when you ask. The password goes in the vault.
+        </p>
+      )}
+      {kind === "smb" && (
+        <p className="muted small">
+          Any SMB 2/3 server: Windows, Samba, a NAS without an API driver or a router's USB share. NCC signs in, lists the shares and reads
+          each one's size and free space. A read-only account is enough to monitor; creating folders needs write access.
+        </p>
+      )}
+      {kind === "nfs" && (
+        <p className="muted small">NCC asks the server's portmapper and mountd for its NFS versions and export list (like <code>showmount -e</code>). No login is needed and nothing is mounted.</p>
+      )}
+      {kind === "snmp" && (
+        <p className="muted small">
+          For storage NCC has no API driver for (TrueNAS, Unraid, ASUSTOR…) or when you'd rather not give NCC an admin login. QNAP's and
+          Synology's own MIBs give disk temperatures, SMART and RAID state; other devices show their file systems. Read only.
+        </p>
+      )}
       <div className="row">
         <label>Name<input value={f.name} onChange={set("name")} /></label>
         <label>Address<input value={f.address} onChange={set("address")} /></label>
       </div>
+      {(kind === "qnap" || kind === "synology" || kind === "smb") && (
+        <div className="row">
+          <label>Username<input value={f.username} onChange={set("username")} autoComplete="off" /></label>
+          <label>Password<input type="password" value={f.password} onChange={set("password")} autoComplete="new-password" /></label>
+          {kind === "smb" && <label>Domain (optional)<input value={f.domain} onChange={set("domain")} autoComplete="off" placeholder="WORKGROUP" /></label>}
+          {kind !== "smb" && <label>Certificate<select value={f.tls} onChange={set("tls")}><option value="pin">Pin on first use (self-signed)</option><option value="verify">Verify with trusted CAs</option></select></label>}
+        </div>
+      )}
+      {kind === "qnap" && <SNMPFields f={f} set={set} optional />}
+      {kind === "snmp" && <SNMPFields f={f} set={set} />}
       {kind === "unifi" && (
         <>
           <div className="row">
@@ -230,8 +338,11 @@ export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
   const [f, setF] = useState<Record<string, string>>({
     address: t.address, tls: t.options.tls || (kind === "powerdns" ? "verify" : "pin"), site: t.options.site ?? "default",
     server_id: t.options.server_id ?? "localhost", auth: kind === "proxmox" ? "token" : "password",
-    username: "", password: "", api_key: "", token_id: "", token_secret: "",
+    username: "", password: "", api_key: "", token_id: "", token_secret: "", domain: "",
+    ...snmpBlank, snmp: kind === "snmp" || t.options.snmp === "on" ? "on" : "off",
   });
+  const isStorage = storageKinds.includes(kind);
+  const hasTLS = !isStorage || kind === "qnap" || kind === "synology";
   const [repin, setRepin] = useState(false);
   const [creds, setCreds] = useState(false);
   const [err, setErr] = useState("");
@@ -244,6 +355,8 @@ export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
       case "powerdns": return { api_key: f.api_key };
       case "proxmox": return f.auth === "token" ? { token_id: f.token_id.trim(), token_secret: f.token_secret.trim() } : { username: f.username, password: f.password };
       case "vmware": return { username: f.username, password: f.password };
+      case "nfs": return null;
+      case "qnap": case "synology": case "smb": case "snmp": return storageSecret(kind, f);
     }
     return null;
   };
@@ -251,12 +364,13 @@ export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr("");
-    const options: Record<string, string> = { ...t.options, tls: f.tls };
+    const options: Record<string, string> = hasTLS ? { ...t.options, tls: f.tls } : { ...t.options };
+    if (kind === "qnap" && creds) { if (f.snmp === "on") options.snmp = "on"; else delete options.snmp; }
     if (kind === "unifi") options.site = f.site;
     if (kind === "powerdns") options.server_id = f.server_id;
     if (repin || f.tls !== (t.options.tls || "") || f.address !== t.address) delete options.tls_fingerprint;
     const s = creds ? secret() : null;
-    if (s && Object.values(s).some((v) => !v)) {
+    if (s && Object.entries(s).some(([k, v]) => !v && k !== "domain")) {
       setErr("Fill in every login field, or untick \"Change login\" to keep the saved one.");
       return;
     }
@@ -279,14 +393,27 @@ export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
         <label>Address<input value={f.address} onChange={set("address")} required /></label>
         {kind === "unifi" && <label>Site<input value={f.site} onChange={set("site")} /></label>}
         {kind === "powerdns" && <label>Server id<input value={f.server_id} onChange={set("server_id")} /></label>}
-        <label>Certificate<select value={f.tls} onChange={set("tls")}><option value="pin">Pin on first use (self-signed)</option><option value="verify">Verify with trusted CAs</option></select></label>
+        {hasTLS && <label>Certificate<select value={f.tls} onChange={set("tls")}><option value="pin">Pin on first use (self-signed)</option><option value="verify">Verify with trusted CAs</option></select></label>}
       </div>
       {t.options.tls_fingerprint && f.tls === "pin" && (
         <label className="check block"><input type="checkbox" checked={repin} onChange={(e) => setRepin(e.target.checked)} />
           Forget the pinned certificate ({t.options.tls_fingerprint.slice(0, 16)}…) and pin the one the server shows next. Use this after replacing its certificate.</label>
       )}
-      <label className="check block"><input type="checkbox" checked={creds} onChange={(e) => setCreds(e.target.checked)} /> Change login (the saved one stays in the vault until you save)</label>
-      {creds && (
+      {kind !== "nfs" && <label className="check block"><input type="checkbox" checked={creds} onChange={(e) => setCreds(e.target.checked)} /> Change login (the saved one stays in the vault until you save)</label>}
+      {creds && isStorage && (
+        <>
+          {kind !== "snmp" && (
+            <div className="row">
+              <label>Username<input value={f.username} onChange={set("username")} autoComplete="off" /></label>
+              <label>Password<input type="password" value={f.password} onChange={set("password")} autoComplete="new-password" /></label>
+              {kind === "smb" && <label>Domain (optional)<input value={f.domain} onChange={set("domain")} autoComplete="off" /></label>}
+            </div>
+          )}
+          {kind === "qnap" && <SNMPFields f={f} set={set} optional />}
+          {kind === "snmp" && <SNMPFields f={f} set={set} />}
+        </>
+      )}
+      {creds && !isStorage && (
         <>
           {(kind === "unifi" || kind === "proxmox") && (
             <div className="row">

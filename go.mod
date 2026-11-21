@@ -4,6 +4,8 @@ go 1.26.0
 
 require (
 	github.com/Azure/go-ntlmssp v0.1.1
+	github.com/gosnmp/gosnmp v1.42.1
+	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/vmware/govmomi v0.56.2
 	golang.org/x/crypto v0.59.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -13,6 +15,7 @@ require (
 
 require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
+	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
