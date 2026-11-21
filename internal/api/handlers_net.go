@@ -15,6 +15,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/drivers"
 	"github.com/dertown/network-control-centre/internal/hypervisor"
 	"github.com/dertown/network-control-centre/internal/inventory"
+	"github.com/dertown/network-control-centre/internal/smarthome"
 	"github.com/dertown/network-control-centre/internal/storage"
 	"github.com/dertown/network-control-centre/internal/vault"
 )
@@ -24,7 +25,7 @@ func (s *Server) bg() context.Context {
 }
 
 func (s *Server) listDrivers(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string][]string{"device": drivers.Kinds(), "dns": dns.Kinds(), "hypervisor": hypervisor.Kinds(), "storage": storage.Kinds()})
+	writeJSON(w, 200, map[string][]string{"device": drivers.Kinds(), "dns": dns.Kinds(), "hypervisor": hypervisor.Kinds(), "storage": storage.Kinds(), "smarthome": smarthome.Kinds()})
 }
 
 // ---- targets ----
@@ -74,8 +75,13 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, err.Error())
 			return
 		}
+	case core.CategorySmartHome:
+		if _, err := smarthome.Get(in.Kind); err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
 	default:
-		writeErr(w, 400, "category must be device, dns, hypervisor or storage")
+		writeErr(w, 400, "category must be device, dns, hypervisor, storage or smarthome")
 		return
 	}
 	in.Address = strings.TrimSpace(in.Address)

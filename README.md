@@ -68,6 +68,15 @@ This first release (the MVP) covers:
   (QNAP, Synology; admins, typing the connection name to confirm). QNAP's public API has no share or
   snapshot calls, so those stay in QTS. Use a dedicated admin account without two-step verification for
   QNAP and Synology. Try it with `go run ./cmd/ncc-mock` (QNAP on :9050, Synology on :9051).
+- **Smart home** (Configure → Smart home): lights, plugs, fans, thermostats, locks, garage doors, speakers,
+  robot vacuums, cameras, sensors and scenes from **Google Home, Alexa, Matter, Google Nest, Cast, Hue, TP-Link** and
+  anything else **Home Assistant** controls, grouped by room or by type. Google Home and Alexa have no open control
+  API, so NCC talks to Home Assistant (WebSocket and REST API, long-lived token in the vault). Operators switch,
+  dim, set temperatures, lock and run scenes; unlocking doors, opening garage doors and gates and disarming alarms
+  need an admin and a confirmation. Offline devices and low batteries are flagged. **Add Matter device** shares a
+  device from Google Home, Alexa or Apple Home with a pairing code (checked before pairing: format and check digit)
+  so it stays in those apps too. Every change is audited. Setup: [deploy/homeassistant](deploy/homeassistant/README.md).
+  Try it with `go run ./cmd/ncc-mock` (Home Assistant on :9123, token `demo-ha-token`).
 - **Vault**: a built-in encrypted vault (AES-256-GCM envelope encryption, Argon2id-derived
   master key) or **HashiCorp Vault** (KV v2, token or AppRole). All device and DNS credentials
   live there; values never reach the browser unless an admin reveals them.

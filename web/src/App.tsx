@@ -6,6 +6,7 @@ import { Devices } from "./pages/Devices";
 import { VLANs } from "./pages/VLANs";
 import { VirtualMachines } from "./pages/VirtualMachines";
 import { Storage } from "./pages/Storage";
+import { SmartHome } from "./pages/SmartHome";
 import { DNS } from "./pages/DNS";
 import { Traffic } from "./pages/Traffic";
 import { Firewall } from "./pages/Firewall";
@@ -26,6 +27,7 @@ const pages = [
   { id: "traffic", label: "Traffic", icon: "traffic", group: "Monitor" },
   { id: "firewall", label: "Firewall", icon: "firewall", group: "Monitor" },
   { id: "vlans", label: "VLANs", icon: "vlan", group: "Configure" },
+  { id: "iot", label: "Smart home", icon: "home", group: "Configure" },
   { id: "dns", label: "DNS", icon: "dns", group: "Services" },
   { id: "vault", label: "Vault & certificates", icon: "vault", group: "Services" },
   { id: "deploy", label: "Certificate deployment", icon: "upload", group: "Services" },
@@ -158,6 +160,7 @@ export default function App() {
           {page === "traffic" && <Traffic tick={tick} />}
           {page === "firewall" && <Firewall tick={tick} />}
           {page === "vlans" && <VLANs tick={tick} user={user} />}
+          {page === "iot" && <SmartHome tick={tick} user={user} />}
           {page === "dns" && <DNS user={user} />}
           {page === "vault" && <Vault user={user} vault={vault} onVault={setVault} />}
           {page === "deploy" && <CertDeploy user={user} tick={tick} />}

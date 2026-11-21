@@ -125,6 +125,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/storage/snapshots", o(s.storageCreateSnapshot))
 	mux.Handle("POST /api/storage/snapshots/delete", a(s.storageDeleteSnapshot))
 
+	mux.Handle("GET /api/smarthome", v(s.listSmartHome))
+	mux.Handle("POST /api/smarthome/plan", o(s.smartHomePlan))
+	mux.Handle("POST /api/smarthome/control", o(s.smartHomeControl))
+	mux.Handle("POST /api/smarthome/matter/check", a(s.matterCheck))
+	mux.Handle("POST /api/smarthome/matter/pair", a(s.matterPair))
+
 	mux.Handle("GET /api/dns/{server}/zones", v(s.dnsZones))
 	mux.Handle("GET /api/dns/{server}/zones/{zone}/records", v(s.dnsRecords))
 	mux.Handle("POST /api/dns/{server}/zones/{zone}/changes", o(s.dnsChanges))

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { api, Target, User } from "../api";
 import { ago } from "../live";
 
-export type Kind = "unifi" | "powerdns" | "proxmox" | "vmware" | StorageKind;
+export type Kind = "unifi" | "powerdns" | "proxmox" | "vmware" | "homeassistant" | StorageKind;
 export type StorageKind = "qnap" | "synology" | "smb" | "nfs" | "snmp";
 const storageKinds: string[] = ["qnap", "synology", "smb", "nfs", "snmp"];
 const snmpBlank = { snmp: "off", snmp_version: "2c", snmp_community: "", snmp_user: "", snmp_auth_proto: "SHA", snmp_auth_pass: "", snmp_priv_proto: "AES", snmp_priv_pass: "" };
@@ -17,6 +17,7 @@ const blank = {
   smb: { name: "fileserver", address: "192.168.1.70", username: "", password: "", domain: "" },
   nfs: { name: "nfs", address: "192.168.1.80" },
   snmp: { name: "nas-snmp", address: "192.168.1.50", ...snmpBlank, snmp: "on" },
+  homeassistant: { name: "home-assistant", address: "http://192.168.1.40:8123", token: "", tls: "pin" },
 };
 
 const titles: Record<Kind, string> = {
@@ -29,6 +30,7 @@ const titles: Record<Kind, string> = {
   smb: "Add SMB file server",
   nfs: "Add NFS server",
   snmp: "Add storage over SNMP",
+  homeassistant: "Connect Home Assistant",
 };
 
 // snmpSecret is the SNMP part of a storage connection's vault secret.
@@ -124,7 +126,7 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
                 <td>{!t.enabled ? <span className="pill">disabled</span> : t.last_error ? <span className="pill bad" title={t.last_error}>error</span> : !t.last_poll ? <span className="pill">not checked</span> : <span className="pill good">ok</span>}
                   {t.last_error && <div className="error small">{t.last_error}</div>}</td>
                 <td className="actions">
-                  {user.role !== "viewer" && <button className="link" disabled={busy === t.id} onClick={() => poll(t)}>{busy === t.id ? (t.category === "dns" ? "Checking…" : "Polling…") : (t.category === "dns" ? "Check now" : t.category === "hypervisor" || t.category === "storage" ? "Refresh" : "Poll now")}</button>}
+                  {user.role !== "viewer" && <button className="link" disabled={busy === t.id} onClick={() => poll(t)}>{busy === t.id ? (t.category === "dns" ? "Checking…" : "Polling…") : (t.category === "dns" ? "Check now" : t.category === "hypervisor" || t.category === "storage" || t.category === "smarthome" ? "Refresh" : "Poll now")}</button>}
                   {isAdmin && <button className="link" onClick={() => setEditing(editing === t.id ? null : t.id)}>Edit</button>}
                   {isAdmin && <button className="link" onClick={() => toggle(t)}>{t.enabled ? "Disable" : "Enable"}</button>}
                   {isAdmin && <button className="link danger" onClick={() => del(t)}>Remove</button>}
@@ -149,6 +151,7 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
             <button onClick={() => setAdding("smb")}>Add SMB server</button>
             <button onClick={() => setAdding("nfs")}>Add NFS server</button>
             <button onClick={() => setAdding("snmp")}>Add SNMP storage</button>
+            <button onClick={() => setAdding("homeassistant")}>Add Home Assistant</button>
           </div>
         )}
         {adding && <AddTarget kind={adding} onDone={() => { setAdding(null); load(); }} />}
@@ -173,6 +176,11 @@ export function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) 
           kind, category: "storage", name: f.name, address: f.address.trim(),
           options: kind === "qnap" || kind === "synology" ? { tls: f.tls, ...(kind === "qnap" && f.snmp === "on" ? { snmp: "on" } : {}) } : {},
           credentials: storageSecret(kind, f),
+        }
+      : kind === "homeassistant"
+      ? {
+          kind, category: "smarthome", name: f.name, address: f.address.trim(), options: { tls: f.tls },
+          credentials: { token: f.token.trim() },
         }
       : kind === "unifi"
         ? {
@@ -209,6 +217,13 @@ export function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) 
         <p className="muted small">
           For a Dream Router 7, use its LAN address and a <strong>local</strong> admin account (UniFi OS → Admins → add a local-access-only
           user with a Network role of View Only). View Only is enough: NCC only reads. Its self-signed certificate is pinned on first connection.
+        </p>
+      )}
+      {kind === "homeassistant" && (
+        <p className="muted small">
+          Use the address you open Home Assistant at (usually port 8123). In Home Assistant open your profile → <strong>Security</strong> →{" "}
+          <strong>Long-lived access tokens</strong> → Create token, and paste it here. Use an administrator's token so NCC can read rooms and
+          pair Matter devices. The token is kept in the vault; an HTTPS certificate is pinned on first connection.
         </p>
       )}
       {kind === "powerdns" && (
@@ -290,6 +305,12 @@ export function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) 
           )}
         </>
       )}
+      {kind === "homeassistant" && (
+        <div className="row">
+          <label>Access token<input type="password" value={f.token} onChange={set("token")} autoComplete="off" required /></label>
+          <label>Certificate (HTTPS only)<select value={f.tls} onChange={set("tls")}><option value="pin">Pin on first use (self-signed)</option><option value="verify">Verify with trusted CAs</option></select></label>
+        </div>
+      )}
       {kind === "powerdns" && (
         <div className="row">
           <label>Server id<input value={f.server_id} onChange={set("server_id")} /></label>
@@ -338,7 +359,7 @@ export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
   const [f, setF] = useState<Record<string, string>>({
     address: t.address, tls: t.options.tls || (kind === "powerdns" ? "verify" : "pin"), site: t.options.site ?? "default",
     server_id: t.options.server_id ?? "localhost", auth: kind === "proxmox" ? "token" : "password",
-    username: "", password: "", api_key: "", token_id: "", token_secret: "", domain: "",
+    username: "", password: "", api_key: "", token_id: "", token_secret: "", domain: "", token: "",
     ...snmpBlank, snmp: kind === "snmp" || t.options.snmp === "on" ? "on" : "off",
   });
   const isStorage = storageKinds.includes(kind);
@@ -356,6 +377,7 @@ export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
       case "proxmox": return f.auth === "token" ? { token_id: f.token_id.trim(), token_secret: f.token_secret.trim() } : { username: f.username, password: f.password };
       case "vmware": return { username: f.username, password: f.password };
       case "nfs": return null;
+      case "homeassistant": return { token: f.token.trim() };
       case "qnap": case "synology": case "smb": case "snmp": return storageSecret(kind, f);
     }
     return null;
@@ -428,6 +450,8 @@ export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
               <label>Token id<input value={f.token_id} onChange={set("token_id")} placeholder="root@pam!ncc" autoComplete="off" /></label>
               <label>Token secret<input type="password" value={f.token_secret} onChange={set("token_secret")} autoComplete="off" /></label>
             </div>
+          ) : kind === "homeassistant" ? (
+            <label>Long-lived access token<input type="password" value={f.token} onChange={set("token")} autoComplete="off" /></label>
           ) : kind === "powerdns" || (kind === "unifi" && f.auth === "apikey") ? (
             <label>API key<input type="password" value={f.api_key} onChange={set("api_key")} autoComplete="off" /></label>
           ) : (

@@ -43,7 +43,7 @@ export interface Client {
   parent_port?: string; network?: string; vlan?: number; network_id?: string; ssid?: string;
 }
 export interface Target {
-  id: number; kind: string; category: "device" | "dns" | "hypervisor" | "storage"; name: string; address: string;
+  id: number; kind: string; category: "device" | "dns" | "hypervisor" | "storage" | "smarthome"; name: string; address: string;
   options: Record<string, string>; secret_path: string; enabled: boolean; last_poll?: string; last_error: string;
 }
 export interface NodePort { name: string; up: boolean; uplink?: boolean; profile?: string; native?: string; tagged?: string[] }
@@ -185,3 +185,25 @@ export interface StorageSource {
   taken_at?: string; inventory?: StorageInventory; snmp?: boolean;
 }
 export interface CapacityHistory { volume: string; points: { t: number; used: number; total: number }[]; per_day: number; full_in_days?: number }
+
+// ---- smart home (Home Assistant) ----
+export interface SmartHub {
+  name: string; version: string; matter: boolean; nest: boolean; cast: boolean; alexa: boolean; time_zone?: string; unit?: string; sources: string[];
+}
+export interface SmartArea { id: string; name: string }
+export interface SmartDevice { id: string; name: string; manufacturer?: string; model?: string; firmware?: string; area?: string; source?: string; online: boolean }
+export interface SmartEntity {
+  id: string; domain: string; name: string; state: string; device?: string; area?: string; source?: string; device_class?: string; unit?: string;
+  changed: string; brightness?: number; dimmable?: boolean; current_temp?: number; target_temp?: number; min_temp?: number; max_temp?: number;
+  temp_step?: number; hvac_modes?: string[]; hvac_action?: string; humidity?: number; media_title?: string; battery?: number; actions?: string[];
+}
+export interface SmartAlert { level: "warning" | "critical"; subject: string; message: string; entity?: string }
+export interface SmartInventory {
+  target: string; kind: string; taken_at: string; hub: SmartHub; areas: SmartArea[]; devices: SmartDevice[]; entities: SmartEntity[];
+  alerts: SmartAlert[]; warnings?: string[];
+}
+export interface SmartSource {
+  id: number; name: string; kind: "homeassistant"; address: string; enabled: boolean; last_error?: string; taken_at?: string; inventory?: SmartInventory;
+}
+export interface SmartPlan { entity: string; name: string; description: string; sensitive: boolean; call: { domain: string; service: string; data: Record<string, unknown> } }
+export interface MatterCheck { code: { kind: "manual" | "qr"; formatted: string; discriminator: number; vendor_present?: boolean }; hub: string; matter_ready: boolean; devices: number }
