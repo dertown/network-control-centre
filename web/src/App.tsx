@@ -3,6 +3,7 @@ import { api, ApiError, setCSRF, User, VaultStatus } from "./api";
 import { Dashboard } from "./pages/Dashboard";
 import { Topology } from "./pages/Topology";
 import { Devices } from "./pages/Devices";
+import { VirtualMachines } from "./pages/VirtualMachines";
 import { DNS } from "./pages/DNS";
 import { Traffic } from "./pages/Traffic";
 import { Vault } from "./pages/Vault";
@@ -16,6 +17,7 @@ const pages = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard", group: "Monitor" },
   { id: "topology", label: "Topology", icon: "topology", group: "Monitor" },
   { id: "devices", label: "Devices", icon: "devices", group: "Monitor" },
+  { id: "vms", label: "Virtual machines", icon: "vm", group: "Monitor" },
   { id: "traffic", label: "Traffic", icon: "traffic", group: "Monitor" },
   { id: "dns", label: "DNS", icon: "dns", group: "Services" },
   { id: "vault", label: "Vault & certificates", icon: "vault", group: "Services" },
@@ -143,6 +145,7 @@ export default function App() {
           {page === "dashboard" && <Dashboard tick={tick} />}
           {page === "topology" && <Topology tick={tick} />}
           {page === "devices" && <Devices tick={tick} />}
+          {page === "vms" && <VirtualMachines tick={tick} user={user} />}
           {page === "traffic" && <Traffic tick={tick} />}
           {page === "dns" && <DNS user={user} />}
           {page === "vault" && <Vault user={user} vault={vault} onVault={setVault} />}

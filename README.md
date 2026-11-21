@@ -27,6 +27,10 @@ This first release (the MVP) covers:
   Try it with `go run ./cmd/ncc-mock -loops`.
 - **PowerDNS**: browse zones and records; add, edit and delete records with a preview step;
   matching **PTR records are created and removed automatically** in your reverse zone.
+- **Virtual machines**: every VM and container on **Proxmox VE** (API token or user login) and
+  **VMware vCenter or standalone ESXi** in one list, with state, host or node, vCPUs and CPU use,
+  memory, disk, guest IP addresses (QEMU guest agent / VMware Tools), guest OS and uptime, plus
+  per-host CPU and memory load. Read-only; logins live in the vault.
 - **Vault**: a built-in encrypted vault (AES-256-GCM envelope encryption, Argon2id-derived
   master key) or **HashiCorp Vault** (KV v2, token or AppRole). All device and DNS credentials
   live there; values never reach the browser unless an admin reveals them.
@@ -152,7 +156,7 @@ type. It uses three sources, each optional beyond the first:
 ## Try it without touching your network
 
 ```sh
-go run ./cmd/ncc-mock      # pretend UniFi console on :9443 and PowerDNS on :9081
+go run ./cmd/ncc-mock      # pretend UniFi :9443, PowerDNS :9081, Proxmox VE :9006, vCenter :9007
 ./bin/ncc -config config.example.yaml
 ```
 
@@ -161,7 +165,9 @@ To fill the Traffic page's site lists too, uncomment `dns_log` in the config and
 pretend network.
 
 Add a UniFi console at `https://localhost:9443` (user `ncc`, password `demo-password`) and a
-PowerDNS server at `http://localhost:9081` (API key `demo-pdns-key`).
+PowerDNS server at `http://localhost:9081` (API key `demo-pdns-key`). On the **Virtual machines**
+page, add Proxmox VE at `https://localhost:9006` (token `ncc@pve!monitor`, secret
+`demo-token-secret`) and VMware at `https://localhost:9007` (user `ncc`, password `demo-password`).
 
 ## Development
 
@@ -177,13 +183,14 @@ and `listen: ":8080"` while you work on the UI.
 
 ```
 cmd/ncc/                 server entry point
-cmd/ncc-mock/            pretend UniFi console + PowerDNS for demos
+cmd/ncc-mock/            pretend UniFi console, PowerDNS, Proxmox VE and vCenter for demos
 internal/api/            HTTP API, auth middleware, static UI
 internal/auth/           users, Argon2id, TOTP, sessions, roles
 internal/audit/          hash-chained audit log
 internal/core/           targets, poller, snapshots, topology graph
 internal/drivers/        device driver interface; unifi/
 internal/dns/            DNS provider interface; powerdns/
+internal/hypervisor/     virtual machine provider interface; proxmox/, vmware/
 internal/dnslog/         PowerDNS Recursor / dnsdist protobuf query-log receiver
 internal/vault/          secret store interface; local and HashiCorp backends
 internal/pki/            certificate inventory

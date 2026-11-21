@@ -49,6 +49,14 @@ func NormFingerprint(s string) string {
 
 // NewClient builds an HTTP client for a target. mode "pin" with an empty pin means trust-on-first-use.
 func NewClient(mode, pin string, timeout time.Duration) (*http.Client, *Pinner) {
+	cfg, p := TLSConfig(mode, pin)
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = cfg
+	return &http.Client{Timeout: timeout, Transport: tr}, p
+}
+
+// TLSConfig builds the TLS settings NewClient uses, for clients that bring their own transport.
+func TLSConfig(mode, pin string) (*tls.Config, *Pinner) {
 	p := &Pinner{}
 	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	if mode == "pin" {
@@ -68,7 +76,5 @@ func NewClient(mode, pin string, timeout time.Duration) (*http.Client, *Pinner) 
 			return nil
 		}
 	}
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.TLSClientConfig = cfg
-	return &http.Client{Timeout: timeout, Transport: tr}, p
+	return cfg, p
 }

@@ -424,3 +424,23 @@ table.compact td { padding-top: 7px; padding-bottom: 7px; }
 .loop-detail { margin: 0; }
 .banner.bad { background: var(--bad-bg); color: var(--ink); border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); }
 .banner a { margin-left: auto; }
+
+/* ───────────── Virtual machines ───────────── */
+.hostgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.hostcard {
+  display: block; text-align: left; width: 100%; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface-2);
+  border: 1px solid var(--line); box-shadow: none; color: var(--ink);
+}
+.hostcard:hover { border-color: var(--accent); }
+.hostcard.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.hostcard.down { background: var(--bad-bg); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+.hostcard-top { display: flex; align-items: center; gap: 4px; }
+.hostcard-top .grow-right { margin-left: auto; }
+.hostcard-sub { margin: 2px 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usage { min-width: 110px; }
+.usage-top { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; margin-bottom: 4px; white-space: nowrap; }
+.usage .meter { height: 5px; }
+.vmtable td { vertical-align: top; }
+.kind-chip.k-lxc { background: color-mix(in srgb, var(--c2) 14%, transparent); color: var(--c2); }
+.kind-chip.k-qemu, .kind-chip.k-vm { background: color-mix(in srgb, var(--c3) 14%, transparent); color: var(--c3); }
+.card-head + p.lede { margin: 0 0 18px; line-height: 1.5; }

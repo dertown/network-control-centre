@@ -2,11 +2,20 @@ import { useEffect, useState } from "react";
 import { api, Target, User } from "../api";
 import { ago } from "../live";
 
-type Kind = "unifi" | "powerdns";
+export type Kind = "unifi" | "powerdns" | "proxmox" | "vmware";
 
 const blank = {
   unifi: { name: "dream-router", address: "https://192.168.1.1", site: "default", auth: "password", username: "", password: "", api_key: "", tls: "pin" },
   powerdns: { name: "powerdns", address: "http://192.168.1.10:8081", server_id: "localhost", api_key: "", tls: "verify" },
+  proxmox: { name: "proxmox", address: "https://192.168.1.10:8006", auth: "token", token_id: "ncc@pve!monitor", token_secret: "", username: "root@pam", password: "", tls: "pin" },
+  vmware: { name: "vcenter", address: "https://vcenter.lan", username: "ncc@vsphere.local", password: "", tls: "pin" },
+};
+
+const titles: Record<Kind, string> = {
+  unifi: "Add UniFi console",
+  powerdns: "Add PowerDNS server",
+  proxmox: "Add Proxmox VE",
+  vmware: "Add VMware vCenter or ESXi",
 };
 
 export function Settings({ user, tick }: { user: User; tick: number }) {
@@ -55,7 +64,7 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
                 <td>{!t.enabled ? <span className="pill">disabled</span> : t.last_error ? <span className="pill bad" title={t.last_error}>error</span> : !t.last_poll ? <span className="pill">not checked</span> : <span className="pill good">ok</span>}
                   {t.last_error && <div className="error small">{t.last_error}</div>}</td>
                 <td className="actions">
-                  {user.role !== "viewer" && <button className="link" disabled={busy === t.id} onClick={() => poll(t)}>{busy === t.id ? (t.category === "dns" ? "Checking…" : "Polling…") : (t.category === "dns" ? "Check now" : "Poll now")}</button>}
+                  {user.role !== "viewer" && <button className="link" disabled={busy === t.id} onClick={() => poll(t)}>{busy === t.id ? (t.category === "dns" ? "Checking…" : "Polling…") : (t.category === "dns" ? "Check now" : t.category === "hypervisor" ? "Refresh" : "Poll now")}</button>}
                   {isAdmin && <button className="link" onClick={() => toggle(t)}>{t.enabled ? "Disable" : "Enable"}</button>}
                   {isAdmin && <button className="link danger" onClick={() => del(t)}>Remove</button>}
                 </td>
@@ -68,6 +77,8 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
           <div className="row">
             <button onClick={() => setAdding("unifi")}>Add UniFi console</button>
             <button onClick={() => setAdding("powerdns")}>Add PowerDNS server</button>
+            <button onClick={() => setAdding("proxmox")}>Add Proxmox VE</button>
+            <button onClick={() => setAdding("vmware")}>Add VMware</button>
           </div>
         )}
         {adding && <AddTarget kind={adding} onDone={() => { setAdding(null); load(); }} />}
@@ -79,7 +90,7 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
   );
 }
 
-function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) {
+export function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) {
   const [f, setF] = useState<Record<string, string>>({ ...blank[kind] });
   const [err, setErr] = useState("");
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
@@ -94,10 +105,20 @@ function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) {
             options: { site: f.site, tls: f.tls },
             credentials: f.auth === "apikey" ? { api_key: f.api_key } : { username: f.username, password: f.password },
           }
-        : {
-            kind, category: "dns", name: f.name, address: f.address,
-            options: { server_id: f.server_id, tls: f.tls }, credentials: { api_key: f.api_key },
-          };
+        : kind === "powerdns"
+          ? {
+              kind, category: "dns", name: f.name, address: f.address,
+              options: { server_id: f.server_id, tls: f.tls }, credentials: { api_key: f.api_key },
+            }
+          : kind === "proxmox"
+            ? {
+                kind, category: "hypervisor", name: f.name, address: f.address, options: { tls: f.tls },
+                credentials: f.auth === "token" ? { token_id: f.token_id, token_secret: f.token_secret } : { username: f.username, password: f.password },
+              }
+            : {
+                kind, category: "hypervisor", name: f.name, address: f.address, options: { tls: f.tls },
+                credentials: { username: f.username, password: f.password },
+              };
     try {
       await api("POST", "/api/targets", body);
       onDone();
@@ -108,20 +129,36 @@ function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) {
 
   return (
     <form className="subcard" onSubmit={save}>
-      <h3>{kind === "unifi" ? "Add UniFi console" : "Add PowerDNS server"}</h3>
-      {kind === "unifi" ? (
+      <h3>{titles[kind]}</h3>
+      {kind === "unifi" && (
         <p className="muted small">
           For a Dream Router 7, use its LAN address and a <strong>local</strong> admin account (UniFi OS → Admins → add a local-access-only
           user with a Network role of View Only). View Only is enough: NCC only reads. Its self-signed certificate is pinned on first connection.
         </p>
-      ) : (
+      )}
+      {kind === "powerdns" && (
         <p className="muted small">Use the address of the PowerDNS webserver (<code>webserver-address</code>/<code>webserver-port</code>) and the <code>api-key</code> from pdns.conf.</p>
+      )}
+      {kind === "proxmox" && (
+        <p className="muted small">
+          Use any node's address on port 8006; in a cluster one node lists every VM. NCC only reads, so a read-only API token is best. On a
+          node shell: <code>pveum user add ncc@pve</code>, <code>pveum acl modify / --users ncc@pve --roles PVEAuditor</code>, then{" "}
+          <code>pveum user token add ncc@pve monitor --privsep 0</code> and paste the secret it prints. Guest IP addresses also need the QEMU
+          guest agent in each VM. The token is stored in the vault and the node's self-signed certificate is pinned on first connection.
+        </p>
+      )}
+      {kind === "vmware" && (
+        <p className="muted small">
+          Use your vCenter Server address, or a standalone ESXi host's address. A user with the <strong>Read-only</strong> role is enough
+          (vCenter: <code>ncc@vsphere.local</code>; ESXi: a local user). Guest IP addresses come from VMware Tools. The password is stored in
+          the vault and the self-signed certificate is pinned on first connection.
+        </p>
       )}
       <div className="row">
         <label>Name<input value={f.name} onChange={set("name")} /></label>
         <label>Address<input value={f.address} onChange={set("address")} /></label>
       </div>
-      {kind === "unifi" ? (
+      {kind === "unifi" && (
         <>
           <div className="row">
             <label>Site<input value={f.site} onChange={set("site")} /></label>
@@ -137,11 +174,38 @@ function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) {
             </div>
           )}
         </>
-      ) : (
+      )}
+      {kind === "powerdns" && (
         <div className="row">
           <label>Server id<input value={f.server_id} onChange={set("server_id")} /></label>
           <label>API key<input type="password" value={f.api_key} onChange={set("api_key")} autoComplete="off" /></label>
           <label>Certificate (HTTPS only)<select value={f.tls} onChange={set("tls")}><option value="verify">Verify with trusted CAs</option><option value="pin">Pin on first use</option></select></label>
+        </div>
+      )}
+      {kind === "proxmox" && (
+        <>
+          <div className="row">
+            <label>Sign in with<select value={f.auth} onChange={set("auth")}><option value="token">API token (recommended)</option><option value="password">Username + password</option></select></label>
+            <label>Certificate<select value={f.tls} onChange={set("tls")}><option value="pin">Pin on first use (self-signed)</option><option value="verify">Verify with trusted CAs</option></select></label>
+          </div>
+          {f.auth === "token" ? (
+            <div className="row">
+              <label>Token id<input value={f.token_id} onChange={set("token_id")} autoComplete="off" placeholder="ncc@pve!monitor" /></label>
+              <label>Token secret<input type="password" value={f.token_secret} onChange={set("token_secret")} autoComplete="off" /></label>
+            </div>
+          ) : (
+            <div className="row">
+              <label>Username<input value={f.username} onChange={set("username")} autoComplete="off" placeholder="root@pam" /></label>
+              <label>Password<input type="password" value={f.password} onChange={set("password")} autoComplete="new-password" /></label>
+            </div>
+          )}
+        </>
+      )}
+      {kind === "vmware" && (
+        <div className="row">
+          <label>Username<input value={f.username} onChange={set("username")} autoComplete="off" /></label>
+          <label>Password<input type="password" value={f.password} onChange={set("password")} autoComplete="new-password" /></label>
+          <label>Certificate<select value={f.tls} onChange={set("tls")}><option value="pin">Pin on first use (self-signed)</option><option value="verify">Verify with trusted CAs</option></select></label>
         </div>
       )}
       {err && <div className="error">{err}</div>}

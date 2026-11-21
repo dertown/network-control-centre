@@ -1,10 +1,12 @@
-// Command ncc-mock runs a pretend UniFi console and PowerDNS server so you can try NCC
+// Command ncc-mock runs a pretend UniFi console, PowerDNS server, Proxmox VE cluster and vCenter so you can try NCC
 // without touching a real network.
 //
 //	go run ./cmd/ncc-mock
 //
 // UniFi console:  https://localhost:9443   user "ncc", password "demo-password" (or API key "demo-key")
 // PowerDNS API:   http://localhost:9081    API key "demo-pdns-key"
+// Proxmox VE:     https://localhost:9006   token "ncc@pve!monitor" / "demo-token-secret" (or root@pam / demo-password)
+// VMware vCenter: https://localhost:9007   user "ncc", password "demo-password"
 //
 // With -loops the pretend network has two switching loops cabled in, for loop detection.
 //
@@ -13,6 +15,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"log"
 	"math/rand/v2"
@@ -20,9 +23,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/signal"
 	"time"
+
+	"github.com/vmware/govmomi/simulator"
 
 	"github.com/dertown/network-control-centre/internal/dnslog"
 	"github.com/dertown/network-control-centre/internal/mocklab"
@@ -53,6 +59,23 @@ func main() {
 		log.Printf("mock PowerDNS API on http://localhost:9081 (api key demo-pdns-key)")
 		log.Fatal(http.ListenAndServe(":9081", mocklab.NewPowerDNS("demo-pdns-key")))
 	}()
+	pve := httptest.NewUnstartedServer(mocklab.Proxmox("demo-token-secret", "demo-password"))
+	if pve.Listener, err = netListen(":9006"); err != nil {
+		log.Fatal(err)
+	}
+	pve.StartTLS()
+	log.Printf("mock Proxmox VE on https://localhost:9006 (token ncc@pve!monitor / demo-token-secret)")
+
+	vc := simulator.VPX()
+	vc.Machine = 3
+	if err := vc.Create(); err != nil {
+		log.Fatal(err)
+	}
+	vc.Service.TLS = new(tls.Config)
+	vc.Service.Listen = &url.URL{Host: "0.0.0.0:9007", User: url.UserPassword("ncc", "demo-password")}
+	vc.Service.NewServer()
+	log.Printf("mock VMware vCenter on https://localhost:9007 (user ncc / demo-password)")
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c

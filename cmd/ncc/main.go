@@ -30,6 +30,8 @@ import (
 	// drivers and providers register themselves
 	_ "github.com/dertown/network-control-centre/internal/dns/powerdns"
 	_ "github.com/dertown/network-control-centre/internal/drivers/unifi"
+	_ "github.com/dertown/network-control-centre/internal/hypervisor/proxmox"
+	_ "github.com/dertown/network-control-centre/internal/hypervisor/vmware"
 )
 
 var version = "dev"
