@@ -137,3 +137,23 @@ export interface PortChange {
 }
 export interface MovePlan { target: string; network: Network; steps: MoveStep[]; ports: PortChange[]; warnings?: string[] }
 export interface MoveResult { mac: string; name: string; ok: boolean; error?: string; notes?: string[] }
+export interface DeployField { key: string; label: string; default?: string; help?: string; type?: "text" | "select" | "bool"; choices?: string[] }
+export interface DeployKind {
+  id: string; label: string; description: string; transport: "ssh" | "winrm"; default_port: number;
+  fields: DeployField[]; secrets?: DeployField[]; verify_wait_s: number;
+}
+export interface DeployStepResult { title: string; op: string; path?: string; status: "pending" | "running" | "ok" | "unchanged" | "failed" | "skipped"; output?: string }
+export interface Deployment {
+  id: number; target_id: number; target_name: string; cert_id: number; cert_name: string; fingerprint: string; actor: string;
+  started: string; finished?: string; status: "running" | "ok" | "failed"; verified: string; steps: DeployStepResult[]; error?: string;
+}
+export interface DeployTarget {
+  id: number; name: string; kind: string; host: string; port: number; options: Record<string, string>; secret_path: string;
+  cert_id: number; credentials: Record<string, boolean>; last_deploy?: Deployment;
+}
+export interface DeployStep { op: "write" | "edit" | "run"; title: string; path?: string; detail?: string }
+export interface DeployPlan {
+  target: DeployTarget; cert: Cert; steps: DeployStep[]; notes: string[]; warnings: string[]; blocked?: string;
+  connection?: { ok: boolean; error?: string; fingerprint?: string; trust?: boolean; detail?: string };
+}
+export interface ServedCert { subject?: string; issuer?: string; not_after?: string; fingerprint?: string; sans?: string[]; cert_name?: string; port?: string; error?: string }
