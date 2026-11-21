@@ -171,7 +171,7 @@ func kvDetail(section string, kvs []KV) string {
 // ---- shared field sets ----
 
 var sshFields = []Field{
-	{Key: "use_sudo", Label: "Use sudo", Default: "true", Type: "bool", Help: "Run file writes and restarts through sudo (not needed when logging in as root). The login password is used for sudo unless a separate sudo password is saved."},
+	{Key: "use_sudo", Label: "Use sudo", Default: "true", Type: "bool", Help: "Run file writes and restarts through sudo (not needed when logging in as root). The login password is used for sudo unless a separate sudo password is saved. Turn off when the login user owns the service's files, e.g. the splunk user."},
 	{Key: "host_key", Label: "SSH host key", Help: "Pinned SHA256 host key fingerprint. Leave empty: NCC shows the key on the first preview for you to confirm, then pins it."},
 }
 

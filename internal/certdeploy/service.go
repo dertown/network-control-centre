@@ -459,18 +459,29 @@ func (s *Service) Test(ctx context.Context, t *Target, accept string) *ConnCheck
 		cc.OK, cc.Detail = true, "Logged in to "+strings.TrimSpace(out)
 		return cc
 	}
+	sudo := strings.EqualFold(effectiveOptions(t)["use_sudo"], "true")
 	out, err := conn.Run(ctx, "id -un; hostname")
 	if err != nil {
-		cc.Error = "logged in, but could not run commands as root: " + err.Error()
+		if sudo {
+			cc.Error = "logged in, but sudo failed: " + err.Error()
+		} else {
+			cc.Error = "logged in, but could not run commands: " + err.Error()
+		}
 		return cc
 	}
 	f := strings.Fields(out)
-	if len(f) >= 1 && f[0] != "root" {
-		cc.Error = "commands run as " + f[0] + ", not root; turn on sudo or log in as root"
+	as := "root"
+	if len(f) >= 1 {
+		as = f[0]
+	}
+	if sudo && as != "root" {
+		cc.Error = "sudo did not give root (commands run as " + as + ")"
 		return cc
 	}
+	// without sudo NCC works as the login user, which is right when that user owns the
+	// service (e.g. Splunk installed in the splunk user's home)
 	cc.OK = true
-	cc.Detail = "Logged in; commands run as root"
+	cc.Detail = "Logged in; commands run as " + as
 	if len(f) >= 2 {
 		cc.Detail += " on " + f[1]
 	}
