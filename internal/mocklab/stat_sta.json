@@ -12,5 +12,6 @@
  {"mac":"de:ad:00:00:00:0a","hostname":"lounge-speaker","ip":"192.168.1.102","oui":"Sonos, Inc.","is_wired":false,"ap_mac":"aa:bb:cc:00:00:02","essid":"Home","network_id":"net_default","tx_bytes":31457280,"rx_bytes":4194304,"uptime":86000},
  {"mac":"de:ad:00:00:00:0b","hostname":"doorbell","ip":"192.168.1.103","oui":"Ring LLC","is_wired":false,"ap_mac":"aa:bb:cc:00:00:02","essid":"Home","network_id":"net_default","tx_bytes":52428800,"rx_bytes":2097152,"uptime":86000},
  {"mac":"de:ad:00:00:00:0c","name":"Hall lights","ip":"192.168.1.104","oui":"Signify Netherlands B.V.","is_wired":false,"ap_mac":"aa:bb:cc:00:00:02","essid":"Home","network_id":"net_default","tx_bytes":524288,"rx_bytes":262144,"uptime":86000},
- {"mac":"de:ad:00:00:00:0d","hostname":"laptop","ip":"192.168.1.71","oui":"Apple","is_wired":false,"ap_mac":"aa:bb:cc:00:00:02","essid":"Home","network_id":"net_default","tx_bytes":104857600,"rx_bytes":20971520,"uptime":5000}
+ {"mac":"de:ad:00:00:00:0d","hostname":"laptop","ip":"192.168.1.71","oui":"Apple","is_wired":false,"ap_mac":"aa:bb:cc:00:00:02","essid":"Home","network_id":"net_default","tx_bytes":104857600,"rx_bytes":20971520,"uptime":5000},
+ {"mac":"de:ad:00:00:00:0e","hostname":"garage-cam","ip":"192.168.1.105","oui":"Reolink Innovation","is_wired":true,"sw_mac":"aa:bb:cc:00:00:04","sw_port":7,"network_id":"net_default","tx_bytes":209715200,"rx_bytes":1048576,"uptime":86000}
 ]}

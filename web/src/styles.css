@@ -629,3 +629,7 @@ label.check.field-check .field-help { flex-basis: 100%; }
 .st-folder label { flex: 0 1 360px; }
 .st-folder button { margin-bottom: 12px; }
 .bundle-edit { padding: 4px 0; max-width: 820px; }
+.vlan-reconnect { align-items: flex-start; margin: 12px 0 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+.vlan-reconnect > span { display: flex; flex-direction: column; gap: 2px; }
+.vlan-reconnect input { margin-top: 2px; }
+.banner > button { margin-left: auto; }

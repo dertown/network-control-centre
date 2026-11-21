@@ -31,7 +31,11 @@ This first release (the MVP) covers:
   name). Wi-Fi clients move with UniFi's per-client network override, so they keep the same SSID
   and password; wired clients move by changing the untagged VLAN of their switch port (everything
   on that port moves together, and ports leading to other switches or access points are never
-  changed). Every change is previewed first and audited. Changes need a UniFi account with a
+  changed). Moved devices get an address in the new network straight away: Wi-Fi devices are
+  disconnected and rejoin, PoE ports are power-cycled and other ports are switched off for about
+  10 seconds. A fixed IP moves with the device, keeping its last number in the new subnet when
+  free. Devices still on an old address are flagged, with a button to reconnect them. Every
+  change is previewed first and audited. Changes need a UniFi account with a
   Network role that can change settings (Site Admin or Full Management), not View Only.
 - **Firewall rules and port forwards (read-only)**: the **Firewall** page lists the router's
   zone-based firewall policies (UniFi Network 9+) or older rule sets (WAN_IN, LAN_IN...), with

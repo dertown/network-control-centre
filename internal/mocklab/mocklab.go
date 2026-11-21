@@ -253,6 +253,7 @@ func unifiWithState(loops bool) (http.Handler, *uState) {
 		st.getUser(w, r)
 	})
 	mux.HandleFunc("PUT /proxy/network/api/s/default/rest/user/{id}", canWrite(st.updateUser))
+	mux.HandleFunc("GET /proxy/network/api/s/default/rest/user", dyn(func(s *uState) []map[string]any { return s.allUsers() }))
 	mux.HandleFunc("POST /proxy/network/api/s/default/cmd/{mgr}", canWrite(st.command))
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/portconf", serve(RestPortConf))
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/wlanconf", serve(RestWLANConf))
