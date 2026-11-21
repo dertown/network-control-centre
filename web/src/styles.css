@@ -488,3 +488,50 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .topo-legend-show { display: none; }
   .topo-toolbar .topo-search { margin-left: 0; width: 100%; }
 }
+
+/* ───────────── VLANs page ───────────── */
+.vlan-selbar { display: inline-flex; align-items: center; gap: 8px; padding: 4px 6px 4px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.vlan-selbar select { padding: 4px 8px; }
+.vlan-board { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; align-items: start; margin-bottom: 18px; }
+.vlan-col { --net: var(--muted); background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--net); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; min-height: 140px; transition: box-shadow 0.12s, border-color 0.12s, background 0.12s; }
+.vlan-col.unknown { border-top-color: var(--line-strong); border-style: dashed; }
+.vlan-board.dragging .vlan-col:not(.unknown) { border-color: color-mix(in srgb, var(--net) 45%, var(--line)); border-top-color: var(--net); }
+.vlan-col.over { background: color-mix(in srgb, var(--net) 9%, var(--surface)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--net) 35%, transparent); }
+.vlan-col-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.vlan-col-title { display: flex; align-items: center; gap: 8px; }
+.vlan-col-title strong { font-size: 14.5px; }
+.vlan-tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 6px; color: var(--net); background: color-mix(in srgb, var(--net) 13%, transparent); white-space: nowrap; }
+.vlan-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.vlan-pills .pill { font-size: 11px; padding: 1px 7px; }
+.vlan-cards { padding: 8px; display: flex; flex-direction: column; gap: 6px; flex: 1; max-height: 560px; overflow-y: auto; }
+.vlan-empty { border: 1.5px dashed var(--line-strong); border-radius: var(--radius-sm); padding: 18px; text-align: center; flex: 1; display: flex; align-items: center; justify-content: center; }
+.vlan-card { display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); cursor: grab; user-select: none; transition: border-color 0.1s, background 0.1s; }
+.vlan-card:hover { border-color: var(--line-strong); }
+.vlan-card:active { cursor: grabbing; }
+.vlan-card.sel { border-color: var(--accent); background: var(--accent-soft); }
+.vlan-card input[type="checkbox"] { margin-top: 2px; flex: none; }
+.vlan-card-icon { color: var(--net); margin-top: 1px; flex: none; }
+.vlan-card-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.vlan-card-name { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vlan-via { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.vlan-via .pill { font-size: 10.5px; padding: 0 6px; }
+.vlan-howto ul { margin: 0; padding-left: 18px; color: var(--ink-2); line-height: 1.55; }
+.vlan-howto li + li { margin-top: 6px; }
+.vlan-steps { list-style: none; padding: 0; margin: 0 0 8px; }
+.vlan-steps li { padding: 7px 0; border-bottom: 1px solid var(--line); }
+.vlan-steps li:last-child { border-bottom: 0; }
+.vlan-plan { margin-bottom: 8px; }
+.vlan-plan td, .vlan-plan th { font-size: 13px; }
+.warn-text { color: var(--warn); }
+.modal h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 16px 0 6px; }
+
+/* modal dialog */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(8, 12, 22, 0.5); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px 16px; z-index: 50; overflow-y: auto; }
+.modal { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-lg); width: 100%; max-width: 560px; padding: 18px 20px 20px; }
+.modal.wide { max-width: 820px; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.modal-head h2 { margin: 0; font-size: 16px; }
+.modal .banner { margin: 8px 0 0; }
+.modal .banner { flex-wrap: nowrap; align-items: flex-start; }
+.modal .banner svg { flex: none; margin-top: 2px; }
+@media (max-width: 640px) { .toolbar input:not([type="checkbox"]) { min-width: 0; flex: 1 1 100%; } .modal { padding: 14px; } }

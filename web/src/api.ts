@@ -102,3 +102,27 @@ export interface VMSource {
   last_error?: string; warnings?: string[];
 }
 export interface VMView { sources: VMSource[]; hosts: VMHost[]; vms: VM[] }
+export interface Network {
+  id: string; name: string; purpose?: string; vlan?: number; subnet?: string; zone?: string; zone_name?: string;
+  zone_source?: "firewall" | "inferred"; isolated?: boolean; internet_access: boolean; ssids?: string[]; target: string;
+}
+export interface NetClient extends Client { switch_mac?: string; switch_port?: number; ap_mac?: string }
+export interface NetworkSpec {
+  name: string; vlan: number; mode: "gateway" | "vlan-only"; gateway?: string; dhcp: boolean; dhcp_start?: string; dhcp_stop?: string;
+  isolated: boolean; internet_access: boolean;
+}
+export interface VLANTarget {
+  id: number; name: string; kind: string; writable: boolean; taken_at?: string; last_error?: string;
+  networks: Network[]; clients: NetClient[]; devices: { id: string; name: string; kind: string; online: boolean }[];
+  suggestion: NetworkSpec; ports: Record<string, { name: string; profile?: string; infra?: boolean; clients: number }>;
+}
+export interface MoveStep {
+  mac: string; name: string; ip?: string; wired: boolean; method?: "port" | "client"; from?: string; from_name?: string; via?: string;
+  switch_mac?: string; switch_port?: number; requested: boolean; already?: boolean; blocked?: string; note?: string;
+}
+export interface PortChange {
+  switch_mac: string; switch_name: string; port: number; port_name: string; from?: string; from_name?: string; profile?: string;
+  clients: string[]; offline?: boolean;
+}
+export interface MovePlan { target: string; network: Network; steps: MoveStep[]; ports: PortChange[]; warnings?: string[] }
+export interface MoveResult { mac: string; name: string; ok: boolean; error?: string; notes?: string[] }

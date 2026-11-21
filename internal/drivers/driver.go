@@ -71,3 +71,57 @@ func Kinds() []string {
 	sort.Strings(out)
 	return out
 }
+
+// NetworkSpec describes a new VLAN network.
+type NetworkSpec struct {
+	Name string `json:"name"`
+	VLAN int    `json:"vlan"`
+	// Mode is "gateway" (the router routes the network and can hand out addresses) or
+	// "vlan-only" (a VLAN with no gateway or DHCP on the router, for a third-party router).
+	Mode string `json:"mode"`
+	// Gateway is the router's address with the prefix length, e.g. 192.168.30.1/24 (gateway mode).
+	Gateway   string `json:"gateway,omitempty"`
+	DHCP      bool   `json:"dhcp"`
+	DHCPStart string `json:"dhcp_start,omitempty"`
+	DHCPStop  string `json:"dhcp_stop,omitempty"`
+	// Isolated blocks traffic from this network to the router's other networks.
+	Isolated       bool `json:"isolated"`
+	InternetAccess bool `json:"internet_access"`
+}
+
+// Ways a client is moved to another network.
+const (
+	// MovePort sets the untagged (native) network of the switch port the client is cabled to.
+	// Everything on that port moves together.
+	MovePort = "port"
+	// MoveClient overrides the network of one wireless client, keeping it on the same Wi-Fi.
+	MoveClient = "client"
+)
+
+// ClientMove is one change that puts a client in another network.
+type ClientMove struct {
+	MAC    string `json:"mac"`
+	Name   string `json:"name"`
+	Method string `json:"method"`
+	// SwitchMAC and SwitchPort name the port for MovePort.
+	SwitchMAC  string `json:"switch_mac,omitempty"`
+	SwitchPort int    `json:"switch_port,omitempty"`
+}
+
+// MoveResult is what happened to one ClientMove.
+type MoveResult struct {
+	MAC   string   `json:"mac"`
+	Name  string   `json:"name"`
+	OK    bool     `json:"ok"`
+	Error string   `json:"error,omitempty"`
+	Notes []string `json:"notes,omitempty"`
+}
+
+// NetworkWriter is a driver that can create networks and move clients between them.
+type NetworkWriter interface {
+	// CreateNetwork adds a VLAN network and returns its id.
+	CreateNetwork(ctx context.Context, t Target, creds vault.Secret, spec NetworkSpec) (string, error)
+	// MoveClients puts clients in the network with id networkID. With reconnect, wireless
+	// clients are disconnected so they rejoin straight away and get an address in the new network.
+	MoveClients(ctx context.Context, t Target, creds vault.Secret, networkID string, moves []ClientMove, reconnect bool) ([]MoveResult, error)
+}

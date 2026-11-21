@@ -61,9 +61,26 @@ var FirewallZones []byte
 //go:embed traffic_v2.json
 var TrafficV2 []byte
 
-// UniFi returns a handler that behaves like a UniFi OS console for the read-only API NCC uses.
-// It accepts username "ncc" with password "demo-password", or API key "demo-key".
+// UniFi returns a handler that behaves like a UniFi OS console for the API NCC uses.
+// It accepts username "ncc" with password "demo-password", or API key "demo-key", with full
+// rights, and username "viewer" with password "demo-password" as a View Only account that
+// may read but not change anything.
 func UniFi() http.Handler { return unifi(false) }
+
+// UniFiLab is a pretend UniFi console that remembers changes.
+type UniFiLab struct {
+	http.Handler
+	state *uState
+}
+
+// NewUniFi returns a pretend UniFi console whose changes can be inspected.
+func NewUniFi() *UniFiLab {
+	h, st := unifiWithState(false)
+	return &UniFiLab{Handler: h, state: st}
+}
+
+// Writes returns every change request the console received, as "METHOD path body".
+func (u *UniFiLab) Writes() []string { return u.state.Writes() }
 
 // UniFiWithLoops is UniFi with two switching loops cabled in: Rack switch ports 14 and 15
 // are patched to each other (nothing blocks it), and a second cable from Dream Router port 2
@@ -122,15 +139,29 @@ func loopEvents() []byte {
 }
 
 func unifi(loops bool) http.Handler {
+	h, _ := unifiWithState(loops)
+	return h
+}
+
+func unifiWithState(loops bool) (http.Handler, *uState) {
+	devices := StatDevice
+	if loops {
+		devices = LoopDevices()
+	}
+	st := newUState(devices)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&in)
-		if in["username"] != "ncc" || in["password"] != "demo-password" {
+		if (in["username"] != "ncc" && in["username"] != "viewer") || in["password"] != "demo-password" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		http.SetCookie(w, &http.Cookie{Name: "TOKEN", Value: "demo", Path: "/", HttpOnly: true})
+		token := "demo"
+		if in["username"] == "viewer" {
+			token = "viewer"
+		}
+		http.SetCookie(w, &http.Cookie{Name: "TOKEN", Value: token, Path: "/", HttpOnly: true})
 		w.Header().Set("X-Csrf-Token", "demo-csrf")
 		_, _ = w.Write([]byte(`{}`))
 	})
@@ -140,7 +171,26 @@ func unifi(loops bool) http.Handler {
 			return true
 		}
 		c, err := r.Cookie("TOKEN")
-		return err == nil && c.Value == "demo"
+		return err == nil && (c.Value == "demo" || c.Value == "viewer")
+	}
+	// canWrite is false for the View Only account, like a real console
+	canWrite := func(h http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if !ok(r) {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if c, err := r.Cookie("TOKEN"); err == nil && c.Value == "viewer" {
+				apiErr(w, http.StatusForbidden, "api.err.NoPermission")
+				return
+			}
+			if r.Header.Get("X-API-KEY") == "" && r.Header.Get("X-CSRF-Token") != "demo-csrf" {
+				apiErr(w, http.StatusForbidden, "api.err.InvalidCSRF")
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			h(w, r)
+		}
 	}
 	serve := func(b []byte) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -152,12 +202,12 @@ func unifi(loops bool) http.Handler {
 			_, _ = w.Write(b)
 		}
 	}
-	mux.HandleFunc("GET /proxy/network/api/self/sites", serve([]byte(`{"meta":{"rc":"ok"},"data":[{"name":"default","desc":"Home"}]}`)))
-	devices, events := StatDevice, []byte(`{"meta":{"rc":"ok"},"data":[]}`)
-	if loops {
-		devices = LoopDevices()
+	dyn := func(sel func(*uState) []map[string]any) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { serve(st.list(sel))(w, r) }
 	}
-	mux.HandleFunc("GET /proxy/network/api/s/default/stat/device", serve(devices))
+	mux.HandleFunc("GET /proxy/network/api/self/sites", serve([]byte(`{"meta":{"rc":"ok"},"data":[{"name":"default","desc":"Home"}]}`)))
+	events := []byte(`{"meta":{"rc":"ok"},"data":[]}`)
+	mux.HandleFunc("GET /proxy/network/api/s/default/stat/device", dyn(func(s *uState) []map[string]any { return s.devices }))
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/alarm", serve([]byte(`{"meta":{"rc":"ok"},"data":[]}`)))
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/event", func(w http.ResponseWriter, r *http.Request) {
 		if loops {
@@ -166,17 +216,29 @@ func unifi(loops bool) http.Handler {
 		}
 		serve(events)(w, r)
 	})
-	mux.HandleFunc("GET /proxy/network/api/s/default/stat/sta", serve(StatSta))
+	mux.HandleFunc("GET /proxy/network/api/s/default/stat/sta", dyn(func(s *uState) []map[string]any { return s.clients }))
 	// Like a Network 9+ console: application data comes from the v2 traffic API and the
 	// legacy DPI calls answer "ok" with no rows.
 	mux.HandleFunc("GET /proxy/network/v2/api/site/default/traffic", serve(TrafficV2))
 	mux.HandleFunc("POST /proxy/network/api/s/default/stat/stadpi", serve([]byte(`{"meta":{"rc":"ok"},"data":[]}`)))
 	mux.HandleFunc("POST /proxy/network/api/s/default/stat/sitedpi", serve([]byte(`{"meta":{"rc":"ok"},"data":[]}`)))
-	mux.HandleFunc("GET /proxy/network/api/s/default/rest/networkconf", serve(RestNetworkConf))
+	mux.HandleFunc("GET /proxy/network/api/s/default/rest/networkconf", dyn(func(s *uState) []map[string]any { return s.networks }))
+	mux.HandleFunc("POST /proxy/network/api/s/default/rest/networkconf", canWrite(st.createNetwork))
+	mux.HandleFunc("PUT /proxy/network/api/s/default/rest/device/{id}", canWrite(st.updateDevice))
+	mux.HandleFunc("GET /proxy/network/api/s/default/stat/user/{mac}", func(w http.ResponseWriter, r *http.Request) {
+		if !ok(r) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		st.getUser(w, r)
+	})
+	mux.HandleFunc("PUT /proxy/network/api/s/default/rest/user/{id}", canWrite(st.updateUser))
+	mux.HandleFunc("POST /proxy/network/api/s/default/cmd/{mgr}", canWrite(st.command))
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/portconf", serve(RestPortConf))
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/wlanconf", serve(RestWLANConf))
 	mux.HandleFunc("GET /proxy/network/v2/api/site/default/firewall/zone", serve(FirewallZones))
-	return mux
+	return mux, st
 }
 
 // PowerDNS is an in-memory PowerDNS Authoritative API with home.lan. and 1.168.192.in-addr.arpa.
