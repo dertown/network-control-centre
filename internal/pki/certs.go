@@ -228,3 +228,40 @@ func (inv *Inventory) Delete(ctx context.Context, id int64) error {
 	_, err := inv.DB.ExecContext(ctx, `DELETE FROM certificates WHERE id = ?`, id)
 	return err
 }
+
+// Get returns one certificate from the inventory.
+func (inv *Inventory) Get(ctx context.Context, id int64) (*Cert, error) {
+	certs, err := inv.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range certs {
+		if certs[i].ID == id {
+			return &certs[i], nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+
+// Material returns a certificate's PEM chain and its private key from the vault, for
+// deploying it to a server. The key is empty when the certificate was imported without one.
+func (inv *Inventory) Material(ctx context.Context, id int64) (certPEM, keyPEM string, err error) {
+	var keyPath string
+	if err := inv.DB.QueryRowContext(ctx, `SELECT cert_pem, key_secret_path FROM certificates WHERE id = ?`, id).Scan(&certPEM, &keyPath); err != nil {
+		return "", "", err
+	}
+	if keyPath == "" {
+		return certPEM, "", nil
+	}
+	s, err := inv.Vault.Get(ctx, keyPath)
+	if err != nil {
+		return "", "", fmt.Errorf("read private key from vault: %w", err)
+	}
+	return certPEM, s["private_key"], nil
+}
+
+// Fingerprint is the inventory's SHA-256 fingerprint (lower-case hex) of a certificate.
+func Fingerprint(c *x509.Certificate) string {
+	fp := sha256.Sum256(c.Raw)
+	return hex.EncodeToString(fp[:])
+}

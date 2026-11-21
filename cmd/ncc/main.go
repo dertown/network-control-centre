@@ -19,6 +19,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/api"
 	"github.com/dertown/network-control-centre/internal/audit"
 	"github.com/dertown/network-control-centre/internal/auth"
+	"github.com/dertown/network-control-centre/internal/certdeploy"
 	"github.com/dertown/network-control-centre/internal/config"
 	"github.com/dertown/network-control-centre/internal/core"
 	"github.com/dertown/network-control-centre/internal/dnslog"
@@ -120,9 +121,13 @@ func run(log *slog.Logger, cfgPath string) error {
 		log.Info("DNS query log receiver listening", "addr", cfg.DNSLog.Listen, "allow", cfg.DNSLog.Allow)
 	}
 	authSvc := auth.New(st.DB)
+	auditLog := audit.New(st.DB)
+	certs := &pki.Inventory{DB: st.DB, Vault: vs}
+	deploy := &certdeploy.Service{DB: st.DB, Vault: vs, Certs: certs, Audit: auditLog}
+	deploy.MarkInterrupted(ctx)
 	srv := &api.Server{
-		Store: st, Auth: authSvc, Audit: audit.New(st.DB), Vault: vs, Targets: targets,
-		Poller: poller, Hub: hub, Certs: &pki.Inventory{DB: st.DB, Vault: vs},
+		Store: st, Auth: authSvc, Audit: auditLog, Vault: vs, Targets: targets,
+		Poller: poller, Hub: hub, Certs: certs, Deploy: deploy,
 		Traffic: traffic, DNSLog: dnsLog,
 		UI: web.UI(), Log: log, SecureCookies: !cfg.PlainHTTP || cfg.BehindTLSProxy,
 	}

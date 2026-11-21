@@ -112,6 +112,34 @@ var migrations = []string{
 		taken_at TIMESTAMP NOT NULL,
 		data TEXT NOT NULL
 	)`,
+	// cert_deploy_targets are servers NCC installs certificates on; cert_deployments is their history.
+	`CREATE TABLE IF NOT EXISTS cert_deploy_targets (
+		id INTEGER PRIMARY KEY,
+		name TEXT NOT NULL UNIQUE,
+		kind TEXT NOT NULL,
+		host TEXT NOT NULL,
+		port INTEGER NOT NULL,
+		options TEXT NOT NULL DEFAULT '{}',
+		secret_path TEXT NOT NULL,
+		cert_id INTEGER NOT NULL DEFAULT 0,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`CREATE TABLE IF NOT EXISTS cert_deployments (
+		id INTEGER PRIMARY KEY,
+		target_id INTEGER NOT NULL REFERENCES cert_deploy_targets(id) ON DELETE CASCADE,
+		target_name TEXT NOT NULL,
+		cert_id INTEGER NOT NULL,
+		cert_name TEXT NOT NULL,
+		fingerprint TEXT NOT NULL,
+		actor TEXT NOT NULL,
+		started TEXT NOT NULL,
+		finished TEXT,
+		status TEXT NOT NULL,
+		verified TEXT NOT NULL DEFAULT '',
+		steps TEXT NOT NULL DEFAULT '[]',
+		error TEXT NOT NULL DEFAULT ''
+	)`,
+	`CREATE INDEX IF NOT EXISTS cert_deployments_target ON cert_deployments(target_id, id)`,
 }
 
 // Open opens (and migrates) the database in dataDir.
