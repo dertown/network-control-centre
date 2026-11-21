@@ -23,6 +23,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/api"
 	"github.com/dertown/network-control-centre/internal/audit"
 	"github.com/dertown/network-control-centre/internal/auth"
+	"github.com/dertown/network-control-centre/internal/certdeploy"
 	"github.com/dertown/network-control-centre/internal/core"
 	"github.com/dertown/network-control-centre/internal/inventory"
 	"github.com/dertown/network-control-centre/internal/mocklab"
@@ -83,8 +84,11 @@ func newNCC(t *testing.T) (*httptest.Server, *core.Poller) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	traffic := &core.Traffic{DB: st.DB}
 	poller := &core.Poller{DB: st.DB, Targets: targets, Vault: vs, Hub: hub, Interval: time.Hour, Log: log, Traffic: traffic}
-	srv := &api.Server{Store: st, Auth: auth.New(st.DB), Audit: audit.New(st.DB), Vault: vs, Targets: targets,
-		Poller: poller, Hub: hub, Certs: &pki.Inventory{DB: st.DB, Vault: vs}, Log: log, Traffic: traffic}
+	al := audit.New(st.DB)
+	certs := &pki.Inventory{DB: st.DB, Vault: vs}
+	srv := &api.Server{Store: st, Auth: auth.New(st.DB), Audit: al, Vault: vs, Targets: targets,
+		Poller: poller, Hub: hub, Certs: certs, Log: log, Traffic: traffic,
+		Deploy: &certdeploy.Service{DB: st.DB, Vault: vs, Certs: certs, Audit: al}}
 	return httptest.NewServer(srv.Handler()), poller
 }
 

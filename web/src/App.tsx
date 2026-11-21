@@ -9,6 +9,7 @@ import { DNS } from "./pages/DNS";
 import { Traffic } from "./pages/Traffic";
 import { Firewall } from "./pages/Firewall";
 import { Vault } from "./pages/Vault";
+import { CertDeploy } from "./pages/CertDeploy";
 import { Settings } from "./pages/Settings";
 import { Audit } from "./pages/Audit";
 import { Login, Setup } from "./pages/Auth";
@@ -25,6 +26,7 @@ const pages = [
   { id: "vlans", label: "VLANs", icon: "vlan", group: "Configure" },
   { id: "dns", label: "DNS", icon: "dns", group: "Services" },
   { id: "vault", label: "Vault & certificates", icon: "vault", group: "Services" },
+  { id: "deploy", label: "Certificate deployment", icon: "upload", group: "Services" },
   { id: "settings", label: "Settings", icon: "settings", group: "Administration" },
   { id: "audit", label: "Audit log", icon: "audit", group: "Administration", admin: true },
 ] as const;
@@ -155,6 +157,7 @@ export default function App() {
           {page === "vlans" && <VLANs tick={tick} user={user} />}
           {page === "dns" && <DNS user={user} />}
           {page === "vault" && <Vault user={user} vault={vault} onVault={setVault} />}
+          {page === "deploy" && <CertDeploy user={user} tick={tick} />}
           {page === "settings" && <Settings user={user} tick={tick} />}
           {page === "audit" && <Audit />}
         </main>

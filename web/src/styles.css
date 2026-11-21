@@ -542,3 +542,44 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .fw-tag { margin-left: 8px; font-size: 10.5px; padding: 1px 7px; }
 tr.fw-off td { color: var(--muted); }
 tr.fw-off strong { font-weight: 550; }
+
+/* ───────────── Certificate deployment ───────────── */
+.deploy-name { display: flex; align-items: center; gap: 7px; }
+.deploy-name .icon { color: var(--muted); }
+button.small-btn { padding: 4px 10px; font-size: 12.5px; display: inline-flex; align-items: center; gap: 5px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.kind-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.kind-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; padding: 12px 14px; line-height: 1.4; }
+.kind-card:hover { background: var(--accent-soft); }
+.kind-title { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 14px; }
+.kind-via { margin-top: auto; color: var(--accent); font-weight: 500; }
+.target-form .row label.port-field { flex: 0 0 110px; }
+.target-form .row label.grow2 { flex: 2; }
+.target-form .back { padding-left: 0; margin-bottom: 10px; }
+.cred-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); column-gap: 12px; }
+.cred-grid .span2 { grid-column: 1 / -1; }
+.cred-grid.more { margin-top: 10px; }
+.cred-grid label > span:first-child { display: flex; align-items: center; justify-content: space-between; }
+.field-help { font-weight: 400; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+label.check.field-check { flex-wrap: wrap; margin-bottom: 12px; align-self: start; padding-top: 18px; }
+label.check.field-check .field-help { flex-basis: 100%; }
+.steps { list-style: none; margin: 6px 0 10px; padding: 0; }
+.step { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); align-items: flex-start; }
+.step:last-child { border-bottom: 0; }
+.step-mark { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+.step.ok .step-mark, .step.unchanged .step-mark { background: var(--good-bg); color: var(--good); border-color: transparent; }
+.step.failed .step-mark { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
+.step.running .step-mark { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.step.skipped { opacity: 0.55; }
+.step .cmd { background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; margin-top: 4px; white-space: pre-wrap; max-height: 120px; overflow: auto; }
+.step-out { margin: 6px 0 0; padding: 6px 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; font-size: 11.5px; white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; }
+.step.failed .step-out { color: var(--bad); }
+.notes { margin: 4px 0 0; padding-left: 18px; line-height: 1.5; }
+.trust { border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-bg); border-radius: var(--radius-sm); padding: 10px 12px; display: grid; gap: 8px; }
+.trust .fp { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+.run { padding: 4px 0; }
+.spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty p { margin: 8px 0 12px; line-height: 1.5; }
+@media (max-width: 640px) { .target-form .row label.port-field { flex: 1 1 100%; } .deploy-table td.actions { white-space: normal; } }
+.scroll-x { overflow-x: auto; }

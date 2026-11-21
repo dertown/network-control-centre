@@ -3,10 +3,12 @@ module github.com/dertown/network-control-centre
 go 1.26.0
 
 require (
+	github.com/Azure/go-ntlmssp v0.1.1
 	github.com/vmware/govmomi v0.56.2
 	golang.org/x/crypto v0.59.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.62.0
+	software.sslmate.com/src/go-pkcs12 v0.7.4
 )
 
 require (

@@ -52,6 +52,13 @@ This first release (the MVP) covers:
   master key) or **HashiCorp Vault** (KV v2, token or AppRole). All device and DNS credentials
   live there; values never reach the browser unless an admin reveals them.
 - **Certificates**: import certificates and keys (keys go into the vault) and track expiry.
+- **Certificate deployment**: push a certificate from the vault to your servers: **nginx**, **Apache**,
+  **Tomcat** (PKCS#12 keystore or PEM), **Splunk Enterprise** (Splunk Web and/or splunkd, web.conf and
+  server.conf updated), **Splunk SOAR**, **Foundry VTT** (options.json updated), any **other Linux service**
+  (HAProxy, Caddy...) over SSH, and **IIS** over WinRM (PFX import and HTTPS binding). Each server's login
+  lives in the vault. Every deployment shows a preview of each file, edit and command first, keeps the old
+  files as `.ncc-bak`, then checks that the server now serves the new certificate. See
+  [Deploying certificates](#deploying-certificates).
 - **Security**: HTTPS by default, Argon2id passwords, TOTP two-factor sign-in, roles
   (viewer, operator, admin), CSRF protection, login rate limiting, and a hash-chained audit log.
 - **Accounts**: anyone can change their own password under **Settings** (it asks for the current
@@ -168,6 +175,37 @@ type. It uses three sources, each optional beyond the first:
    router as their DNS server and the router forwards to PowerDNS, every lookup looks like it
    came from the router; hand out the resolver's address in DHCP instead. The receiver is plain
    TCP with no authentication, so keep `allow` set and the port off the internet.
+
+### Deploying certificates
+
+Open **Certificate deployment**, choose **Add server**, pick the type, and enter the host, the login and
+where the files go (sensible defaults are filled in; `{cert}` in a path is the certificate's name). Then
+**Deploy**: NCC builds the preview, logs in to test it, and on the first connection shows the server's SSH
+host key (or WinRM certificate) for you to confirm. It is pinned from then on, and a changed key stops the
+deployment. Deployments run in the background, so closing the browser does not stop one, and they are listed
+with every step's output under **Recent deployments** and in the audit log. A **Deploy** link on each
+certificate in **Vault & certificates** jumps here with that certificate chosen.
+
+- **Linux servers (SSH)**: log in with a password and/or a private key. File writes and restarts run as root
+  through `sudo` (the login password, or a separate sudo password, is passed on stdin), or log in as root.
+  Files are uploaded to a private temp file and moved into place; existing files keep their owner and a
+  `.ncc-bak` copy. Splunk's default restart is `systemctl restart Splunkd` and it can take a couple of
+  minutes to come back; SOAR, Foundry and the generic type can run their restart as a service user.
+- **Tomcat**: with the PKCS#12 format NCC makes a keystore password on the first deploy and keeps it in the
+  vault, so `server.xml` (`certificateKeystoreFile`, `certificateKeystorePassword`) never has to change.
+  The preview shows the `<Certificate>` element to use.
+- **IIS (Windows)**: NCC uses WinRM over **HTTPS (port 5986)** with NTLM (local or domain accounts) or Basic.
+  If the server has no HTTPS listener yet, run this in an elevated PowerShell on it:
+
+  ```powershell
+  $c = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
+  New-Item -Path WSMan:\localhost\Listener -Transport HTTPS -Address * -CertificateThumbPrint $c.Thumbprint -Force
+  New-NetFirewallRule -DisplayName "WinRM HTTPS" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow
+  ```
+
+  The certificate goes into Local Machine\Personal with its intermediates in the Intermediate store, and is
+  bound to the site's HTTPS binding (added if missing; tick **Require SNI** for host-name bindings). The
+  previous certificate stays in the store so you can switch back in IIS Manager.
 
 ## Try it without touching your network
 

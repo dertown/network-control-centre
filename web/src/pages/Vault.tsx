@@ -110,6 +110,7 @@ export function Vault({ user, vault, onVault }: { user: User; vault: VaultStatus
                 <td>{c.has_key ? "in vault" : "—"}</td>
                 <td className="actions">
                   <a className="link" href={`/api/certs/${c.id}/pem`} download={`${c.name}.pem`}>PEM</a>
+                  {isAdmin && c.has_key && <a className="link" href={`#/deploy?cert=${c.id}`}>Deploy</a>}
                   {isAdmin && <button className="link danger" onClick={() => delCert(c)}>Delete</button>}
                 </td>
               </tr>

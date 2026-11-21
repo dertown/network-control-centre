@@ -15,6 +15,7 @@ import (
 
 	"github.com/dertown/network-control-centre/internal/audit"
 	"github.com/dertown/network-control-centre/internal/auth"
+	"github.com/dertown/network-control-centre/internal/certdeploy"
 	"github.com/dertown/network-control-centre/internal/core"
 	"github.com/dertown/network-control-centre/internal/dnslog"
 	"github.com/dertown/network-control-centre/internal/pki"
@@ -32,9 +33,10 @@ type Server struct {
 	Poller  *core.Poller
 	Hub     *core.Hub
 	Certs   *pki.Inventory
-	Traffic *core.Traffic     // per-client traffic; nil disables the Traffic page data
-	DNSLog  *dnslog.Collector // DNS query log receiver; nil when dns_log is not configured
-	UI      fs.FS             // built web UI; nil serves a placeholder
+	Deploy  *certdeploy.Service // certificate deployment to servers; nil disables it
+	Traffic *core.Traffic       // per-client traffic; nil disables the Traffic page data
+	DNSLog  *dnslog.Collector   // DNS query log receiver; nil when dns_log is not configured
+	UI      fs.FS               // built web UI; nil serves a placeholder
 	Log     *slog.Logger
 	// SecureCookies sets the Secure flag; true unless running plain HTTP in development.
 	SecureCookies bool
@@ -123,6 +125,17 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/certs", a(s.importCert))
 	mux.Handle("GET /api/certs/{id}/pem", v(s.certPEM))
 	mux.Handle("DELETE /api/certs/{id}", a(s.deleteCert))
+
+	mux.Handle("GET /api/certdeploy/kinds", v(s.deployKinds))
+	mux.Handle("GET /api/certdeploy/targets", v(s.deployTargets))
+	mux.Handle("POST /api/certdeploy/targets", a(s.createDeployTarget))
+	mux.Handle("PATCH /api/certdeploy/targets/{id}", a(s.updateDeployTarget))
+	mux.Handle("DELETE /api/certdeploy/targets/{id}", a(s.deleteDeployTarget))
+	mux.Handle("GET /api/certdeploy/targets/{id}/served", v(s.deployServed))
+	mux.Handle("POST /api/certdeploy/plan", a(s.deployPlan))
+	mux.Handle("POST /api/certdeploy/deploy", a(s.deployRun))
+	mux.Handle("GET /api/certdeploy/deployments", v(s.deployHistory))
+	mux.Handle("GET /api/certdeploy/deployments/{id}", v(s.deployment))
 
 	mux.Handle("GET /api/audit", a(s.listAudit))
 	mux.Handle("GET /api/audit/verify", a(s.verifyAudit))
