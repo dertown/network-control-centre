@@ -25,6 +25,14 @@ This first release (the MVP) covers:
   STP and MAC-flapping events from the last 24 hours. LAGs are not counted as loops. A loop
   with an STP-blocked port is shown as contained (amber); one with nothing blocking it is red.
   Try it with `go run ./cmd/ncc-mock -loops`.
+- **VLANs and clients** (VLANs page): create VLAN networks on the UniFi router (name, VLAN ID,
+  subnet, DHCP range, isolation, internet access) and move clients between networks by drag and
+  drop, one at a time or as a selection ("Select likely IoT" picks smart-home gear by vendor and
+  name). Wi-Fi clients move with UniFi's per-client network override, so they keep the same SSID
+  and password; wired clients move by changing the untagged VLAN of their switch port (everything
+  on that port moves together, and ports leading to other switches or access points are never
+  changed). Every change is previewed first and audited. Changes need a UniFi account with a
+  Network role that can change settings (Site Admin or Full Management), not View Only.
 - **Firewall rules and port forwards (read-only)**: the **Firewall** page lists the router's
   zone-based firewall policies (UniFi Network 9+) or older rule sets (WAN_IN, LAN_IN...), with
   zones, networks, address and port groups and clients named, and every port forward with where it
@@ -50,8 +58,7 @@ This first release (the MVP) covers:
   one and logs out every other browser). Admins can reset another user's password, which logs
   that user out everywhere, and delete users. The last admin cannot be deleted.
 
-The design and the phased plan are in the project's architecture document. Device writes
-(VLANs, port profiles), BIND (RFC 2136), ACME / Let's Encrypt and more vendors come in later phases.
+The design and the phased plan are in the project's architecture document. Port profile editing, BIND (RFC 2136), ACME / Let's Encrypt and more vendors come in later phases.
 
 ## Quick start
 

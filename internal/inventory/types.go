@@ -61,6 +61,9 @@ type Port struct {
 	Profile        string   `json:"profile,omitempty"`
 	NativeNetwork  string   `json:"native_network,omitempty"`
 	TaggedNetworks []string `json:"tagged_networks,omitempty"`
+	// Infra is set when the port connects to another network device (an uplink, a cable to a
+	// switch or access point, an LLDP neighbour, or the gateway's WAN), not to end hosts.
+	Infra bool `json:"infra,omitempty"`
 }
 
 // Network is a LAN, VLAN, guest or WAN network, with the firewall zone it belongs to.
@@ -108,6 +111,12 @@ type Client struct {
 	VLAN       int    `json:"vlan,omitempty"`
 	NetworkID  string `json:"network_id,omitempty"`
 	SSID       string `json:"ssid,omitempty"`
+	// SwitchMAC and SwitchPort are the managed switch (or gateway) port the controller sees a
+	// wired client on, even when the client really sits behind an unmanaged switch there.
+	SwitchMAC  string `json:"switch_mac,omitempty"`
+	SwitchPort int    `json:"switch_port,omitempty"`
+	// APMAC is the access point a wireless client is associated with.
+	APMAC string `json:"ap_mac,omitempty"`
 }
 
 // Snapshot is everything one target reported at one moment.

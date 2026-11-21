@@ -3,6 +3,7 @@ import { api, ApiError, setCSRF, User, VaultStatus } from "./api";
 import { Dashboard } from "./pages/Dashboard";
 import { Topology } from "./pages/Topology";
 import { Devices } from "./pages/Devices";
+import { VLANs } from "./pages/VLANs";
 import { VirtualMachines } from "./pages/VirtualMachines";
 import { DNS } from "./pages/DNS";
 import { Traffic } from "./pages/Traffic";
@@ -21,6 +22,7 @@ const pages = [
   { id: "vms", label: "Virtual machines", icon: "vm", group: "Monitor" },
   { id: "traffic", label: "Traffic", icon: "traffic", group: "Monitor" },
   { id: "firewall", label: "Firewall", icon: "firewall", group: "Monitor" },
+  { id: "vlans", label: "VLANs", icon: "vlan", group: "Configure" },
   { id: "dns", label: "DNS", icon: "dns", group: "Services" },
   { id: "vault", label: "Vault & certificates", icon: "vault", group: "Services" },
   { id: "settings", label: "Settings", icon: "settings", group: "Administration" },
@@ -150,6 +152,7 @@ export default function App() {
           {page === "vms" && <VirtualMachines tick={tick} user={user} />}
           {page === "traffic" && <Traffic tick={tick} />}
           {page === "firewall" && <Firewall tick={tick} />}
+          {page === "vlans" && <VLANs tick={tick} user={user} />}
           {page === "dns" && <DNS user={user} />}
           {page === "vault" && <Vault user={user} vault={vault} onVault={setVault} />}
           {page === "settings" && <Settings user={user} tick={tick} />}

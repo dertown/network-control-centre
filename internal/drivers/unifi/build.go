@@ -229,6 +229,9 @@ func Build(target string, devs []rawDevice, clients []rawClient, cfg *siteConfig
 			if nb, ok := behind[portKey{sw, r.SwPort}]; ok && behindCount[portKey{sw, r.SwPort}] == 1 {
 				c.ParentID, c.ParentPort = nb, ""
 			}
+			if _, ok := byMAC[sw]; ok && r.SwPort > 0 {
+				c.SwitchMAC, c.SwitchPort = sw, r.SwPort
+			}
 			if r.SwPort > 0 && !uplinkPorts[sw+"#"+strconv.Itoa(r.SwPort)] {
 				k := portKey{sw, r.SwPort}
 				wiredOnPort[k] = append(wiredOnPort[k], len(snap.Clients))
@@ -236,6 +239,7 @@ func Build(target string, devs []rawDevice, clients []rawClient, cfg *siteConfig
 		} else {
 			c.ParentID = inv.NormMAC(r.APMAC)
 			c.ParentPort = r.ESSID
+			c.APMAC = c.ParentID
 		}
 		snap.Clients = append(snap.Clients, c)
 	}
@@ -276,6 +280,20 @@ func Build(target string, devs []rawDevice, clients []rawClient, cfg *siteConfig
 	for _, c := range snap.Clients {
 		if d, ok := byMAC[c.ParentID]; ok {
 			d.Clients++
+		}
+	}
+	// mark ports that lead to other network devices, so they are never treated as client ports
+	for _, r := range devs {
+		mac := inv.NormMAC(r.MAC)
+		d, ok := byMAC[mac]
+		if !ok {
+			continue
+		}
+		for i := range d.Ports {
+			p := &d.Ports[i]
+			if p.Uplink || uplinkPorts[mac+"#"+strconv.Itoa(p.Index)] {
+				p.Infra = true
+			}
 		}
 	}
 	for _, id := range order {
