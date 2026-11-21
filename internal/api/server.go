@@ -112,6 +112,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/vlans/networks", a(s.createVLAN))
 	mux.Handle("POST /api/vlans/plan", v(s.planVLANMove))
 	mux.Handle("POST /api/vlans/move", a(s.moveVLANClients))
+	mux.Handle("POST /api/vlans/reconnect", a(s.reconnectVLANClients))
 	mux.Handle("GET /api/vms", v(s.listVMs))
 	mux.Handle("POST /api/vms/power", o(s.vmPower))
 	mux.Handle("POST /api/vms/settings", a(s.vmSettings))

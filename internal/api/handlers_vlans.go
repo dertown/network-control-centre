@@ -30,10 +30,16 @@ type vlanTarget struct {
 	TakenAt    *time.Time           `json:"taken_at,omitempty"`
 	LastError  string               `json:"last_error,omitempty"`
 	Networks   []inventory.Network  `json:"networks"`
-	Clients    []inventory.Client   `json:"clients"`
+	Clients    []vlanClient         `json:"clients"`
 	Devices    []vlanDevice         `json:"devices"`
 	Suggestion drivers.NetworkSpec  `json:"suggestion"`
 	Ports      map[string]portBrief `json:"ports"`
+}
+
+// vlanClient is a client, and whether it still has an address from its old network.
+type vlanClient struct {
+	inventory.Client
+	Stale bool `json:"stale,omitempty"`
 }
 
 // portBrief says what a client's switch port is, keyed "switch-mac#port".
@@ -78,7 +84,7 @@ func (s *Server) listVLANs(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		vt := vlanTarget{ID: t.ID, Name: t.Name, Kind: t.Kind, LastError: t.LastError, Networks: []inventory.Network{},
-			Clients: []inventory.Client{}, Devices: []vlanDevice{}, Ports: map[string]portBrief{}}
+			Clients: []vlanClient{}, Devices: []vlanDevice{}, Ports: map[string]portBrief{}}
 		if d, err := drivers.Get(t.Kind); err == nil {
 			_, vt.Writable = d.(drivers.NetworkWriter)
 		}
@@ -86,14 +92,17 @@ func (s *Server) listVLANs(w http.ResponseWriter, r *http.Request) {
 			at := snap.TakenAt
 			vt.TakenAt = &at
 			vt.Networks = append(vt.Networks, snap.Networks...)
-			vt.Clients = append(vt.Clients, snap.Clients...)
+			for _, c := range snap.Clients {
+				vt.Clients = append(vt.Clients, vlanClient{Client: c})
+			}
 			for _, d := range snap.Devices {
 				vt.Devices = append(vt.Devices, vlanDevice{ID: d.ID, Name: d.Name, Kind: d.Kind, Online: d.Online})
 				for _, p := range d.Ports {
 					vt.Ports[d.ID+"#"+strconv.Itoa(p.Index)] = portBrief{Name: p.Name, Profile: p.Profile, Infra: p.Infra}
 				}
 			}
-			for _, c := range snap.Clients {
+			for i, c := range snap.Clients {
+				vt.Clients[i].Stale = core.StaleAddress(c, snap.Networks)
 				if c.Wired && c.SwitchMAC != "" {
 					k := c.SwitchMAC + "#" + strconv.Itoa(c.SwitchPort)
 					pb := vt.Ports[k]
@@ -286,4 +295,83 @@ func (s *Server) moveVLANClients(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, out)
+}
+
+// reconnectVLANClients makes clients ask for a new address, e.g. ones still on an address
+// from their old network after a move.
+func (s *Server) reconnectVLANClients(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		TargetID int64    `json:"target_id"`
+		MACs     []string `json:"macs"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if len(in.MACs) == 0 || len(in.MACs) > 500 {
+		writeErr(w, 400, "pick between 1 and 500 clients")
+		return
+	}
+	t, nw, creds, code, err := s.vlanWriter(r, in.TargetID)
+	if err != nil {
+		s.vmFail(w, code, err)
+		return
+	}
+	snap, err := s.snapshotFor(r.Context(), t)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if snap == nil {
+		writeErr(w, 409, "NCC has not read "+t.Name+" yet; wait for the first refresh")
+		return
+	}
+	moves, steps := core.PlanReconnect(snap, in.MACs)
+	var results []drivers.MoveResult
+	if len(moves) > 0 {
+		ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+		defer cancel()
+		results, err = nw.Reconnect(ctx, devTarget(t), creds, moves)
+	}
+	byMAC := map[string]drivers.MoveResult{}
+	for _, res := range results {
+		byMAC[res.MAC] = res
+	}
+	// every step gets a result: port mates share their port's result
+	portRes := map[string]drivers.MoveResult{}
+	for _, m := range moves {
+		if m.Method == drivers.MovePort {
+			portRes[m.SwitchMAC+"#"+strconv.Itoa(m.SwitchPort)] = byMAC[m.MAC]
+		}
+	}
+	out := []drivers.MoveResult{}
+	for _, st := range steps {
+		res := drivers.MoveResult{MAC: st.MAC, Name: st.Name}
+		switch {
+		case st.Blocked != "":
+			res.Error = st.Blocked
+		case st.Method == drivers.MovePort:
+			pr := portRes[st.SwitchMAC+"#"+strconv.Itoa(st.SwitchPort)]
+			res.OK, res.Error, res.Notes = pr.OK, pr.Error, pr.Notes
+		default:
+			pr := byMAC[st.MAC]
+			res.OK, res.Error, res.Notes = pr.OK, pr.Error, pr.Notes
+		}
+		if !res.OK && res.Error == "" && err != nil {
+			res.Error = err.Error()
+		}
+		detail := map[string]any{"via": st.Via, "result": "ok"}
+		if !res.OK {
+			detail["result"] = "failed: " + res.Error
+		}
+		_ = s.Audit.Record(r.Context(), actor(r), "vlan.reconnect", "client/"+t.Name+"/"+res.Name+" ("+res.MAC+")", detail)
+		out = append(out, res)
+	}
+	s.refreshTarget(t.ID, 5*time.Second, 20*time.Second)
+	resp := map[string]any{"results": out}
+	if err != nil {
+		resp["error"] = err.Error()
+		writeJSON(w, 502, resp)
+		return
+	}
+	writeJSON(w, 200, resp)
 }

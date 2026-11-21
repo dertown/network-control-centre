@@ -118,7 +118,7 @@ export interface Network {
   id: string; name: string; purpose?: string; vlan?: number; subnet?: string; zone?: string; zone_name?: string;
   zone_source?: "firewall" | "inferred"; isolated?: boolean; internet_access: boolean; ssids?: string[]; target: string;
 }
-export interface NetClient extends Client { switch_mac?: string; switch_port?: number; ap_mac?: string }
+export interface NetClient extends Client { switch_mac?: string; switch_port?: number; ap_mac?: string; stale?: boolean }
 export interface NetworkSpec {
   name: string; vlan: number; mode: "gateway" | "vlan-only"; gateway?: string; dhcp: boolean; dhcp_start?: string; dhcp_stop?: string;
   isolated: boolean; internet_access: boolean;

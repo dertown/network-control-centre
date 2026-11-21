@@ -9,16 +9,20 @@ import (
 	"time"
 
 	"github.com/dertown/network-control-centre/internal/core"
+	"github.com/dertown/network-control-centre/internal/drivers/unifi"
 	"github.com/dertown/network-control-centre/internal/inventory"
 	"github.com/dertown/network-control-centre/internal/mocklab"
 )
 
 type vlanView struct {
 	Targets []struct {
-		ID         int64               `json:"id"`
-		Writable   bool                `json:"writable"`
-		Networks   []inventory.Network `json:"networks"`
-		Clients    []inventory.Client  `json:"clients"`
+		ID       int64               `json:"id"`
+		Writable bool                `json:"writable"`
+		Networks []inventory.Network `json:"networks"`
+		Clients  []struct {
+			inventory.Client
+			Stale bool `json:"stale"`
+		} `json:"clients"`
 		Suggestion struct {
 			VLAN    int    `json:"vlan"`
 			Gateway string `json:"gateway"`
@@ -56,16 +60,22 @@ func pollUntil(c *client, id int64) {
 	}
 }
 
-func clientNet(v vlanView, name string) inventory.Client {
+type vlanClient struct {
+	inventory.Client
+	Stale bool
+}
+
+func clientNet(v vlanView, name string) vlanClient {
 	for _, c := range v.Targets[0].Clients {
 		if c.Name == name {
-			return c
+			return vlanClient{c.Client, c.Stale}
 		}
 	}
-	return inventory.Client{}
+	return vlanClient{}
 }
 
 func TestVLANs(t *testing.T) {
+	unifi.BounceDown = 50 * time.Millisecond
 	c, lab, id, done := vlanSetup(t, "ncc")
 	defer done()
 
@@ -122,6 +132,7 @@ func TestVLANs(t *testing.T) {
 		"de:ad:00:00:00:01", // nas: Dream Router port 2, fixed IP
 		"de:ad:00:00:00:05", // desk-pc: behind the NETGEAR switch, cannot move
 		"de:ad:00:00:00:06", // web-dmz: port with the DMZ profile
+		"de:ad:00:00:00:0e", // garage-cam: PoE port
 	}
 	var plan core.MovePlan
 	if code := c.do("POST", "/api/vlans/plan", map[string]any{"target_id": id, "network_id": created.ID, "macs": macs}, &plan); code != 200 {
@@ -143,7 +154,7 @@ func TestVLANs(t *testing.T) {
 	if s := steps["desk-pc"]; s.Blocked == "" || !strings.Contains(s.Blocked, "office-sw") {
 		t.Errorf("desk-pc should be blocked: %+v", s)
 	}
-	if len(plan.Ports) != 3 || len(plan.Warnings) < 2 {
+	if len(plan.Ports) != 4 || len(plan.Warnings) < 2 {
 		t.Errorf("ports %+v warnings %v", plan.Ports, plan.Warnings)
 	}
 
@@ -164,13 +175,14 @@ func TestVLANs(t *testing.T) {
 		}
 		notes[r.Name] = strings.Join(r.Notes, "; ")
 	}
-	if len(res.Results) != 5 || !strings.Contains(notes["nas"], "fixed IP 192.168.1.50 removed") ||
-		!strings.Contains(notes["web-dmz"], `port profile "DMZ servers"`) || !strings.Contains(notes["thermostat"], "disconnected") {
+	if len(res.Results) != 6 || !strings.Contains(notes["nas"], "fixed IP moved from 192.168.1.50 to 192.168.10.50") ||
+		!strings.Contains(notes["web-dmz"], `port profile "DMZ servers"`) || !strings.Contains(notes["thermostat"], "disconnected") ||
+		!strings.Contains(notes["Printer"], "turned off") || !strings.Contains(notes["garage-cam"], "power-cycled") {
 		t.Fatalf("results: %+v", res.Results)
 	}
 	writes := strings.Join(lab.Writes(), "\n")
 	for _, want := range []string{"PUT rest/device/dev_aabbcc000004", "PUT rest/device/dev_aabbcc000001", `"virtual_network_override_id":"` + created.ID,
-		`"cmd":"kick-sta"`, `"use_fixedip":false`} {
+		`"cmd":"kick-sta"`, `"fixed_ip":"192.168.10.50"`, `"cmd":"power-cycle"`, `"forward":"disabled"`} {
 		if !strings.Contains(writes, want) {
 			t.Errorf("missing %s in\n%s", want, writes)
 		}
@@ -182,10 +194,23 @@ func TestVLANs(t *testing.T) {
 
 	pollUntil(c, id)
 	c.do("GET", "/api/vlans", nil, &v)
-	for _, name := range []string{"thermostat", "Printer", "tv", "nas", "web-dmz"} {
-		if cl := clientNet(v, name); cl.NetworkID != created.ID || !strings.HasPrefix(cl.IP, "192.168.10.") {
-			t.Errorf("%s not moved: %+v", name, cl)
+	for _, name := range []string{"thermostat", "Printer", "tv", "nas", "web-dmz", "garage-cam"} {
+		if cl := clientNet(v, name); cl.NetworkID != created.ID || !strings.HasPrefix(cl.IP, "192.168.10.") || cl.Stale {
+			t.Errorf("%s not moved to a new address: %+v", name, cl)
 		}
+	}
+	if cl := clientNet(v, "nas"); cl.IP != "192.168.10.50" {
+		t.Errorf("nas should keep its fixed number: %s", cl.IP)
+	}
+	// the ports that were switched off are back as they were, with the new network
+	last := ""
+	for _, w := range lab.Writes() {
+		if strings.HasPrefix(w, "PUT rest/device/dev_aabbcc000004") {
+			last = w
+		}
+	}
+	if strings.Contains(last, "disabled") || !strings.Contains(last, created.ID) {
+		t.Errorf("rack switch left with: %s", last)
 	}
 	if cl := clientNet(v, "desk-pc"); cl.NetworkID != "net_default" {
 		t.Errorf("desk-pc moved: %+v", cl)
@@ -199,7 +224,7 @@ func TestVLANs(t *testing.T) {
 			moves++
 		}
 	}
-	if moves != 5 {
+	if moves != 6 {
 		t.Errorf("audit has %d vlan.move entries", moves)
 	}
 }
@@ -219,5 +244,47 @@ func TestVLANsViewOnlyAccount(t *testing.T) {
 	}
 	if len(lab.Writes()) != 0 {
 		t.Fatalf("writes recorded: %v", lab.Writes())
+	}
+}
+
+func TestVLANsStaleAddressReconnect(t *testing.T) {
+	unifi.BounceDown = 50 * time.Millisecond
+	c, _, id, done := vlanSetup(t, "ncc")
+	defer done()
+	macs := []string{"de:ad:00:00:00:09", "de:ad:00:00:00:02"} // kitchen-plug (Wi-Fi), Printer (port shared with tv)
+	if code := c.do("POST", "/api/vlans/move", map[string]any{"target_id": id, "network_id": "net_iot", "macs": macs, "reconnect": false}, nil); code != 200 {
+		t.Fatalf("move: %d", code)
+	}
+	pollUntil(c, id)
+	var v vlanView
+	c.do("GET", "/api/vlans", nil, &v)
+	for _, n := range []string{"kitchen-plug", "Printer", "tv"} {
+		if cl := clientNet(v, n); cl.NetworkID != "net_iot" || !cl.Stale || !strings.HasPrefix(cl.IP, "192.168.1.") {
+			t.Fatalf("%s should be in IoT on its old address: %+v", n, cl)
+		}
+	}
+	var res struct {
+		Results []struct {
+			Name string `json:"name"`
+			OK   bool   `json:"ok"`
+		} `json:"results"`
+	}
+	if code := c.do("POST", "/api/vlans/reconnect", map[string]any{"target_id": id, "macs": []string{"de:ad:00:00:00:09", "de:ad:00:00:00:02", "de:ad:00:00:00:03", "de:ad:00:00:00:05"}}, &res); code != 200 {
+		t.Fatalf("reconnect: %d", code)
+	}
+	ok := map[string]bool{}
+	for _, r := range res.Results {
+		ok[r.Name] = r.OK
+	}
+	if !ok["kitchen-plug"] || !ok["Printer"] || !ok["tv"] || ok["desk-pc"] || len(res.Results) != 4 {
+		t.Fatalf("reconnect results: %+v", res.Results)
+	}
+	pollUntil(c, id)
+	v = vlanView{}
+	c.do("GET", "/api/vlans", nil, &v)
+	for _, n := range []string{"kitchen-plug", "Printer", "tv"} {
+		if cl := clientNet(v, n); cl.Stale || !strings.HasPrefix(cl.IP, "192.168.30.") {
+			t.Errorf("%s still on its old address: %+v", n, cl)
+		}
 	}
 }

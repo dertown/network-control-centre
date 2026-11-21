@@ -687,3 +687,7 @@ label.check.field-check .field-help { flex-basis: 100%; }
 @media (max-width: 640px) { .sh-grid { grid-template-columns: 1fr 1fr; } .sh-room-head { align-items: flex-start; } }
 @media (max-width: 420px) { .sh-grid { grid-template-columns: 1fr; } }
 .modal .banner + .row { margin-top: 14px; }
+.vlan-reconnect { align-items: flex-start; margin: 12px 0 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+.vlan-reconnect > span { display: flex; flex-direction: column; gap: 2px; }
+.vlan-reconnect input { margin-top: 2px; }
+.banner > button { margin-left: auto; }

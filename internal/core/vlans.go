@@ -361,3 +361,76 @@ func SuggestNetwork(existing []inventory.Network) drivers.NetworkSpec {
 	}
 	return s
 }
+
+// StaleAddress reports whether a client's IP is outside its network's subnet: it was moved
+// but has not asked for a new address yet.
+func StaleAddress(c inventory.Client, nets []inventory.Network) bool {
+	a, err := netip.ParseAddr(c.IP)
+	if err != nil {
+		return false
+	}
+	for _, n := range nets {
+		if n.ID == c.NetworkID {
+			p, err := netip.ParsePrefix(n.Subnet)
+			return err == nil && !p.Contains(a)
+		}
+	}
+	return false
+}
+
+// PlanReconnect works out how to make each client ask for a new address. Clients that share
+// a switch port are reconnected together, so the result lists them too.
+func PlanReconnect(snap *inventory.Snapshot, macs []string) (moves []drivers.ClientMove, steps []MoveStep) {
+	devs := map[string]*inventory.Device{}
+	for i := range snap.Devices {
+		devs[snap.Devices[i].ID] = &snap.Devices[i]
+	}
+	byMAC := map[string]*inventory.Client{}
+	for i := range snap.Clients {
+		byMAC[snap.Clients[i].MAC] = &snap.Clients[i]
+	}
+	ports := map[string]bool{}
+	for _, m := range macs {
+		m = inventory.NormMAC(m)
+		c, ok := byMAC[m]
+		if !ok {
+			steps = append(steps, MoveStep{MAC: m, Name: m, Requested: true, Blocked: "not connected now"})
+			continue
+		}
+		s := MoveStep{MAC: c.MAC, Name: c.Name, IP: c.IP, Wired: c.Wired, From: c.NetworkID, Requested: true}
+		if !c.Wired {
+			s.Method, s.Via = drivers.MoveClient, "Wi-Fi "+c.SSID
+			moves = append(moves, drivers.ClientMove{MAC: c.MAC, Name: c.Name, Method: drivers.MoveClient})
+			steps = append(steps, s)
+			continue
+		}
+		sw := devs[c.SwitchMAC]
+		var port *inventory.Port
+		if sw != nil {
+			for i := range sw.Ports {
+				if sw.Ports[i].Index == c.SwitchPort {
+					port = &sw.Ports[i]
+				}
+			}
+		}
+		switch {
+		case sw == nil || c.SwitchPort == 0 || !sw.Managed || sw.Discovery != inventory.SourceController:
+			s.Blocked = "NCC can't reach the switch port it is plugged into; unplug it for a moment or restart it"
+		case port != nil && port.Infra:
+			s.Blocked = "it is behind another switch; restart it or unplug it for a moment"
+		}
+		if s.Blocked != "" {
+			steps = append(steps, s)
+			continue
+		}
+		s.Method, s.SwitchMAC, s.SwitchPort = drivers.MovePort, sw.ID, c.SwitchPort
+		s.Via = sw.Name + " " + portLabel(sw, c.SwitchPort)
+		k := fmt.Sprintf("%s#%d", sw.ID, c.SwitchPort)
+		if !ports[k] {
+			ports[k] = true
+			moves = append(moves, drivers.ClientMove{MAC: c.MAC, Name: c.Name, Method: drivers.MovePort, SwitchMAC: sw.ID, SwitchPort: c.SwitchPort})
+		}
+		steps = append(steps, s)
+	}
+	return moves, steps
+}
