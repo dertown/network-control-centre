@@ -28,8 +28,12 @@ type Material struct {
 	KeyPEM  string
 	LeafPEM string
 	// ChainPEM is the intermediates only; FullChainPEM is the leaf followed by the intermediates.
+	// Neither holds a root: servers should not send one. CABundlePEM is every CA certificate
+	// stored with the leaf (intermediates, then the root if there is one).
 	ChainPEM     string
 	FullChainPEM string
+	CABundlePEM  string
+	Roots        []*x509.Certificate
 }
 
 // NewMaterial parses a stored chain and key.
@@ -46,9 +50,18 @@ func NewMaterial(name, certPEM, keyPEM string) (*Material, error) {
 		return nil, err
 	}
 	m := &Material{Name: name, Leaf: chain[0], Chain: chain[1:], Key: key, KeyPEM: strings.TrimSpace(keyPEM) + "\n"}
+	var inter []*x509.Certificate
+	for _, c := range chain[1:] {
+		if c.Subject.String() == c.Issuer.String() && c.CheckSignatureFrom(c) == nil {
+			m.Roots = append(m.Roots, c)
+		} else {
+			inter = append(inter, c)
+		}
+	}
 	m.LeafPEM = encodeCerts(chain[:1])
-	m.ChainPEM = encodeCerts(chain[1:])
-	m.FullChainPEM = encodeCerts(chain)
+	m.ChainPEM = encodeCerts(inter)
+	m.FullChainPEM = m.LeafPEM + m.ChainPEM
+	m.CABundlePEM = encodeCerts(chain[1:])
 	return m, nil
 }
 

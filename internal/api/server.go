@@ -132,6 +132,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/certs", a(s.importCert))
 	mux.Handle("GET /api/certs/{id}/pem", v(s.certPEM))
 	mux.Handle("DELETE /api/certs/{id}", a(s.deleteCert))
+	mux.Handle("PUT /api/certs/{id}/chain", a(s.setCertChain))
 
 	mux.Handle("GET /api/certdeploy/kinds", v(s.deployKinds))
 	mux.Handle("GET /api/certdeploy/targets", v(s.deployTargets))

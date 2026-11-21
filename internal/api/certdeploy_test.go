@@ -41,6 +41,17 @@ func TestCertDeployAPI(t *testing.T) {
 	if code := c.do("POST", "/api/certs", map[string]string{"name": "foundry", "cert_pem": certPEM, "key_pem": keyPEM}, &cert); code != 201 {
 		t.Fatalf("import: %d", code)
 	}
+	other, _ := selfSigned(t, "Some Other CA", time.Hour)
+	var chained pki.Cert
+	if code := c.do("PUT", "/api/certs/"+itoa(cert.ID)+"/chain", map[string]string{"ca_bundle_pem": other}, &chained); code != 200 || len(chained.Dropped) != 1 || chained.ChainLength != 1 {
+		t.Fatalf("set chain: %d %+v", code, chained)
+	}
+	if code := c.do("PUT", "/api/certs/"+itoa(cert.ID)+"/chain", map[string]string{"ca_bundle_pem": "nonsense"}, nil); code != 400 {
+		t.Fatalf("bad bundle: %d", code)
+	}
+	if code := c.do("PUT", "/api/certs/999/chain", map[string]string{"ca_bundle_pem": ""}, nil); code != 404 {
+		t.Fatalf("missing cert: %d", code)
+	}
 	if code := c.do("POST", "/api/certdeploy/targets", map[string]any{"name": "bad name!", "kind": "foundryvtt", "host": "x"}, nil); code != 400 {
 		t.Fatalf("bad name accepted: %d", code)
 	}

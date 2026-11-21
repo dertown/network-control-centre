@@ -84,6 +84,7 @@ export interface Cert {
   id: number; name: string; subject: string; issuer: string; sans: string[]; serial: string;
   not_before: string; not_after: string; fingerprint: string; has_key: boolean; days_left: number;
   status: "ok" | "expiring" | "critical" | "expired"; chain_length: number;
+  chain?: string[]; chain_complete?: boolean; dropped?: string[];
 }
 export interface AuditEntry { id: number; ts: string; actor: string; action: string; target: string; detail: string }
 export interface AppUsage { cat: number; app: number; category: string; name: string; down_bytes: number; up_bytes: number }
