@@ -12,7 +12,7 @@ import (
 	hv "github.com/dertown/network-control-centre/internal/hypervisor"
 )
 
-func run(t *testing.T, model *simulator.Model, pass string) (*hv.Result, error) {
+func collectSim(t *testing.T, model *simulator.Model, pass string) (*hv.Result, error) {
 	t.Helper()
 	if err := model.Create(); err != nil {
 		t.Fatal(err)
@@ -63,19 +63,19 @@ func check(t *testing.T, res *hv.Result, err error, hosts, vms int) {
 func TestVCenter(t *testing.T) {
 	m := simulator.VPX()
 	m.Machine = 3
-	res, err := run(t, m, "secret")
+	res, err := collectSim(t, m, "secret")
 	c := m.Count()
 	check(t, res, err, c.Host, c.Machine)
 }
 
 func TestESXi(t *testing.T) {
 	m := simulator.ESX()
-	res, err := run(t, m, "secret")
+	res, err := collectSim(t, m, "secret")
 	check(t, res, err, 1, m.Count().Machine)
 }
 
 func TestBadPassword(t *testing.T) {
-	_, err := run(t, simulator.ESX(), "wrong")
+	_, err := collectSim(t, simulator.ESX(), "wrong")
 	if !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("got %v", err)
 	}

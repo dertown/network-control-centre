@@ -27,6 +27,11 @@ const paths: Record<string, string> = {
   vm: '<rect x="3" y="4" width="18" height="13" rx="1.5"/><rect x="7" y="7.5" width="10" height="6" rx="1"/><path d="M8 21h8M12 17v4"/>',
   server: '<rect x="3" y="3" width="18" height="7" rx="1.5"/><rect x="3" y="14" width="18" height="7" rx="1.5"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h3M11 17.5h3"/>',
   container: '<path d="M12 3 3 7.5v9L12 21l9-4.5v-9z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>',
+  play: '<path d="M7 4.5v15l12-7.5z"/>',
+  power: '<path d="M12 3v8M6.4 6.4a8 8 0 1 0 11.2 0"/>',
+  restart: '<path d="M4 12a8 8 0 1 0 2.6-5.9M4 4v4.5h4.5"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
 };
 

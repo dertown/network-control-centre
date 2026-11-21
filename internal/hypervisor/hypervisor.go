@@ -134,3 +134,57 @@ func (inv *Inventory) Sort() {
 	})
 	sort.SliceStable(inv.Hosts, func(i, j int) bool { return inv.Hosts[i].Name < inv.Hosts[j].Name })
 }
+
+// Power actions.
+const (
+	ActionStart    = "start"    // power on
+	ActionShutdown = "shutdown" // ask the guest OS to shut down
+	ActionStop     = "stop"     // power off at once, like pulling the plug
+	ActionReboot   = "reboot"   // ask the guest OS to restart
+)
+
+// ValidAction reports whether a is a known power action.
+func ValidAction(a string) bool {
+	switch a {
+	case ActionStart, ActionShutdown, ActionStop, ActionReboot:
+		return true
+	}
+	return false
+}
+
+// Settings is a change to a VM's settings. Nil fields are left as they are.
+type Settings struct {
+	Name     *string `json:"name,omitempty"`
+	CPUs     *int    `json:"cpus,omitempty"`
+	MemoryMB *int    `json:"memory_mb,omitempty"`
+	Notes    *string `json:"notes,omitempty"`
+}
+
+// Validate checks the values are sensible.
+func (s Settings) Validate() error {
+	if s.Name != nil && (len(*s.Name) == 0 || len(*s.Name) > 80) {
+		return fmt.Errorf("name must be 1 to 80 characters")
+	}
+	if s.CPUs != nil && (*s.CPUs < 1 || *s.CPUs > 512) {
+		return fmt.Errorf("vCPUs must be between 1 and 512")
+	}
+	if s.MemoryMB != nil && (*s.MemoryMB < 16 || *s.MemoryMB > 16<<20) {
+		return fmt.Errorf("memory must be at least 16 MB")
+	}
+	if s.Notes != nil && len(*s.Notes) > 8192 {
+		return fmt.Errorf("notes are limited to 8 KB")
+	}
+	if s.Name == nil && s.CPUs == nil && s.MemoryMB == nil && s.Notes == nil {
+		return fmt.Errorf("nothing to change")
+	}
+	return nil
+}
+
+// Controller is implemented by providers that can change virtual machines. vmID is a
+// VM's ID as Collect reports it.
+type Controller interface {
+	Power(ctx context.Context, t Target, creds map[string]string, vmID, action string) error
+	Configure(ctx context.Context, t Target, creds map[string]string, vmID string, s Settings) error
+	// Delete removes a stopped VM and its disks.
+	Delete(ctx context.Context, t Target, creds map[string]string, vmID string) error
+}

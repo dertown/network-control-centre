@@ -3,7 +3,9 @@ package mocklab
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 )
 
 // Proxmox emulates the parts of the Proxmox VE API that NCC reads: version, nodes,
@@ -51,6 +53,7 @@ func Proxmox(tokenSecret, password string) http.Handler {
 		}
 		return nil
 	}
+	var lock sync.Mutex
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api2/json/access/ticket", func(w http.ResponseWriter, r *http.Request) {
 		if r.FormValue("username") != "root@pam" || r.FormValue("password") != password {
@@ -69,6 +72,12 @@ func Proxmox(tokenSecret, password string) http.Handler {
 				http.Error(w, "authentication failure", 401)
 				return
 			}
+			if r.Method != http.MethodGet && r.Header.Get("Authorization") == "" && r.Header.Get("CSRFPreventionToken") != "x" {
+				http.Error(w, "Permission check failed (invalid csrf token)", 401)
+				return
+			}
+			lock.Lock()
+			defer lock.Unlock()
 			h(w, r)
 		}
 	}
@@ -133,6 +142,98 @@ func Proxmox(tokenSecret, password string) http.Handler {
 			out = append(out, map[string]any{"name": "eth0", "inet": ip, "hwaddr": "bc:24:11:00:02:01"})
 		}
 		data(w, out)
+	}))
+	upid := func(node, kind string, id int) string {
+		return "UPID:" + node + ":00001234:00005678:65000000:" + kind + ":" + itoa(id) + ":root@pam:"
+	}
+	mux.HandleFunc("GET /api2/json/nodes/{node}/tasks/{upid}/status", authed(func(w http.ResponseWriter, r *http.Request) {
+		data(w, map[string]any{"status": "stopped", "exitstatus": "OK", "upid": r.PathValue("upid")})
+	}))
+	mux.HandleFunc("POST /api2/json/nodes/{node}/{typ}/{id}/status/{action}", authed(func(w http.ResponseWriter, r *http.Request) {
+		v := find(r.PathValue("node"), r.PathValue("typ"), r.PathValue("id"))
+		if v == nil {
+			http.Error(w, "no such VM", 500)
+			return
+		}
+		switch r.PathValue("action") {
+		case "start":
+			if v.template != 0 {
+				http.Error(w, "you can't start a vm if it's a template", 500)
+				return
+			}
+			v.status, v.uptime, v.cpu, v.mem = "running", 5, 0.05, v.maxmem/3
+		case "stop", "shutdown":
+			v.status, v.uptime, v.cpu, v.mem = "stopped", 0, 0, 0
+		case "reboot":
+			v.uptime = 5
+		default:
+			http.Error(w, "unknown action", 501)
+			return
+		}
+		data(w, upid(v.node, "qm"+r.PathValue("action"), v.vmid))
+	}))
+	setConfig := func(w http.ResponseWriter, r *http.Request) {
+		v := find(r.PathValue("node"), r.PathValue("typ"), r.PathValue("id"))
+		if v == nil {
+			http.Error(w, "no such VM", 500)
+			return
+		}
+		_ = r.ParseForm()
+		if m := r.PostForm.Get("memory"); m != "" {
+			n, err := strconv.Atoi(m)
+			if err != nil || n < 16 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(400)
+				_ = json.NewEncoder(w).Encode(map[string]any{"errors": map[string]string{"memory": "value must have a minimum value of 16"}, "data": nil})
+				return
+			}
+			v.maxmem = int64(n) << 20
+		}
+		for _, k := range []string{"name", "hostname"} {
+			if n := r.PostForm.Get(k); n != "" {
+				v.name = n
+			}
+		}
+		if d, ok := r.PostForm["description"]; ok {
+			v.description = d[0]
+		}
+		if r.PostForm.Get("delete") == "description" {
+			v.description = ""
+		}
+		if c := r.PostForm.Get("cores"); c != "" {
+			n, _ := strconv.Atoi(c)
+			so, _ := strconv.Atoi(r.PostForm.Get("sockets"))
+			if so < 1 {
+				so = 1
+			}
+			v.cpus = n * so
+		}
+		if r.Method == http.MethodPost {
+			data(w, upid(v.node, "qmconfig", v.vmid))
+			return
+		}
+		data(w, nil)
+	}
+	mux.HandleFunc("PUT /api2/json/nodes/{node}/{typ}/{id}/config", authed(setConfig))
+	mux.HandleFunc("POST /api2/json/nodes/{node}/{typ}/{id}/config", authed(setConfig))
+	mux.HandleFunc("DELETE /api2/json/nodes/{node}/{typ}/{id}", authed(func(w http.ResponseWriter, r *http.Request) {
+		v := find(r.PathValue("node"), r.PathValue("typ"), r.PathValue("id"))
+		if v == nil {
+			http.Error(w, "no such VM", 500)
+			return
+		}
+		if v.status != "stopped" {
+			http.Error(w, "VM is running - destroy failed", 500)
+			return
+		}
+		id, node := v.vmid, v.node
+		for i := range vms {
+			if &vms[i] == v {
+				vms = append(vms[:i], vms[i+1:]...)
+				break
+			}
+		}
+		data(w, upid(node, "qmdestroy", id))
 	}))
 	return mux
 }

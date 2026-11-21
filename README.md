@@ -30,7 +30,11 @@ This first release (the MVP) covers:
 - **Virtual machines**: every VM and container on **Proxmox VE** (API token or user login) and
   **VMware vCenter or standalone ESXi** in one list, with state, host or node, vCPUs and CPU use,
   memory, disk, guest IP addresses (QEMU guest agent / VMware Tools), guest OS and uptime, plus
-  per-host CPU and memory load. Read-only; logins live in the vault.
+  per-host CPU and memory load. Operators can start, shut down, restart and power off machines;
+  admins can edit name, vCPUs, memory and notes, and delete stopped machines (typing the name to
+  confirm). Every change is in the audit log. Changes need a login with write rights (Proxmox:
+  e.g. PVEVMAdmin, or a token with privilege separation off; VMware: not the Read-only role).
+  Saved connections can be edited in Settings (address, certificate pin, login).
 - **Vault**: a built-in encrypted vault (AES-256-GCM envelope encryption, Argon2id-derived
   master key) or **HashiCorp Vault** (KV v2, token or AppRole). All device and DNS credentials
   live there; values never reach the browser unless an admin reveals them.

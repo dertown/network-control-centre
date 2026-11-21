@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api, Target, User } from "../api";
 import { ago } from "../live";
 
@@ -24,6 +24,7 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
   const [adding, setAdding] = useState<Kind | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
+  const [editing, setEditing] = useState<number | null>(null);
 
   const load = () => api<Target[]>("GET", "/api/targets").then(setTargets).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, [tick]);
@@ -56,7 +57,8 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
           <thead><tr><th>Name</th><th>Type</th><th>Address</th><th>Last poll</th><th>Status</th><th /></tr></thead>
           <tbody>
             {targets.map((t) => (
-              <tr key={t.id}>
+              <Fragment key={t.id}>
+              <tr>
                 <td><strong>{t.name}</strong></td>
                 <td>{t.kind}</td>
                 <td className="mono small">{t.address}{t.options.tls_fingerprint && <div className="muted" title={t.options.tls_fingerprint}>cert pinned {t.options.tls_fingerprint.slice(0, 16)}…</div>}</td>
@@ -65,10 +67,15 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
                   {t.last_error && <div className="error small">{t.last_error}</div>}</td>
                 <td className="actions">
                   {user.role !== "viewer" && <button className="link" disabled={busy === t.id} onClick={() => poll(t)}>{busy === t.id ? (t.category === "dns" ? "Checking…" : "Polling…") : (t.category === "dns" ? "Check now" : t.category === "hypervisor" ? "Refresh" : "Poll now")}</button>}
+                  {isAdmin && <button className="link" onClick={() => setEditing(editing === t.id ? null : t.id)}>Edit</button>}
                   {isAdmin && <button className="link" onClick={() => toggle(t)}>{t.enabled ? "Disable" : "Enable"}</button>}
                   {isAdmin && <button className="link danger" onClick={() => del(t)}>Remove</button>}
                 </td>
               </tr>
+              {editing === t.id && (
+                <tr className="detail"><td colSpan={6}><EditTarget t={t} onDone={() => { setEditing(null); load(); }} /></td></tr>
+              )}
+              </Fragment>
             ))}
             {targets.length === 0 && <tr><td colSpan={6} className="muted">No connections yet.</td></tr>}
           </tbody>
@@ -211,6 +218,102 @@ export function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) 
       {err && <div className="error">{err}</div>}
       <div className="row">
         <button className="primary">Save</button>
+        <button type="button" onClick={onDone}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+// EditTarget changes a saved connection's address, certificate setting and, optionally, its login.
+export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
+  const kind = t.kind as Kind;
+  const [f, setF] = useState<Record<string, string>>({
+    address: t.address, tls: t.options.tls || (kind === "powerdns" ? "verify" : "pin"), site: t.options.site ?? "default",
+    server_id: t.options.server_id ?? "localhost", auth: kind === "proxmox" ? "token" : "password",
+    username: "", password: "", api_key: "", token_id: "", token_secret: "",
+  });
+  const [repin, setRepin] = useState(false);
+  const [creds, setCreds] = useState(false);
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+
+  const secret = (): Record<string, string> | null => {
+    switch (kind) {
+      case "unifi": return f.auth === "apikey" ? { api_key: f.api_key } : { username: f.username, password: f.password };
+      case "powerdns": return { api_key: f.api_key };
+      case "proxmox": return f.auth === "token" ? { token_id: f.token_id.trim(), token_secret: f.token_secret.trim() } : { username: f.username, password: f.password };
+      case "vmware": return { username: f.username, password: f.password };
+    }
+    return null;
+  };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr("");
+    const options: Record<string, string> = { ...t.options, tls: f.tls };
+    if (kind === "unifi") options.site = f.site;
+    if (kind === "powerdns") options.server_id = f.server_id;
+    if (repin || f.tls !== (t.options.tls || "") || f.address !== t.address) delete options.tls_fingerprint;
+    const s = creds ? secret() : null;
+    if (s && Object.values(s).some((v) => !v)) {
+      setErr("Fill in every login field, or untick \"Change login\" to keep the saved one.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api("PATCH", `/api/targets/${t.id}`, { address: f.address.trim(), options });
+      if (s) await api("PUT", `/api/targets/${t.id}/credentials`, s);
+      await api("POST", `/api/targets/${t.id}/poll`).catch((e) => { throw new Error(`Saved, but the check failed: ${(e as Error).message}`); });
+      onDone();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <form className="subcard" onSubmit={save}>
+      <h3>Edit {t.name}</h3>
+      <div className="row">
+        <label>Address<input value={f.address} onChange={set("address")} required /></label>
+        {kind === "unifi" && <label>Site<input value={f.site} onChange={set("site")} /></label>}
+        {kind === "powerdns" && <label>Server id<input value={f.server_id} onChange={set("server_id")} /></label>}
+        <label>Certificate<select value={f.tls} onChange={set("tls")}><option value="pin">Pin on first use (self-signed)</option><option value="verify">Verify with trusted CAs</option></select></label>
+      </div>
+      {t.options.tls_fingerprint && f.tls === "pin" && (
+        <label className="check block"><input type="checkbox" checked={repin} onChange={(e) => setRepin(e.target.checked)} />
+          Forget the pinned certificate ({t.options.tls_fingerprint.slice(0, 16)}…) and pin the one the server shows next. Use this after replacing its certificate.</label>
+      )}
+      <label className="check block"><input type="checkbox" checked={creds} onChange={(e) => setCreds(e.target.checked)} /> Change login (the saved one stays in the vault until you save)</label>
+      {creds && (
+        <>
+          {(kind === "unifi" || kind === "proxmox") && (
+            <div className="row">
+              <label>Sign in with<select value={f.auth} onChange={set("auth")}>
+                {kind === "unifi" ? <><option value="password">Local username + password</option><option value="apikey">API key</option></>
+                  : <><option value="token">API token</option><option value="password">Username + password</option></>}
+              </select></label>
+            </div>
+          )}
+          {kind === "proxmox" && f.auth === "token" ? (
+            <div className="row">
+              <label>Token id<input value={f.token_id} onChange={set("token_id")} placeholder="root@pam!ncc" autoComplete="off" /></label>
+              <label>Token secret<input type="password" value={f.token_secret} onChange={set("token_secret")} autoComplete="off" /></label>
+            </div>
+          ) : kind === "powerdns" || (kind === "unifi" && f.auth === "apikey") ? (
+            <label>API key<input type="password" value={f.api_key} onChange={set("api_key")} autoComplete="off" /></label>
+          ) : (
+            <div className="row">
+              <label>Username<input value={f.username} onChange={set("username")} autoComplete="off" /></label>
+              <label>Password<input type="password" value={f.password} onChange={set("password")} autoComplete="new-password" /></label>
+            </div>
+          )}
+        </>
+      )}
+      {err && <div className="error block">{err}</div>}
+      <div className="row">
+        <button className="primary" disabled={saving}>{saving ? "Saving and checking…" : "Save and check"}</button>
         <button type="button" onClick={onDone}>Cancel</button>
       </div>
     </form>
