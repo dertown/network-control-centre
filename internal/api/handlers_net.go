@@ -257,6 +257,23 @@ func (s *Server) loops(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, core.Loops(snaps))
 }
 
+// firewall lists the firewall rules and port forwards each router reported in its latest poll.
+func (s *Server) firewall(w http.ResponseWriter, r *http.Request) {
+	snaps, err := core.LatestSnapshots(r.Context(), s.Store.DB)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	out := []inventory.Firewall{}
+	for _, sn := range snaps {
+		if sn.Firewall != nil {
+			out = append(out, *sn.Firewall)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Target < out[j].Target })
+	writeJSON(w, 200, out)
+}
+
 // events streams live updates as Server-Sent Events.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)

@@ -25,6 +25,11 @@ This first release (the MVP) covers:
   STP and MAC-flapping events from the last 24 hours. LAGs are not counted as loops. A loop
   with an STP-blocked port is shown as contained (amber); one with nothing blocking it is red.
   Try it with `go run ./cmd/ncc-mock -loops`.
+- **Firewall rules and port forwards (read-only)**: the **Firewall** page lists the router's
+  zone-based firewall policies (UniFi Network 9+) or older rule sets (WAN_IN, LAN_IN...), with
+  zones, networks, address and port groups and clients named, and every port forward with where it
+  lands and who may reach it. "Enabled only" is on by default; UniFi's built-in policies are
+  hidden unless you ask for them. A View Only account is enough.
 - **PowerDNS**: browse zones and records; add, edit and delete records with a preview step;
   matching **PTR records are created and removed automatically** in your reverse zone.
 - **Virtual machines**: every VM and container on **Proxmox VE** (API token or user login) and
