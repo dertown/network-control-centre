@@ -15,6 +15,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/drivers"
 	"github.com/dertown/network-control-centre/internal/hypervisor"
 	"github.com/dertown/network-control-centre/internal/inventory"
+	"github.com/dertown/network-control-centre/internal/storage"
 	"github.com/dertown/network-control-centre/internal/vault"
 )
 
@@ -23,7 +24,7 @@ func (s *Server) bg() context.Context {
 }
 
 func (s *Server) listDrivers(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string][]string{"device": drivers.Kinds(), "dns": dns.Kinds(), "hypervisor": hypervisor.Kinds()})
+	writeJSON(w, 200, map[string][]string{"device": drivers.Kinds(), "dns": dns.Kinds(), "hypervisor": hypervisor.Kinds(), "storage": storage.Kinds()})
 }
 
 // ---- targets ----
@@ -68,13 +69,28 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, err.Error())
 			return
 		}
+	case core.CategoryStorage:
+		if _, err := storage.Get(in.Kind); err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
 	default:
-		writeErr(w, 400, "category must be device, dns or hypervisor")
+		writeErr(w, 400, "category must be device, dns, hypervisor or storage")
 		return
 	}
-	if !strings.HasPrefix(in.Address, "https://") && !strings.HasPrefix(in.Address, "http://") {
+	in.Address = strings.TrimSpace(in.Address)
+	if hostAddress(in.Category, in.Kind) {
+		// SMB, NFS and SNMP connections take a host name or address (a smb://, nfs:// or snmp:// URL also works)
+		if in.Address == "" || strings.ContainsAny(in.Address, " \t") {
+			writeErr(w, 400, "give the server's address, e.g. 192.168.1.20")
+			return
+		}
+	} else if !strings.HasPrefix(in.Address, "https://") && !strings.HasPrefix(in.Address, "http://") {
 		writeErr(w, 400, "address must be a URL, e.g. https://192.168.1.1")
 		return
+	}
+	if in.Category == core.CategoryStorage && in.Kind == "nfs" && len(in.Credentials) == 0 {
+		in.Credentials = vault.Secret{"auth": "none"} // NFS export lists need no login
 	}
 	if len(in.Credentials) == 0 {
 		writeErr(w, 400, "credentials are required")
@@ -98,6 +114,11 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 
 func pathID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(r.PathValue("id"), 10, 64)
+}
+
+// hostAddress reports whether a connection kind takes a bare host instead of an http(s) URL.
+func hostAddress(category, kind string) bool {
+	return category == core.CategoryStorage && (kind == "smb" || kind == "nfs" || kind == "snmp")
 }
 
 func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request) {

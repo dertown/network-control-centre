@@ -43,7 +43,7 @@ export interface Client {
   parent_port?: string; network?: string; vlan?: number; network_id?: string; ssid?: string;
 }
 export interface Target {
-  id: number; kind: string; category: "device" | "dns" | "hypervisor"; name: string; address: string;
+  id: number; kind: string; category: "device" | "dns" | "hypervisor" | "storage"; name: string; address: string;
   options: Record<string, string>; secret_path: string; enabled: boolean; last_poll?: string; last_error: string;
 }
 export interface NodePort { name: string; up: boolean; uplink?: boolean; profile?: string; native?: string; tagged?: string[] }
@@ -157,3 +157,30 @@ export interface DeployPlan {
   connection?: { ok: boolean; error?: string; fingerprint?: string; trust?: boolean; detail?: string };
 }
 export interface ServedCert { subject?: string; issuer?: string; not_after?: string; fingerprint?: string; sans?: string[]; cert_name?: string; port?: string; error?: string }
+export type Health = "good" | "warning" | "critical" | "unknown";
+export interface StorageSystem {
+  name: string; vendor: string; model?: string; serial?: string; firmware?: string; os?: string; health: Health; uptime_s?: number;
+  cpu_usage: number; mem_bytes?: number; mem_used?: number; temp_c?: number; cpu_temp_c?: number;
+  fans?: { name: string; rpm: number; ok: boolean }[]; nics?: { name: string; up: boolean; speed_mbps?: number; ip?: string; mac?: string }[]; update?: string;
+}
+export interface StoragePool { id: string; name: string; raid?: string; status: string; health: Health; total: number; used: number; disks?: string[] }
+export interface StorageVolume { id: string; name: string; pool?: string; fs?: string; status: string; health: Health; total: number; used: number }
+export interface StorageDisk {
+  id: string; slot: string; model?: string; serial?: string; type?: "hdd" | "ssd"; size?: number; temp_c?: number; status?: string; smart?: string;
+  health: Health; pool?: string;
+}
+export interface StorageShare {
+  name: string; path?: string; volume?: string; protocols?: string[]; comment?: string; used?: number; total?: number; free?: number;
+  clients?: string[]; snapshots?: number; hidden?: boolean; encrypted?: boolean;
+}
+export interface StorageSnapshot { id: string; share: string; name: string; created: string; comment?: string; locked?: boolean }
+export interface StorageAlert { level: "warning" | "critical"; subject: string; message: string }
+export interface StorageInventory {
+  target: string; kind: string; taken_at: string; system: StorageSystem; pools: StoragePool[]; volumes: StorageVolume[]; disks: StorageDisk[];
+  shares: StorageShare[]; snapshots: StorageSnapshot[]; alerts: StorageAlert[]; capabilities: string[]; warnings?: string[];
+}
+export interface StorageSource {
+  id: number; name: string; kind: "qnap" | "synology" | "smb" | "nfs" | "snmp"; address: string; enabled: boolean; last_error?: string;
+  taken_at?: string; inventory?: StorageInventory; snmp?: boolean;
+}
+export interface CapacityHistory { volume: string; points: { t: number; used: number; total: number }[]; per_day: number; full_in_days?: number }

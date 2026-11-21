@@ -48,6 +48,22 @@ This first release (the MVP) covers:
   confirm). Every change is in the audit log. Changes need a login with write rights (Proxmox:
   e.g. PVEVMAdmin, or a token with privilege separation off; VMware: not the Read-only role).
   Saved connections can be edited in Settings (address, certificate pin, login).
+- **Storage** (Monitor → Storage): NAS and file servers in one place. **QNAP** (QTS and QuTS hero) is read
+  through its own HTTP API: model, firmware, CPU, memory, system and CPU temperature, fans, network ports,
+  volumes with capacity, every disk's SMART health and temperature, shared folders with their size, and
+  firmware updates. QNAP's API doesn't report RAID or volume state, so a QNAP connection can also read
+  QNAP's NAS-MIB over **SNMP** (v2c or v3) for degraded or rebuilding volumes. **Synology DSM** shows
+  pools, volumes, disks, shares and Btrfs share snapshots. Any **SMB** server (Windows, Samba, a router's USB
+  share) shows its shares with size and free space, any **NFS** server its versions and export list (and
+  warns about exports open to everyone), and anything else that speaks **SNMP** (TrueNAS, Unraid, ASUSTOR...)
+  its disks and file systems. Alerts are raised for failing or warm disks, degraded volumes, volumes over
+  85% / 95% full, hot systems, stopped fans and new firmware, and each volume shows its growth per day
+  and when it will be full. Management, each one audited: create a folder in a share (QNAP, Synology, SMB;
+  operators), take a snapshot (Synology; operators), delete a snapshot (Synology; admins; snapshots kept by
+  retention can't be deleted), create a shared folder (Synology; admins), and restart or shut down the NAS
+  (QNAP, Synology; admins, typing the connection name to confirm). QNAP's public API has no share or
+  snapshot calls, so those stay in QTS. Use a dedicated admin account without two-step verification for
+  QNAP and Synology. Try it with `go run ./cmd/ncc-mock` (QNAP on :9050, Synology on :9051).
 - **Vault**: a built-in encrypted vault (AES-256-GCM envelope encryption, Argon2id-derived
   master key) or **HashiCorp Vault** (KV v2, token or AppRole). All device and DNS credentials
   live there; values never reach the browser unless an admin reveals them.

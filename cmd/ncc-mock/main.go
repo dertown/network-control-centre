@@ -1,4 +1,4 @@
-// Command ncc-mock runs a pretend UniFi console, PowerDNS server, Proxmox VE cluster and vCenter so you can try NCC
+// Command ncc-mock runs a pretend UniFi console, PowerDNS server, Proxmox VE cluster, vCenter and QNAP and Synology NAS so you can try NCC
 // without touching a real network.
 //
 //	go run ./cmd/ncc-mock
@@ -7,6 +7,8 @@
 // PowerDNS API:   http://localhost:9081    API key "demo-pdns-key"
 // Proxmox VE:     https://localhost:9006   token "ncc@pve!monitor" / "demo-token-secret" (or root@pam / demo-password)
 // VMware vCenter: https://localhost:9007   user "ncc", password "demo-password"
+// QNAP NAS:       https://localhost:9050   user "admin", password "demo-password"
+// Synology NAS:   https://localhost:9051   user "ncc", password "demo-password"
 //
 // With -loops the pretend network has two switching loops cabled in, for loop detection.
 //
@@ -65,6 +67,18 @@ func main() {
 	}
 	pve.StartTLS()
 	log.Printf("mock Proxmox VE on https://localhost:9006 (token ncc@pve!monitor / demo-token-secret)")
+
+	for _, m := range []struct {
+		addr, name, user string
+		h                http.Handler
+	}{{":9050", "QNAP NAS", "admin", mocklab.QNAP("demo-password")}, {":9051", "Synology NAS", "ncc", mocklab.Synology("demo-password")}} {
+		srv := httptest.NewUnstartedServer(m.h)
+		if srv.Listener, err = netListen(m.addr); err != nil {
+			log.Fatal(err)
+		}
+		srv.StartTLS()
+		log.Printf("mock %s on https://localhost%s (user %s / demo-password)", m.name, m.addr, m.user)
+	}
 
 	vc := simulator.VPX()
 	vc.Machine = 3
