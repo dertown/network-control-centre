@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, { Core } from "cytoscape";
 import { api, Graph, GEdge, GNetwork, GNode, Loop } from "../api";
 import { LoopList, worstLoop } from "../loops";
 import { discoveryLabel, kindLabel } from "../live";
 import { topoStyle } from "../topoStyle";
+import { clusterID, clusterLinkID, INTERNET, planLayout, wanLinkID } from "./topoLayout";
+import { Icon } from "../icons";
 import { groupID, groupNodes, networkColors, trunkLabel, vlanText, zonePill, zoneText } from "./topoVlan";
 
 function cssVar(name: string) {
@@ -12,12 +14,11 @@ function cssVar(name: string) {
 
 type Selection = { type: "node"; node: GNode } | { type: "edge"; edge: GEdge } | { type: "network"; id: string };
 
-function treeLayout(graph: Graph | null): cytoscape.LayoutOptions {
-  return { name: "breadthfirst", directed: true, spacingFactor: 1.15, roots: graph?.nodes.filter((n) => n.kind === "gateway").map((n) => n.id) } as cytoscape.LayoutOptions;
+function fitView(inst: Core) {
+  inst.resize();
+  inst.fit(undefined, 48);
+  if (inst.zoom() > 1.15) { inst.zoom(1.15); inst.center(); }
 }
-
-// Grouped by VLAN, a force layout keeps each network's clients inside its box.
-const groupLayout = { name: "cose", animate: false, nodeRepulsion: () => 9000, idealEdgeLength: () => 70, nestingFactor: 0.9, padding: 30, randomize: true } as unknown as cytoscape.LayoutOptions;
 
 function NetName({ id, nets, colors }: { id?: string; nets: Map<string, GNetwork>; colors: Map<string, string> }) {
   const n = id ? nets.get(id) : undefined;
@@ -36,8 +37,16 @@ export function Topology({ tick }: { tick: number }) {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
   const [loopFocus, setLoopFocus] = useState<string | null>(null);
-  const lastMode = useRef(grouped);
+  const [portLabels, setPortLabels] = useState(false);
+  const [legend, setLegendState] = useState(() => { try { return localStorage.getItem("ncc-topo-key") !== "hidden"; } catch { return true; } });
+  const setLegend = (on: boolean) => { setLegendState(on); try { localStorage.setItem("ncc-topo-key", on ? "shown" : "hidden"); } catch { /* storage blocked */ } };
+  const [query, setQuery] = useState("");
+  const [miss, setMiss] = useState(false);
+  const [layoutRun, setLayoutRun] = useState(0);
   const showClients = withClients || grouped;
+  const mode = `${grouped}|${showClients}`;
+  const lastMode = useRef(mode);
+  const lastRun = useRef(0);
 
   useEffect(() => {
     api<Graph>("GET", `/api/topology${showClients ? "?clients=1" : ""}`).then(setGraph).catch(() => {});
@@ -52,24 +61,47 @@ export function Topology({ tick }: { tick: number }) {
   useEffect(() => {
     if (!ref.current || !graph) return;
     const positions = new Map<string, cytoscape.Position>();
-    // switching between tree and VLAN groups starts a fresh layout
-    if (lastMode.current === grouped) cy.current?.nodes().forEach((n) => { positions.set(n.id(), { ...n.position() }); });
-    lastMode.current = grouped;
+    // switching between modes, or asking for a tidy-up, starts a fresh layout
+    const fresh = lastMode.current !== mode || layoutRun !== lastRun.current;
+    if (!fresh) cy.current?.nodes().forEach((n) => { positions.set(n.id(), { ...n.position() }); });
+    lastMode.current = mode;
+    lastRun.current = layoutRun;
+    const zoom = !fresh && cy.current ? { zoom: cy.current.zoom(), pan: { ...cy.current.pan() } } : null;
     cy.current?.destroy();
     const groups = grouped ? groupNodes(graph.nodes, graph.networks, colors) : [];
     const boxed = new Set(groups.map((g) => g.data.network));
-    const layoutFor = () => (grouped ? groupLayout : treeLayout(graph));
+    const clients = graph.nodes.filter((n) => n.kind === "client");
+    const boxOf = (n: GNode) => (grouped && n.network && boxed.has(n.network) ? groupID(n.network) : undefined);
+    const plan = planLayout(graph.nodes, graph.edges, {
+      withClusters: showClients && !grouped,
+      groups: grouped ? [
+        ...groups.map((g) => ({ id: g.data.id, members: clients.filter((c) => boxOf(c) === g.data.id).map((c) => c.id) })),
+        { id: "unboxed", members: clients.filter((c) => !boxOf(c)).map((c) => c.id) },
+      ] : undefined,
+    });
+    const clusterOf = new Map(plan.clusters.flatMap((c) => c.members.map((m) => [m, clusterID(c.device)] as const)));
+    const infra = new Set(graph.nodes.filter((n) => n.kind !== "client").map((n) => n.id));
     const inst = cytoscape({
       container: ref.current,
       elements: [
         ...groups,
+        ...(plan.internet.length ? [{ data: { id: INTERNET, label: "Internet", kind: "internet", online: true, display: "Internet" } }] : []),
+        ...plan.internet.map((g) => ({ data: { id: wanLinkID(g), source: INTERNET, target: g, origin: "wan", medium: "wired", label: "WAN" }, classes: "tree" })),
+        ...plan.clusters.map((c) => ({
+          data: { id: clusterID(c.device), kind: "client-cluster", device: c.device, display: `${c.members.length} client${c.members.length === 1 ? "" : "s"}` },
+          classes: "client-cluster",
+        })),
+        ...plan.clusters.map((c) => ({
+          data: { id: clusterLinkID(c.device), source: c.device, target: clusterID(c.device), origin: "cluster", medium: c.wireless ? "wireless" : "wired" },
+          classes: "tree",
+        })),
         // The API's "parent" is the device a client hangs off; cytoscape would read it as a
-        // compound parent, so it is replaced by the client's VLAN box when grouping.
+        // compound parent, so it is replaced by the client's block or VLAN box.
         ...graph.nodes.map(({ parent: _parent, ...n }) => ({
           data: {
             ...n, netColor: n.network ? colors.get(n.network) : undefined,
-            parent: grouped && n.kind === "client" && n.network && boxed.has(n.network) ? groupID(n.network) : undefined,
-            display: n.kind === "client" || !n.model || n.model === n.label ? n.label : `${n.label}\n${n.model}`,
+            parent: n.kind === "client" ? boxOf(n) ?? clusterOf.get(n.id) : undefined,
+            display: n.kind === "client" || n.kind === "unmanaged-switch" || !n.model || n.model === n.label ? n.label : `${n.label}\n${n.model}`,
             loopSev: worstLoop(n.loops, loopsByID),
           },
         })),
@@ -77,27 +109,51 @@ export function Topology({ tick }: { tick: number }) {
           data: {
             ...e, label: e.origin === "loop" ? e.label : trunkLabel(e), loopSev: worstLoop(e.loops, loopsByID),
             netColor: e.origin === "client" && e.networks?.length === 1 ? colors.get(e.networks[0]) : undefined,
+            flip: plan.flipped.has(e.id) || undefined,
           },
+          classes: [
+            plan.treeEdges.has(e.id) ? "tree" : infra.has(e.source) && infra.has(e.target) && e.source !== e.target ? "cross" : "",
+            e.origin === "client" && clusterOf.has(e.target) ? "in-cluster" : "",
+          ].join(" ").trim(),
         })),
       ],
       style: topoStyle(),
-      layout: positions.size
-        ? { name: "preset", positions: (n: cytoscape.NodeSingular) => positions.get(n.id()) ?? { x: 0, y: 0 } } as cytoscape.LayoutOptions
-        : layoutFor(),
+      layout: { name: "preset", positions: (n: cytoscape.NodeSingular) => positions.get(n.id()) ?? plan.positions.get(n.id()) ?? { x: 0, y: 0 } } as cytoscape.LayoutOptions,
       wheelSensitivity: 0.3,
+      minZoom: 0.15, maxZoom: 3,
     });
-    // brand-new nodes (not in the last layout) get a fresh layout pass
-    if (positions.size && graph.nodes.some((n) => !positions.has(n.id))) {
-      inst.layout(layoutFor()).run();
-    }
+    // brand-new devices or clients (not in the last layout) put everything back in its tier
+    const relaid = positions.size > 0 && graph.nodes.some((n) => !positions.has(n.id));
+    if (relaid) inst.nodes().forEach((n) => { const p = plan.positions.get(n.id()); if (p && !n.isParent()) n.position(p); });
+    if (zoom && positions.size && !relaid) inst.viewport(zoom);
+    else { fitView(inst); requestAnimationFrame(() => { if (!inst.destroyed()) fitView(inst); }); }
     inst.on("tap", "node", (ev) => {
       const d = ev.target.data();
-      setSelected(d.kind === "vlan-group" ? { type: "network", id: d.network } : { type: "node", node: d as GNode });
+      if (d.kind === "vlan-group") setSelected({ type: "network", id: d.network });
+      else if (d.kind === "client-cluster") setSelected({ type: "node", node: graph.nodes.find((n) => n.id === d.device)! });
+      else setSelected({ type: "node", node: d as GNode });
     });
-    inst.on("tap", "edge", (ev) => setSelected({ type: "edge", edge: ev.target.data() as GEdge }));
+    inst.on("tap", "edge", (ev) => {
+      const d = ev.target.data();
+      if (d.origin === "cluster" || d.origin === "wan") return;
+      setSelected({ type: "edge", edge: d as GEdge });
+    });
     inst.on("tap", (ev) => { if (ev.target === inst) setSelected(null); });
+    // hover: light up the device, its links and what is on the other end
+    inst.on("mouseover", "node", (ev) => {
+      const n = ev.target as cytoscape.NodeSingular;
+      if (n.isParent() && !n.hasClass("client-cluster")) return;
+      let keep = n.closedNeighborhood();
+      if (n.isChild()) keep = keep.union(n.parent()).union((n.parent() as cytoscape.NodeCollection).closedNeighborhood());
+      keep = keep.union(keep.nodes(".client-cluster").children()).union(n.children());
+      keep.edges().addClass("hl");
+      inst.elements().difference(keep).not(".vlan-group").addClass("hover-fade");
+    });
+    inst.on("mouseout", "node", () => { inst.elements().removeClass("hover-fade hl"); });
     cy.current = inst;
-  }, [graph, grouped, colors, loopsByID]);
+  }, [graph, grouped, showClients, colors, loopsByID, layoutRun]);
+
+  useEffect(() => { cy.current?.edges().toggleClass("show-label", portLabels); }, [portLabels, graph, grouped, showClients, layoutRun]);
 
   // focus one loop: fade everything that is not on it
   useEffect(() => {
@@ -124,11 +180,20 @@ export function Topology({ tick }: { tick: number }) {
     if (!focus) return;
     const hits = inst.edges().filter((e) => (e.data("networks") as string[] | undefined)?.includes(focus) ?? false);
     hits.addClass("vlan-hit").data("focusColor", colors.get(focus));
-    const keep = hits.connectedNodes().union(inst.nodes().filter((n) => n.data("network") === focus || n.id() === groupID(focus)));
+    let keep = hits.connectedNodes().union(inst.nodes().filter((n) => n.data("network") === focus || n.id() === groupID(focus)));
+    keep = keep.union(keep.parents()).union(keep.nodes().connectedEdges(`[origin = "cluster"]`)).union(keep.parents().connectedEdges(`[origin = "cluster"]`).connectedNodes());
     inst.elements().difference(keep.union(hits)).addClass("vlan-dim");
   }, [focus, graph, grouped, colors]);
 
   useEffect(() => () => cy.current?.destroy(), []);
+
+  // the side panel opening or the window changing size resizes the map
+  useEffect(() => {
+    if (!ref.current || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => cy.current?.resize());
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
 
   // redraw with the new colours when the theme changes
   useEffect(() => {
@@ -139,19 +204,45 @@ export function Topology({ tick }: { tick: number }) {
     return () => { window.removeEventListener("ncc-theme", restyle); mq.removeEventListener("change", restyle); };
   }, []);
 
-  const relayout = () => cy.current?.layout(grouped ? groupLayout : treeLayout(graph)).run();
+  const relayout = () => setLayoutRun((r) => r + 1);
+  const zoomBy = (f: number) => {
+    const inst = cy.current;
+    if (!inst) return;
+    inst.animate({ zoom: { level: inst.zoom() * f, position: { x: inst.width() / 2, y: inst.height() / 2 } } } as cytoscape.AnimationOptions, { duration: 150 });
+  };
+  const find = (ev: FormEvent) => {
+    ev.preventDefault();
+    const inst = cy.current, q = query.trim().toLowerCase();
+    if (!inst || !q) return;
+    const hit = graph?.nodes.find((n) => n.label.toLowerCase().includes(q) || n.ip?.includes(q) || n.id.toLowerCase() === q || n.model?.toLowerCase().includes(q));
+    setMiss(!hit);
+    if (!hit) return;
+    const ele = inst.getElementById(hit.id);
+    inst.elements().unselect();
+    ele.select();
+    setSelected({ type: "node", node: hit });
+    inst.animate({ center: { eles: ele }, zoom: Math.max(inst.zoom(), 1.1) } as cytoscape.AnimationOptions, { duration: 250 });
+  };
   const sel = selected?.type === "node" ? selected.node : null;
 
   return (
     <>
       <h1>Topology</h1>
-      <div className="toolbar">
+      <div className="toolbar topo-toolbar">
         <label className="check"><input type="checkbox" checked={showClients} disabled={grouped} onChange={(e) => setWithClients(e.target.checked)} /> Show clients</label>
         <label className="check" title="Draw a box per VLAN around its clients">
           <input type="checkbox" checked={grouped} disabled={!lanNets.length} onChange={(e) => setGrouped(e.target.checked)} /> Group by VLAN
         </label>
-        <button onClick={relayout}>Re-arrange</button>
-        <span className="muted small">Solid lines are cables, dashed lines are wireless. Dashed outlines are switches NCC found but UniFi does not manage. Red outline: offline. Clients are coloured by VLAN; a red ring marks a DMZ host.</span>
+        <label className="check" title="Show the port numbers on every link (hover a device to see its own)">
+          <input type="checkbox" checked={portLabels} onChange={(e) => setPortLabels(e.target.checked)} /> Port labels
+        </label>
+        <button onClick={relayout} title="Put every device back in its tier">Tidy up</button>
+        <form className={`topo-search${miss ? " miss" : ""}`} onSubmit={find} role="search">
+          <Icon name="search" size={15} />
+          <input type="search" placeholder={showClients ? "Find a device or client" : "Find a device"} aria-label="Find on the map" value={query}
+            onChange={(e) => { setQuery(e.target.value); setMiss(false); }} />
+        </form>
+        {miss && <span className="muted small">Not on the map{showClients ? "" : " (clients are hidden)"}.</span>}
       </div>
       {loops.length > 0 && (
         <section className={`card loop-card ${loops.some((l) => l.severity === "critical") ? "bad" : "warn"}`} aria-label="Switching loops">
@@ -176,7 +267,31 @@ export function Topology({ tick }: { tick: number }) {
         </div>
       )}
       <div className="topo">
-        <div ref={ref} className="topo-canvas" />
+        <div className="topo-stage">
+          <div ref={ref} className="topo-canvas" />
+          <div className="topo-zoom" role="group" aria-label="Zoom">
+            <button onClick={() => zoomBy(1.25)} title="Zoom in" aria-label="Zoom in"><Icon name="plus" size={16} /></button>
+            <button onClick={() => zoomBy(0.8)} title="Zoom out" aria-label="Zoom out"><Icon name="minus" size={16} /></button>
+            <button onClick={() => cy.current && fitView(cy.current)} title="Fit the whole network" aria-label="Fit to screen"><Icon name="fit" size={16} /></button>
+          </div>
+          {legend ? (
+            <div className="topo-legend card" aria-label="Map key">
+              <div className="topo-legend-head"><strong>Map key</strong><button className="link" onClick={() => setLegend(false)} aria-label="Hide map key">Hide</button></div>
+              <ul>
+                <li><svg width="28" height="10"><path d="M2 5h24" className="lg-cable" /></svg>Cable</li>
+                <li><svg width="28" height="10"><path d="M2 5h24" className="lg-wifi" /></svg>Wireless</li>
+                <li><svg width="28" height="10"><path d="M2 8Q14 -2 26 8" className="lg-cable" fill="none" /></svg>Extra link (closes a ring)</li>
+                <li><svg width="28" height="10"><path d="M2 5h24" className="lg-bad" /></svg>Loop, nothing stopping it</li>
+                <li><svg width="28" height="10"><path d="M2 5h24" className="lg-warn" /></svg>Loop held shut by spanning tree</li>
+                <li><svg width="28" height="12"><circle cx="8" cy="6" r="4.5" className="lg-good" /><circle cx="21" cy="6" r="4.5" className="lg-off" /></svg>Online / offline</li>
+                <li><svg width="28" height="14"><rect x="7" y="1.5" width="14" height="11" rx="3" className="lg-dashed" /></svg>Switch NCC found, not managed</li>
+                <li><svg width="28" height="14"><circle cx="14" cy="7" r="4" className="lg-dmz" /></svg>DMZ host; client colour = VLAN</li>
+              </ul>
+            </div>
+          ) : (
+            <button className="topo-legend-show" onClick={() => setLegend(true)}>Map key</button>
+          )}
+        </div>
         {sel && (
           <aside className="card topo-side">
             <h2>{sel.label}</h2>
@@ -185,7 +300,8 @@ export function Topology({ tick }: { tick: number }) {
               {sel.make && (<><dt>{sel.kind === "client" ? "Vendor" : "Make"}</dt><dd>{sel.make}</dd></>)}
               {sel.model && (<><dt>Model</dt><dd>{sel.model}</dd></>)}
               {sel.ip && (<><dt>IP</dt><dd className="mono">{sel.ip}</dd></>)}
-              <dt>MAC / id</dt><dd className="mono small">{sel.id}</dd>
+              {sel.kind === "internet" ? (<><dt>Reached through</dt><dd>{graph?.nodes.filter((n) => n.kind === "gateway").map((n) => n.label).join(", ")}</dd></>)
+                : (<><dt>MAC / id</dt><dd className="mono small">{sel.id}</dd></>)}
               {sel.discovery && (<><dt>Found by</dt><dd>{discoveryLabel[sel.discovery] ?? sel.discovery}</dd></>)}
               {sel.clients ? (<><dt>Clients</dt><dd>{sel.clients}</dd></>) : null}
               {sel.network && (<><dt>{sel.kind === "client" ? "Network" : "Mgmt network"}</dt><dd><NetName id={sel.network} nets={nets} colors={colors} /></dd></>)}

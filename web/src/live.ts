@@ -36,6 +36,7 @@ export const kindLabel: Record<string, string> = {
   "unmanaged-switch": "Unmanaged switch",
   unknown: "Unknown",
   client: "Client",
+  internet: "Internet connection",
 };
 
 export const discoveryLabel: Record<string, string> = {
