@@ -104,6 +104,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/clients", v(s.listClients))
 	mux.Handle("GET /api/topology", v(s.topology))
 	mux.Handle("GET /api/loops", v(s.loops))
+	mux.Handle("GET /api/firewall", v(s.firewall))
 	mux.Handle("GET /api/traffic", v(s.traffic))
 	mux.Handle("GET /api/vlans", v(s.listVLANs))
 	mux.Handle("POST /api/vlans/networks", a(s.createVLAN))

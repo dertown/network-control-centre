@@ -24,6 +24,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/audit"
 	"github.com/dertown/network-control-centre/internal/auth"
 	"github.com/dertown/network-control-centre/internal/core"
+	"github.com/dertown/network-control-centre/internal/inventory"
 	"github.com/dertown/network-control-centre/internal/mocklab"
 	"github.com/dertown/network-control-centre/internal/pki"
 	"github.com/dertown/network-control-centre/internal/store"
@@ -179,6 +180,14 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if code := c.do("GET", "/api/traffic?window=forever", nil, nil); code != 400 {
 		t.Fatalf("bad window: %d", code)
+	}
+
+	var fws []inventory.Firewall
+	if code := c.do("GET", "/api/firewall", nil, &fws); code != 200 || len(fws) != 1 {
+		t.Fatalf("firewall: %d %+v", code, fws)
+	}
+	if fws[0].Mode != inventory.FirewallZones || len(fws[0].Rules) != 7 || len(fws[0].Forwards) != 4 || len(fws[0].Notes) != 0 {
+		t.Fatalf("firewall: %+v", fws[0])
 	}
 
 	var graph core.Graph

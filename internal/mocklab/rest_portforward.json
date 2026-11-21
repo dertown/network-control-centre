@@ -1,0 +1,6 @@
+{"meta":{"rc":"ok"},"data":[
+ {"_id":"pf_web","name":"Web server","enabled":true,"pfwd_interface":"wan","proto":"tcp","src":"any","dst_port":"443","fwd":"192.168.50.10","fwd_port":"443","log":true,"destination_ip":"any"},
+ {"_id":"pf_plex","name":"Plex","enabled":true,"pfwd_interface":"both","proto":"tcp_udp","src":"any","dst_port":"32400","fwd":"192.168.1.50","fwd_port":"32400","log":false},
+ {"_id":"pf_ssh","name":"NAS SSH (office only)","enabled":true,"pfwd_interface":"wan","proto":"tcp","src":"any","dst_port":"2222","fwd":"192.168.1.50","fwd_port":"22","src_limiting_enabled":true,"src_limiting_type":"firewall_group","src_firewall_group_id":"fg_office"},
+ {"_id":"pf_game","name":"Game server","enabled":false,"pfwd_interface":"wan","proto":"udp","src":"any","dst_port":"27015-27030","fwd":"192.168.1.80","fwd_port":"27015-27030"}
+]}

@@ -65,6 +65,17 @@ export interface Loop {
   id: string; severity: "critical" | "warning"; kind: "self" | "parallel" | "cycle" | "stp" | "event";
   summary: string; detail?: string; ports: LoopPort[]; links?: LoopLink[]; count?: number; seen_at?: string; target: string;
 }
+export interface FirewallEndpoint { zone?: string; match: string; port?: string; negate?: boolean }
+export interface FirewallRule {
+  id: string; name: string; description?: string; enabled: boolean; action: "allow" | "block" | "reject" | string; index: number;
+  builtin?: boolean; ruleset?: string; source: FirewallEndpoint; destination: FirewallEndpoint; protocol: string;
+  ip_version?: string; states?: string[]; schedule?: string; logging?: boolean; target: string;
+}
+export interface PortForward {
+  id: string; name: string; enabled: boolean; interface?: string; protocol: string; external_port: string; source: string;
+  destination?: string; forward_ip: string; forward_port: string; forward_client?: string; logging?: boolean; target: string;
+}
+export interface Firewall { mode?: "zones" | "legacy"; rules: FirewallRule[]; forwards: PortForward[]; notes?: string[]; target: string }
 export interface Zone { name: string; kind?: string; serial?: number }
 export interface RRSet { name: string; type: string; ttl: number; records: string[] }
 export interface Change { op: "REPLACE" | "DELETE"; rrset: RRSet }

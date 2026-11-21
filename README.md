@@ -33,6 +33,11 @@ This first release (the MVP) covers:
   on that port moves together, and ports leading to other switches or access points are never
   changed). Every change is previewed first and audited. Changes need a UniFi account with a
   Network role that can change settings (Site Admin or Full Management), not View Only.
+- **Firewall rules and port forwards (read-only)**: the **Firewall** page lists the router's
+  zone-based firewall policies (UniFi Network 9+) or older rule sets (WAN_IN, LAN_IN...), with
+  zones, networks, address and port groups and clients named, and every port forward with where it
+  lands and who may reach it. "Enabled only" is on by default; UniFi's built-in policies are
+  hidden unless you ask for them. A View Only account is enough.
 - **PowerDNS**: browse zones and records; add, edit and delete records with a preview step;
   matching **PTR records are created and removed automatically** in your reverse zone.
 - **Virtual machines**: every VM and container on **Proxmox VE** (API token or user login) and

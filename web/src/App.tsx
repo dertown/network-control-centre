@@ -7,6 +7,7 @@ import { VLANs } from "./pages/VLANs";
 import { VirtualMachines } from "./pages/VirtualMachines";
 import { DNS } from "./pages/DNS";
 import { Traffic } from "./pages/Traffic";
+import { Firewall } from "./pages/Firewall";
 import { Vault } from "./pages/Vault";
 import { Settings } from "./pages/Settings";
 import { Audit } from "./pages/Audit";
@@ -20,6 +21,7 @@ const pages = [
   { id: "devices", label: "Devices", icon: "devices", group: "Monitor" },
   { id: "vms", label: "Virtual machines", icon: "vm", group: "Monitor" },
   { id: "traffic", label: "Traffic", icon: "traffic", group: "Monitor" },
+  { id: "firewall", label: "Firewall", icon: "firewall", group: "Monitor" },
   { id: "vlans", label: "VLANs", icon: "vlan", group: "Configure" },
   { id: "dns", label: "DNS", icon: "dns", group: "Services" },
   { id: "vault", label: "Vault & certificates", icon: "vault", group: "Services" },
@@ -149,6 +151,7 @@ export default function App() {
           {page === "devices" && <Devices tick={tick} />}
           {page === "vms" && <VirtualMachines tick={tick} user={user} />}
           {page === "traffic" && <Traffic tick={tick} />}
+          {page === "firewall" && <Firewall tick={tick} />}
           {page === "vlans" && <VLANs tick={tick} user={user} />}
           {page === "dns" && <DNS user={user} />}
           {page === "vault" && <Vault user={user} vault={vault} onVault={setVault} />}
