@@ -1,0 +1,5 @@
+{"meta":{"rc":"ok"},"data":[
+ {"_id":"fg_web","name":"Web","group_type":"port-group","group_members":["80","443"]},
+ {"_id":"fg_office","name":"Office IPs","group_type":"address-group","group_members":["203.0.113.10","203.0.113.11"]},
+ {"_id":"fg_dns","name":"DNS servers","group_type":"address-group","group_members":["192.168.1.53"]}
+]}

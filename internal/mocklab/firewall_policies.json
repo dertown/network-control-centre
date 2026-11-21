@@ -1,0 +1,23 @@
+[
+ {"_id":"fp_iot_block","name":"Block IoT to Internal","description":"IoT devices cannot reach the main LAN","enabled":true,"action":"BLOCK","index":10000,"predefined":false,"protocol":"all","ip_version":"BOTH","logging":true,"connection_state_type":"ALL","connection_states":[],"schedule":{"mode":"ALWAYS"},
+  "source":{"zone_id":"z_iot","matching_target":"ANY","port_matching_type":"ANY"},
+  "destination":{"zone_id":"z_internal","matching_target":"ANY","port_matching_type":"ANY"}},
+ {"_id":"fp_iot_dns","name":"Allow IoT DNS","enabled":true,"action":"ALLOW","index":9990,"predefined":false,"protocol":"tcp_udp","ip_version":"IPV4","logging":false,"connection_state_type":"ALL","schedule":{"mode":"ALWAYS"},
+  "source":{"zone_id":"z_iot","matching_target":"NETWORK","network_ids":["net_iot"],"port_matching_type":"ANY"},
+  "destination":{"zone_id":"z_internal","matching_target":"IP","matching_target_type":"OBJECT","ip_group_id":"fg_dns","port_matching_type":"SPECIFIC","port":"53"}},
+ {"_id":"fp_dmz_web","name":"Allow web to DMZ","enabled":true,"action":"ALLOW","index":10010,"predefined":false,"protocol":"tcp","ip_version":"BOTH","logging":false,"connection_state_type":"ALL","schedule":{"mode":"ALWAYS"},
+  "source":{"zone_id":"z_external","matching_target":"ANY","port_matching_type":"ANY"},
+  "destination":{"zone_id":"z_dmz","matching_target":"IP","ips":["192.168.50.10"],"port_matching_type":"OBJECT","port_group_id":"fg_web"}},
+ {"_id":"fp_kids","name":"Block TV at night","enabled":false,"action":"REJECT","index":10020,"predefined":false,"protocol":"all","ip_version":"BOTH","logging":false,"connection_state_type":"ALL","schedule":{"mode":"EVERY_DAY"},
+  "source":{"zone_id":"z_internal","matching_target":"CLIENT","client_macs":["de:ad:00:00:00:03"],"port_matching_type":"ANY"},
+  "destination":{"zone_id":"z_external","matching_target":"ANY","port_matching_type":"ANY"}},
+ {"_id":"fp_pre_1","name":"Allow All Traffic","enabled":true,"action":"ALLOW","index":2147483647,"predefined":true,"protocol":"all","ip_version":"BOTH","connection_state_type":"ALL","schedule":{"mode":"ALWAYS"},
+  "source":{"zone_id":"z_internal","matching_target":"ANY","port_matching_type":"ANY"},
+  "destination":{"zone_id":"z_external","matching_target":"ANY","port_matching_type":"ANY"}},
+ {"_id":"fp_pre_2","name":"Allow Return Traffic","enabled":true,"action":"ALLOW","index":2147483646,"predefined":true,"protocol":"all","ip_version":"BOTH","connection_state_type":"RESPOND_ONLY","schedule":{"mode":"ALWAYS"},
+  "source":{"zone_id":"z_external","matching_target":"ANY","port_matching_type":"ANY"},
+  "destination":{"zone_id":"z_internal","matching_target":"ANY","port_matching_type":"ANY"}},
+ {"_id":"fp_pre_3","name":"Block All Traffic","enabled":true,"action":"BLOCK","index":2147483647,"predefined":true,"protocol":"all","ip_version":"BOTH","connection_state_type":"ALL","schedule":{"mode":"ALWAYS"},
+  "source":{"zone_id":"z_external","matching_target":"ANY","port_matching_type":"ANY"},
+  "destination":{"zone_id":"z_internal","matching_target":"ANY","port_matching_type":"ANY"}}
+]

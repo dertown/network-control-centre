@@ -502,6 +502,7 @@ func (d Driver) collectWith(ctx context.Context, c *client, t drivers.Target) (*
 	now := time.Now().UTC()
 	snap := Build(t.Name, devs, clients, cfg, now)
 	snap.Loops = DetectLoops(t.Name, devs, collectEvents(ctx, c), snap, now)
+	snap.Firewall = BuildFirewall(t.Name, collectFirewall(ctx, c), cfg, clients)
 	traffic := collectTraffic(ctx, c, t.Name, clients)
 	return &drivers.Result{Snapshot: snap, OptionUpdates: c.optionUpdates(t), Traffic: traffic}, nil
 }

@@ -488,3 +488,11 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .topo-legend-show { display: none; }
   .topo-toolbar .topo-search { margin-left: 0; width: 100%; }
 }
+
+/* firewall */
+.fw-head { padding: 14px 16px 0; margin-bottom: 10px; }
+.fw-table td { vertical-align: top; }
+.fw-ep { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.fw-tag { margin-left: 8px; font-size: 10.5px; padding: 1px 7px; }
+tr.fw-off td { color: var(--muted); }
+tr.fw-off strong { font-weight: 550; }

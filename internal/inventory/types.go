@@ -122,6 +122,8 @@ type Snapshot struct {
 	// Loops are switching loops: ports cabled back to each other, redundant paths and the
 	// controller's own loop and STP warnings.
 	Loops []Loop `json:"loops,omitempty"`
+	// Firewall is the router's firewall rules and port forwards; nil when the driver cannot tell.
+	Firewall *Firewall `json:"firewall,omitempty"`
 }
 
 // Loop severities.

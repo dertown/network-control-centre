@@ -55,6 +55,25 @@ var RestWLANConf []byte
 //go:embed firewall_zone.json
 var FirewallZones []byte
 
+// FirewallPolicies is a recorded v2 firewall-policies response (zone-based firewall): four
+// policies the admin made, one of them off, and three of the console's built-in ones.
+//
+//go:embed firewall_policies.json
+var FirewallPolicies []byte
+
+// RestFirewallGroup, RestFirewallRule and RestPortForward are recorded rest/firewallgroup,
+// rest/firewallrule (empty: the console uses zone-based firewall) and rest/portforward
+// responses: a port group and two address groups, and four port forwards, one of them off.
+//
+//go:embed rest_firewallgroup.json
+var RestFirewallGroup []byte
+
+//go:embed rest_firewallrule.json
+var RestFirewallRule []byte
+
+//go:embed rest_portforward.json
+var RestPortForward []byte
+
 // TrafficV2 is a recorded UniFi Network 9+ v2 traffic API response (per-client
 // application usage). A console with this API answers the legacy DPI calls with no rows.
 //
@@ -176,6 +195,10 @@ func unifi(loops bool) http.Handler {
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/portconf", serve(RestPortConf))
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/wlanconf", serve(RestWLANConf))
 	mux.HandleFunc("GET /proxy/network/v2/api/site/default/firewall/zone", serve(FirewallZones))
+	mux.HandleFunc("GET /proxy/network/v2/api/site/default/firewall-policies", serve(FirewallPolicies))
+	mux.HandleFunc("GET /proxy/network/api/s/default/rest/firewallgroup", serve(RestFirewallGroup))
+	mux.HandleFunc("GET /proxy/network/api/s/default/rest/firewallrule", serve(RestFirewallRule))
+	mux.HandleFunc("GET /proxy/network/api/s/default/rest/portforward", serve(RestPortForward))
 	return mux
 }
 
