@@ -20,19 +20,26 @@ import (
 
 // Cert is one certificate in the inventory.
 type Cert struct {
-	ID            int64     `json:"id"`
-	Name          string    `json:"name"`
-	Subject       string    `json:"subject"`
-	Issuer        string    `json:"issuer"`
-	SANs          []string  `json:"sans"`
-	Serial        string    `json:"serial"`
-	NotBefore     time.Time `json:"not_before"`
-	NotAfter      time.Time `json:"not_after"`
-	Fingerprint   string    `json:"fingerprint"`
-	HasKey        bool      `json:"has_key"`
-	DaysLeft      int       `json:"days_left"`
-	Status        string    `json:"status"` // ok | expiring | critical | expired
-	ChainLength   int       `json:"chain_length"`
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Subject     string    `json:"subject"`
+	Issuer      string    `json:"issuer"`
+	SANs        []string  `json:"sans"`
+	Serial      string    `json:"serial"`
+	NotBefore   time.Time `json:"not_before"`
+	NotAfter    time.Time `json:"not_after"`
+	Fingerprint string    `json:"fingerprint"`
+	HasKey      bool      `json:"has_key"`
+	DaysLeft    int       `json:"days_left"`
+	Status      string    `json:"status"` // ok | expiring | critical | expired
+	ChainLength int       `json:"chain_length"`
+	// Chain names the CA certificates stored after the leaf, issuer first; ChainComplete
+	// is true when it ends at a self-signed root.
+	Chain         []string `json:"chain"`
+	ChainComplete bool     `json:"chain_complete"`
+	// Dropped lists CA bundle certificates left out on import because they are not on this
+	// certificate's path (only set in the import response).
+	Dropped       []string `json:"dropped,omitempty"`
 	keySecretPath string
 }
 
@@ -117,9 +124,80 @@ func checkKeyMatches(leaf *x509.Certificate, keyPEM string) error {
 	return nil
 }
 
-// Import adds a certificate (and optional private key, which goes to the vault).
-func (inv *Inventory) Import(ctx context.Context, name, certPEM, keyPEM string) (*Cert, error) {
+// BuildChain puts a certificate's chain in order: the leaf (first certificate of certPEM),
+// then each issuer in turn, taken from the rest of certPEM and from caPEM (a CA bundle with
+// intermediates and/or roots, in any order). Duplicates and certificates that are not on the
+// leaf's path are dropped; dropped names come back so the person can be told.
+func BuildChain(certPEM, caPEM string) (chainPEM string, dropped []string, err error) {
+	certs, err := ParseChain(certPEM)
+	if err != nil {
+		return "", nil, err
+	}
+	pool := certs[1:]
+	if strings.TrimSpace(caPEM) != "" {
+		extra, err := ParseChain(caPEM)
+		if err != nil {
+			return "", nil, fmt.Errorf("CA bundle: %w", err)
+		}
+		pool = append(pool, extra...)
+	}
+	chain := []*x509.Certificate{certs[0]}
+	used := map[string]bool{string(certs[0].Raw): true}
+	for cur := certs[0]; ; {
+		if isSelfSigned(cur) {
+			break
+		}
+		var next *x509.Certificate
+		for _, c := range pool {
+			if used[string(c.Raw)] {
+				continue
+			}
+			if c.Subject.String() == cur.Issuer.String() && cur.CheckSignatureFrom(c) == nil {
+				next = c
+				break
+			}
+		}
+		if next == nil {
+			break
+		}
+		chain = append(chain, next)
+		used[string(next.Raw)] = true
+		cur = next
+	}
+	seen := map[string]bool{}
+	for _, c := range pool {
+		if !used[string(c.Raw)] && !seen[string(c.Raw)] {
+			seen[string(c.Raw)] = true
+			dropped = append(dropped, displayName(c))
+		}
+	}
+	var b strings.Builder
+	for _, c := range chain {
+		_ = pem.Encode(&b, &pem.Block{Type: "CERTIFICATE", Bytes: c.Raw})
+	}
+	return b.String(), dropped, nil
+}
+
+func isSelfSigned(c *x509.Certificate) bool {
+	return c.Subject.String() == c.Issuer.String() && c.CheckSignatureFrom(c) == nil
+}
+
+func displayName(c *x509.Certificate) string {
+	if c.Subject.CommonName != "" {
+		return c.Subject.CommonName
+	}
+	return c.Subject.String()
+}
+
+// Import adds a certificate (and optional private key, which goes to the vault). caPEM is an
+// optional CA bundle; its intermediates and root are stored with the certificate, in order.
+func (inv *Inventory) Import(ctx context.Context, name, certPEM, keyPEM, caPEM string) (*Cert, error) {
 	name = strings.TrimSpace(name)
+	ordered, dropped, err := BuildChain(certPEM, caPEM)
+	if err != nil {
+		return nil, err
+	}
+	certPEM = ordered
 	chain, err := ParseChain(certPEM)
 	if err != nil {
 		return nil, err
@@ -168,6 +246,7 @@ func (inv *Inventory) Import(ctx context.Context, name, certPEM, keyPEM string) 
 	}
 	for _, c := range certs {
 		if c.Name == name {
+			c.Dropped = dropped
 			return &c, nil
 		}
 	}
@@ -202,6 +281,13 @@ func (inv *Inventory) List(ctx context.Context) ([]Cert, error) {
 		}
 		c.Status = status(c.DaysLeft)
 		c.ChainLength = strings.Count(pemText, "BEGIN CERTIFICATE")
+		c.Chain = []string{}
+		if all, err := ParseChain(pemText); err == nil {
+			for _, ca := range all[1:] {
+				c.Chain = append(c.Chain, displayName(ca))
+			}
+			c.ChainComplete = isSelfSigned(all[len(all)-1]) && len(all) > 1 || isSelfSigned(all[0])
+		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -264,4 +350,31 @@ func (inv *Inventory) Material(ctx context.Context, id int64) (certPEM, keyPEM s
 func Fingerprint(c *x509.Certificate) string {
 	fp := sha256.Sum256(c.Raw)
 	return hex.EncodeToString(fp[:])
+}
+
+// SetChain replaces a stored certificate's CA certificates with the ones in caPEM (put in
+// order, unrelated ones dropped). An empty caPEM leaves only the leaf.
+func (inv *Inventory) SetChain(ctx context.Context, id int64, caPEM string) (*Cert, error) {
+	cur, err := inv.PEM(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	all, err := ParseChain(cur)
+	if err != nil {
+		return nil, err
+	}
+	leafPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: all[0].Raw}))
+	ordered, dropped, err := BuildChain(leafPEM, caPEM)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := inv.DB.ExecContext(ctx, `UPDATE certificates SET cert_pem = ? WHERE id = ?`, ordered, id); err != nil {
+		return nil, err
+	}
+	c, err := inv.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	c.Dropped = dropped
+	return c, nil
 }

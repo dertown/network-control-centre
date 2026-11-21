@@ -392,8 +392,8 @@ func (s *Service) build(ctx context.Context, t *Target, certID int64) (*Plan, *p
 	if name := checkName(p, m); name != "" && !m.Covers(name) {
 		plan.Warnings = append(plan.Warnings, fmt.Sprintf("The certificate does not cover %s (it covers %s), so browsers will warn.", name, strings.Join(cert.SANs, ", ")))
 	}
-	if len(m.Chain) == 0 && m.Leaf.Subject.String() != m.Leaf.Issuer.String() {
-		plan.Warnings = append(plan.Warnings, "No intermediate certificates were imported with this certificate; some clients may not trust it. Import the full chain if your CA gave you one.")
+	if m.ChainPEM == "" && m.Leaf.Subject.String() != m.Leaf.Issuer.String() {
+		plan.Warnings = append(plan.Warnings, "No intermediate certificates are stored with this certificate, so some clients may not trust it. If your CA gave you a CA bundle, add it under Vault & certificates (Add CA bundle).")
 	}
 	if t.CertID != 0 && t.CertID != certID {
 		if prev, err := s.Certs.Get(ctx, t.CertID); err == nil {

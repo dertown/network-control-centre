@@ -41,7 +41,8 @@ import (
 
 type testPKI struct {
 	chainPEM, keyPEM string
-	leaf, ca         *x509.Certificate
+	leaf, ca, root   *x509.Certificate
+	rootPEM, caPEM   string
 }
 
 func newTestPKI(t *testing.T, names ...string) testPKI {
@@ -55,6 +56,8 @@ func newTestPKI(t *testing.T, names ...string) testPKI {
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(3650 * 24 * time.Hour), IsCA: true,
 		BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
 	caDER, _ := x509.CreateCertificate(rand.Reader, caTmpl, rootTmpl, &caKey.PublicKey, rootKey)
+	rootDER, _ := x509.CreateCertificate(rand.Reader, rootTmpl, rootTmpl, &rootKey.PublicKey, rootKey)
+	root, _ := x509.ParseCertificate(rootDER)
 	ca, _ := x509.ParseCertificate(caDER)
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tmpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: names[0]},
@@ -64,7 +67,9 @@ func newTestPKI(t *testing.T, names ...string) testPKI {
 	leaf, _ := x509.ParseCertificate(der)
 	kb, _ := x509.MarshalPKCS8PrivateKey(key)
 	chain := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})) + string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}))
-	return testPKI{chainPEM: chain, keyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: kb})), leaf: leaf, ca: ca}
+	return testPKI{chainPEM: chain, keyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: kb})), leaf: leaf, ca: ca, root: root,
+		rootPEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER})),
+		caPEM:   string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}))}
 }
 
 type auditRec struct {
@@ -205,7 +210,7 @@ func TestSplunkDeployEditsConf(t *testing.T) {
 	s, audit := newService(t)
 	ctx := context.Background()
 	p := newTestPKI(t, "splunk.example.lan")
-	c, err := s.Certs.Import(ctx, "splunk.example.lan", p.chainPEM, p.keyPEM)
+	c, err := s.Certs.Import(ctx, "splunk.example.lan", p.chainPEM, p.keyPEM, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +293,7 @@ func TestPlanBlockedWithoutKey(t *testing.T) {
 	s, _ := newService(t)
 	ctx := context.Background()
 	p := newTestPKI(t, "nokey.example.lan")
-	c, _ := s.Certs.Import(ctx, "nokey", p.chainPEM, "")
+	c, _ := s.Certs.Import(ctx, "nokey", p.chainPEM, "", "")
 	tg := &Target{Name: "web", Kind: "nginx", Host: "web.example.lan"}
 	if err := s.Create(ctx, tg); err != nil {
 		t.Fatal(err)
@@ -309,7 +314,7 @@ func TestPlanWarnsWrongHost(t *testing.T) {
 	s, _ := newService(t)
 	ctx := context.Background()
 	p := newTestPKI(t, "a.example.lan")
-	c, _ := s.Certs.Import(ctx, "a", p.chainPEM, p.keyPEM)
+	c, _ := s.Certs.Import(ctx, "a", p.chainPEM, p.keyPEM, "")
 	tg := &Target{Name: "b", Kind: "apache", Host: "b.example.lan", Options: map[string]string{"chain_path": "/etc/ssl/chain.pem"}}
 	_ = s.Create(ctx, tg)
 	plan, _ := s.Plan(ctx, tg.ID, c.ID, false)
@@ -325,7 +330,7 @@ func TestIISPlanAndScripts(t *testing.T) {
 	s, _ := newService(t)
 	ctx := context.Background()
 	p := newTestPKI(t, "intranet.example.lan")
-	c, _ := s.Certs.Import(ctx, "intranet", p.chainPEM, p.keyPEM)
+	c, _ := s.Certs.Import(ctx, "intranet", p.chainPEM, p.keyPEM, "")
 	mem := &memConn{files: map[string][]byte{}, modes: map[string]string{}}
 	s.DialWinRM = func(_ context.Context, o WinRMOptions) (Conn, string, error) {
 		if !o.HTTPS || o.Auth != "ntlm" || o.User != `CORP\svc` {
@@ -378,7 +383,7 @@ func TestTomcatKeystorePasswordSaved(t *testing.T) {
 	s, _ := newService(t)
 	ctx := context.Background()
 	p := newTestPKI(t, "tomcat.example.lan")
-	c, _ := s.Certs.Import(ctx, "tomcat", p.chainPEM, p.keyPEM)
+	c, _ := s.Certs.Import(ctx, "tomcat", p.chainPEM, p.keyPEM, "")
 	mem := &memConn{files: map[string][]byte{}, modes: map[string]string{}}
 	s.DialSSH = func(context.Context, SSHOptions) (Conn, string, error) { return mem, "k", nil }
 	tg := &Target{Name: "tc", Kind: "tomcat", Host: "tomcat.example.lan", Options: map[string]string{"host_key": "k", "https_port": ""}}
@@ -521,13 +526,13 @@ func TestNginxOverRealSSH(t *testing.T) {
 	tlsAddr := startFileTLS(t, certPath, keyPath, oldCert)
 	_, tlsPort, _ := net.SplitHostPort(tlsAddr)
 
-	c, err := s.Certs.Import(ctx, "web.example.lan", newCert.chainPEM, newCert.keyPEM)
+	c, err := s.Certs.Import(ctx, "web.example.lan", newCert.chainPEM, newCert.keyPEM, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	tg := &Target{Name: "web1", Kind: "nginx", Host: host, Port: portN, Options: map[string]string{
 		"cert_path": certPath, "key_path": keyPath, "owner": "", "use_sudo": "false",
-		"reload": "echo reloaded > " + shQuote(filepath.Join(dir, "reloaded")) + " && echo nginx reloaded",
+		"reload":     "echo reloaded > " + shQuote(filepath.Join(dir, "reloaded")) + " && echo nginx reloaded",
 		"https_port": tlsPort, "check_name": "web.example.lan",
 	}}
 	if err := s.Create(ctx, tg); err != nil {
@@ -699,4 +704,85 @@ func utf16Decode(u []uint16) []rune {
 		out = append(out, rune(c))
 	}
 	return out
+}
+
+func TestCABundle(t *testing.T) {
+	s, _ := newService(t)
+	ctx := context.Background()
+	p := newTestPKI(t, "bundle.example.lan")
+	other := newTestPKI(t, "other.example.lan")
+	leafOnly := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: p.leaf.Raw}))
+	// bundle given root first, with an unrelated CA mixed in
+	c, err := s.Certs.Import(ctx, "bundle", leafOnly, p.keyPEM, p.rootPEM+other.caPEM+p.caPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ChainLength != 3 || !c.ChainComplete || len(c.Chain) != 2 || c.Chain[0] != "Test Intermediate CA" || c.Chain[1] != "Test Root CA" {
+		t.Fatalf("chain not ordered: %+v", c)
+	}
+	if len(c.Dropped) != 1 {
+		t.Fatalf("unrelated CA should be dropped: %v", c.Dropped)
+	}
+
+	mem := &memConn{files: map[string][]byte{}, modes: map[string]string{}}
+	s.DialSSH = func(context.Context, SSHOptions) (Conn, string, error) { return mem, "k", nil }
+	tg := &Target{Name: "web", Kind: "nginx", Host: "bundle.example.lan", Options: map[string]string{"host_key": "k", "https_port": "", "ca_path": "/etc/nginx/ssl/{cert}-ca.pem"}}
+	_ = s.Create(ctx, tg)
+	_ = s.SetCredentials(ctx, tg.ID, map[string]string{"username": "root", "password": "x"}, nil)
+	d, _ := s.Deploy(ctx, tg.ID, c.ID, "", "x")
+	if d := waitDone(t, s, d.ID); d.Status != "ok" {
+		t.Fatalf("%+v", d)
+	}
+	full := string(mem.files["/etc/nginx/ssl/bundle.crt"])
+	if strings.Count(full, "BEGIN CERTIFICATE") != 2 || strings.Contains(full, strings.TrimSpace(p.rootPEM)) {
+		t.Fatal("full chain must hold leaf and intermediate, not the root")
+	}
+	ca := string(mem.files["/etc/nginx/ssl/bundle-ca.pem"])
+	if !strings.Contains(ca, strings.TrimSpace(p.caPEM)) || !strings.Contains(ca, strings.TrimSpace(p.rootPEM)) {
+		t.Fatal("CA bundle file should hold intermediate and root")
+	}
+
+	// splunkd trusts the bundle
+	sp := &Target{Name: "sp", Kind: "splunk", Host: "bundle.example.lan", Options: map[string]string{"host_key": "k", "https_port": "", "component": "splunkd", "ca_path": "/opt/splunk/etc/auth/mycerts/ca.pem"}}
+	_ = s.Create(ctx, sp)
+	_ = s.SetCredentials(ctx, sp.ID, map[string]string{"username": "root", "password": "x"}, nil)
+	d, _ = s.Deploy(ctx, sp.ID, c.ID, "", "x")
+	waitDone(t, s, d.ID)
+	if !strings.Contains(string(mem.files["/opt/splunk/etc/system/local/server.conf"]), "sslRootCAPath = /opt/splunk/etc/auth/mycerts/ca.pem") {
+		t.Fatalf("sslRootCAPath not set: %s", mem.files["/opt/splunk/etc/system/local/server.conf"])
+	}
+
+	// IIS can trust the root
+	s.DialWinRM = func(context.Context, WinRMOptions) (Conn, string, error) { return mem, "p", nil }
+	iis := &Target{Name: "iis", Kind: "iis", Host: "bundle.example.lan", Options: map[string]string{"tls_pin": "p", "https_port": "443", "trust_root": "true"}}
+	_ = s.Create(ctx, iis)
+	plan, _ := s.Plan(ctx, iis.ID, c.ID, false)
+	found := false
+	for _, st := range plan.Steps {
+		if strings.Contains(st.Detail, "'Root','LocalMachine'") && strings.Contains(st.Detail, Thumbprint(p.root)) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no trust-root step: %+v", plan.Steps)
+	}
+
+	// replacing the bundle on an existing certificate; empty leaves only the leaf
+	c2, err := s.Certs.SetChain(ctx, c.ID, "")
+	if err != nil || c2.ChainLength != 1 {
+		t.Fatalf("clear chain: %+v %v", c2, err)
+	}
+	c2, _ = s.Certs.SetChain(ctx, c.ID, p.caPEM)
+	if c2.ChainLength != 2 || c2.ChainComplete {
+		t.Fatalf("intermediate only: %+v", c2)
+	}
+	plan, _ = s.Plan(ctx, tg.ID, c.ID, false)
+	for _, w := range plan.Warnings {
+		if strings.Contains(w, "No intermediate") {
+			t.Fatal("should not warn when the intermediate is there")
+		}
+	}
+	if _, err := s.Certs.SetChain(ctx, c.ID, "not pem"); err == nil {
+		t.Fatal("bad bundle accepted")
+	}
 }

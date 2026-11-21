@@ -275,7 +275,7 @@ function TargetDialog({ kinds, certs, target, presetCert, onClose }: {
     );
   }
 
-  const main = new Set(["cert_path", "key_path", "web_cert_path", "server_cert_path", "chain_path", "combined_path", "keystore_path", "format", "component", "splunk_home", "phantom_home", "data_path", "site", "host_header", "https_port", "restart", "reload"]);
+  const main = new Set(["cert_path", "key_path", "web_cert_path", "server_cert_path", "chain_path", "combined_path", "ca_path", "keystore_path", "format", "component", "splunk_home", "phantom_home", "data_path", "site", "host_header", "https_port", "restart", "reload"]);
   const mainFields = kind.fields.filter((f) => main.has(f.key));
   const moreFields = kind.fields.filter((f) => !main.has(f.key));
   const field = (f: DeployKind["fields"][number]) => {

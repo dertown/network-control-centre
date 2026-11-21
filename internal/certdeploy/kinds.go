@@ -133,6 +133,28 @@ func (p *planner) runHiding(title, cmd, secret string) {
 	p.steps = append(p.steps, Step{Op: "run", Title: title, Detail: strings.ReplaceAll(cmd, secret, "••••••"), cmd: cmd})
 }
 
+// caBundle writes the CA bundle (intermediates and root) to ca_path when that is set, and
+// returns the path written ("" when skipped).
+func (p *planner) caBundle(owner string) (string, error) {
+	if p.opt("ca_path") == "" {
+		return "", nil
+	}
+	path, err := p.path("ca_path")
+	if err != nil {
+		return "", err
+	}
+	if p.m.CABundlePEM == "" {
+		p.warnings = append(p.warnings, "A CA bundle file is set ("+path+") but this certificate has no CA certificates stored with it, so it is not written. Add the CA bundle to the certificate under Vault & certificates.")
+		return "", nil
+	}
+	what := fmt.Sprintf("%d CA certificate(s)", len(p.m.Chain))
+	if len(p.m.Roots) > 0 {
+		what += ", including the root"
+	}
+	p.write("Upload CA bundle", path, []byte(p.m.CABundlePEM), "0644", owner, fmt.Sprintf("%s, %d bytes, mode 0644", what, len(p.m.CABundlePEM)))
+	return path, nil
+}
+
 // runAs wraps a command to run as another (service) user when run_as is set.
 func (p *planner) runAs(cmd string) string {
 	u := p.opt("run_as")
@@ -186,6 +208,7 @@ var kinds = []*Kind{
 		Fields: append([]Field{
 			checkField("cert_path", "Certificate file (full chain)", "/etc/nginx/ssl/{cert}.crt", "ssl_certificate in your server block."),
 			checkField("key_path", "Private key file", "/etc/nginx/ssl/{cert}.key", "ssl_certificate_key in your server block."),
+			checkField("ca_path", "CA bundle file (optional)", "", "Intermediates and root in one file, e.g. for ssl_trusted_certificate (OCSP stapling). The certificate file already holds the intermediates."),
 			checkField("owner", "File owner", "root:root", ""),
 			checkField("reload", "Reload command", "nginx -t && systemctl reload nginx", ""),
 			checkField("https_port", "HTTPS port to check", "443", "NCC connects here after deploying to confirm the new certificate is served."),
@@ -202,6 +225,9 @@ var kinds = []*Kind{
 			}
 			p.write("Upload certificate and chain", cert, []byte(p.m.FullChainPEM), "0644", p.opt("owner"), "")
 			p.write("Upload private key", key, []byte(p.m.KeyPEM), "0600", p.opt("owner"), "")
+			if _, err := p.caBundle(p.opt("owner")); err != nil {
+				return err
+			}
 			p.run("Test configuration and reload nginx", p.opt("reload"))
 			p.notes = append(p.notes, "nginx must point at these files: ssl_certificate "+cert+"; ssl_certificate_key "+key+";")
 			return nil
@@ -214,6 +240,7 @@ var kinds = []*Kind{
 			checkField("cert_path", "Certificate file", "/etc/ssl/certs/{cert}.crt", "SSLCertificateFile. Holds the full chain unless a chain file is set (Apache 2.4.8 and later read the chain from here)."),
 			checkField("chain_path", "Chain file (optional)", "", "SSLCertificateChainFile, for Apache older than 2.4.8."),
 			checkField("key_path", "Private key file", "/etc/ssl/private/{cert}.key", "SSLCertificateKeyFile."),
+			checkField("ca_path", "CA bundle file (optional)", "", "Intermediates and root in one file, e.g. for SSLCACertificateFile."),
 			checkField("owner", "File owner", "root:root", ""),
 			checkField("reload", "Reload command", "apachectl configtest && apachectl graceful", "On Debian and Ubuntu, \"apache2ctl configtest && systemctl reload apache2\" also works."),
 			checkField("https_port", "HTTPS port to check", "443", ""),
@@ -238,6 +265,9 @@ var kinds = []*Kind{
 				p.write("Upload certificate and chain", cert, []byte(p.m.FullChainPEM), "0644", p.opt("owner"), "")
 			}
 			p.write("Upload private key", key, []byte(p.m.KeyPEM), "0600", p.opt("owner"), "")
+			if _, err := p.caBundle(p.opt("owner")); err != nil {
+				return err
+			}
 			p.run("Check configuration and reload Apache", p.opt("reload"))
 			return nil
 		},
@@ -251,6 +281,7 @@ var kinds = []*Kind{
 			checkField("cert_path", "Certificate file (pem)", "/opt/tomcat/conf/{cert}.crt", "certificateFile."),
 			checkField("key_path", "Private key file (pem)", "/opt/tomcat/conf/{cert}.key", "certificateKeyFile."),
 			checkField("chain_path", "Chain file (pem)", "/opt/tomcat/conf/{cert}-chain.crt", "certificateChainFile."),
+			checkField("ca_path", "CA bundle file (optional)", "", "Intermediates and root in one file, e.g. for a truststore or caCertificateFile. The keystore and chain file already hold the intermediates."),
 			checkField("owner", "File owner", "root:tomcat", "Tomcat's user must be able to read the files (mode 0640)."),
 			checkField("restart", "Restart command", "systemctl restart tomcat", "For example systemctl restart tomcat9 on Debian."),
 			checkField("https_port", "HTTPS port to check", "8443", ""),
@@ -270,7 +301,7 @@ var kinds = []*Kind{
 				}
 				p.write("Upload certificate", cert, []byte(p.m.LeafPEM), "0640", owner, "")
 				attrs := `certificateFile="` + cert + `" certificateKeyFile="` + key + `"`
-				if len(p.m.Chain) > 0 {
+				if p.m.ChainPEM != "" {
 					chain, err := p.path("chain_path")
 					if err != nil {
 						return err
@@ -300,6 +331,9 @@ var kinds = []*Kind{
 				p.notes = append(p.notes, "server.xml connector: <Certificate certificateKeystoreFile=\""+ks+
 					"\" certificateKeystoreType=\"PKCS12\" certificateKeystorePassword=\"(keystore_password from the vault)\" />")
 			}
+			if _, err := p.caBundle(owner); err != nil {
+				return err
+			}
 			p.run("Restart Tomcat", p.opt("restart"))
 			return nil
 		},
@@ -313,6 +347,7 @@ var kinds = []*Kind{
 			checkField("web_cert_path", "Splunk Web certificate", "{splunk_home}/etc/auth/mycerts/{cert}-web.pem", "Leaf followed by the chain. Set as serverCert in web.conf."),
 			checkField("key_path", "Splunk Web private key", "{splunk_home}/etc/auth/mycerts/{cert}.key", "Set as privKeyPath in web.conf."),
 			checkField("server_cert_path", "splunkd certificate", "{splunk_home}/etc/auth/mycerts/{cert}-server.pem", "Leaf, key and chain in one file. Set as serverCert in server.conf [sslConfig]."),
+			checkField("ca_path", "CA bundle file (optional)", "", "Intermediates and root in one file. When splunkd is included, it is also set as sslRootCAPath in server.conf [sslConfig], which changes which CAs splunkd trusts for forwarders and clustering."),
 			checkField("owner", "File owner", "splunk:splunk", ""),
 			checkField("run_as", "Run restart as", "", "Leave empty for a systemd restart as root; set to splunk to run \"splunk restart\" as that user."),
 			checkField("restart", "Restart command", "systemctl restart Splunkd", "Or {splunk_home}/bin/splunk restart with Run restart as = splunk."),
@@ -341,6 +376,10 @@ var kinds = []*Kind{
 				p.edit("Point Splunk Web at the certificate", home+"/etc/system/local/web.conf", kvDetail("settings", kvs),
 					func(old []byte) ([]byte, error) { return SetINI(old, "settings", kvs), nil })
 			}
+			ca, err := p.caBundle(owner)
+			if err != nil {
+				return err
+			}
 			if comp == "splunkd" || comp == "web+splunkd" {
 				cert, err := p.path("server_cert_path")
 				if err != nil {
@@ -348,6 +387,9 @@ var kinds = []*Kind{
 				}
 				p.write("Upload splunkd certificate (leaf, key and chain)", cert, []byte(p.m.CombinedPEM()), "0600", owner, "")
 				kvs := []KV{{"serverCert", cert}}
+				if ca != "" {
+					kvs = append(kvs, KV{"sslRootCAPath", ca})
+				}
 				p.edit("Point splunkd at the certificate", home+"/etc/system/local/server.conf", kvDetail("sslConfig", kvs),
 					func(old []byte) ([]byte, error) { return SetINI(old, "sslConfig", kvs), nil })
 				p.notes = append(p.notes, "The private key is not encrypted, so server.conf sslPassword is left as it is; Splunk ignores it for an unencrypted key.")
@@ -367,6 +409,7 @@ var kinds = []*Kind{
 			checkField("phantom_home", "SOAR install folder", "/opt/phantom", "PHANTOM_HOME."),
 			checkField("cert_path", "Certificate file (full chain)", "{phantom_home}/etc/ssl/certs/httpd_cert.crt", ""),
 			checkField("key_path", "Private key file", "{phantom_home}/etc/ssl/private/httpd_cert.key", ""),
+			checkField("ca_path", "CA bundle file (optional)", "", "Intermediates and root in one file, if something on the server needs them separately."),
 			checkField("owner", "File owner", "", "Leave empty to keep the owner of the files being replaced (the SOAR user)."),
 			checkField("run_as", "Run restart as", "", "The SOAR user (for example phantom) on unprivileged installs."),
 			checkField("restart", "Restart command", "{phantom_home}/bin/phsvc restart nginx", ""),
@@ -384,6 +427,9 @@ var kinds = []*Kind{
 			}
 			p.write("Upload certificate and chain", cert, []byte(p.m.FullChainPEM), "0644", p.opt("owner"), "")
 			p.write("Upload private key", key, []byte(p.m.KeyPEM), "0600", p.opt("owner"), "")
+			if _, err := p.caBundle(p.opt("owner")); err != nil {
+				return err
+			}
 			p.run("Restart SOAR web server", p.runAs(p.opt("restart")))
 			return nil
 		},
@@ -395,6 +441,7 @@ var kinds = []*Kind{
 			checkField("data_path", "Foundry user data folder", "/home/foundry/foundrydata", "The folder that holds Config, Data and Logs."),
 			checkField("cert_path", "Certificate file (full chain)", "{data_path}/Config/{cert}-cert.pem", ""),
 			checkField("key_path", "Private key file", "{data_path}/Config/{cert}-key.pem", ""),
+			checkField("ca_path", "CA bundle file (optional)", "", "Intermediates and root in one file, if something on the server needs them separately."),
 			checkField("owner", "File owner", "", "Leave empty to use the owner of the Config folder (the Foundry user)."),
 			checkField("run_as", "Run restart as", "", "For example foundry when Foundry runs under pm2 as that user."),
 			checkField("restart", "Restart command", "systemctl restart foundryvtt", "For example pm2 restart foundry with Run restart as set."),
@@ -419,6 +466,9 @@ var kinds = []*Kind{
 			kvs := []KV{{"sslCert", cert}, {"sslKey", key}}
 			p.edit("Turn on HTTPS in options.json", data+"/Config/options.json", kvDetail("", kvs),
 				func(old []byte) ([]byte, error) { return SetJSON(old, kvs) })
+			if _, err := p.caBundle(p.opt("owner")); err != nil {
+				return err
+			}
 			p.run("Restart Foundry VTT", p.runAs(p.opt("restart")))
 			p.notes = append(p.notes, "If Foundry sits behind a reverse proxy, deploy to the proxy (nginx or Apache) instead and leave Foundry on plain HTTP.")
 			return nil
@@ -432,6 +482,7 @@ var kinds = []*Kind{
 			checkField("cert_path", "Certificate file (full chain)", "/etc/ssl/ncc/{cert}.crt", ""),
 			checkField("key_path", "Private key file", "/etc/ssl/ncc/{cert}.key", ""),
 			checkField("combined_path", "Combined file", "/etc/ssl/ncc/{cert}.pem", "Used when the format is combined."),
+			checkField("ca_path", "CA bundle file (optional)", "", "Intermediates and root in one file, e.g. HAProxy ca-file."),
 			checkField("owner", "File owner", "", "Leave empty to keep the existing owner."),
 			checkField("run_as", "Run reload as", "", ""),
 			checkField("reload", "Reload command", "", "For example systemctl reload haproxy. Leave empty to only copy the files."),
@@ -457,6 +508,9 @@ var kinds = []*Kind{
 				p.write("Upload certificate and chain", cert, []byte(p.m.FullChainPEM), "0644", p.opt("owner"), "")
 				p.write("Upload private key", key, []byte(p.m.KeyPEM), "0600", p.opt("owner"), "")
 			}
+			if _, err := p.caBundle(p.opt("owner")); err != nil {
+				return err
+			}
 			p.run("Reload the service", p.runAs(p.opt("reload")))
 			return nil
 		},
@@ -468,6 +522,7 @@ var kinds = []*Kind{
 			checkField("site", "IIS site", "Default Web Site", ""),
 			checkField("https_port", "HTTPS binding port", "443", ""),
 			checkField("host_header", "Host name (binding)", "", "Leave empty for the site's catch-all HTTPS binding."),
+			{Key: "trust_root", Label: "Trust the root CA", Default: "false", Type: "bool", Help: "When the certificate's CA bundle includes a root, add it to Local Machine\\Trusted Root Certification Authorities."},
 			{Key: "sni", Label: "Require SNI", Default: "false", Type: "bool", Help: "Needed when several sites share the port with different host names."},
 			{Key: "auth", Label: "WinRM authentication", Default: "ntlm", Type: "select", Choices: []string{"ntlm", "basic"}, Help: "NTLM works with local and domain accounts. Basic needs Basic auth turned on in WinRM."},
 			{Key: "verify_tls", Label: "Check WinRM certificate against CAs", Default: "false", Type: "bool", Help: "Off: pin the WinRM listener's certificate on first use (right for the usual self-signed listener)."},
@@ -513,6 +568,19 @@ var kinds = []*Kind{
 					p.run("Move intermediates to the Intermediate store", "$s=New-Object Security.Cryptography.X509Certificates.X509Store('CA','LocalMachine');$s.Open('ReadWrite')\n"+
 						"foreach($t in @("+strings.Join(ts, ",")+")){$x=Get-Item ('Cert:\\LocalMachine\\My\\'+$t) -ErrorAction SilentlyContinue\n"+
 						"if($x){$s.Add($x);Remove-Item $x.PSPath;'moved '+$t}}\n$s.Close()")
+				}
+			}
+			if len(p.m.Roots) > 0 {
+				var rs []string
+				for _, c := range p.m.Roots {
+					rs = append(rs, psQuote(Thumbprint(c)))
+				}
+				if p.bool("trust_root") {
+					p.run("Add the root CA to Trusted Root Certification Authorities", "$s=New-Object Security.Cryptography.X509Certificates.X509Store('Root','LocalMachine');$s.Open('ReadWrite')\n"+
+						"foreach($t in @("+strings.Join(rs, ",")+")){$x=Get-Item ('Cert:\\LocalMachine\\My\\'+$t) -ErrorAction SilentlyContinue\n"+
+						"if($x){$s.Add($x);Remove-Item $x.PSPath;'trusted '+$t}}\n$s.Close()")
+				} else {
+					p.notes = append(p.notes, "The CA bundle's root is not added to Trusted Root Certification Authorities. Turn on \"Trust the root CA\" if this server should trust it (needed for a private CA the server itself must trust).")
 				}
 			}
 			flags := "0"

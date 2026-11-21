@@ -67,7 +67,9 @@ This first release (the MVP) covers:
 - **Vault**: a built-in encrypted vault (AES-256-GCM envelope encryption, Argon2id-derived
   master key) or **HashiCorp Vault** (KV v2, token or AppRole). All device and DNS credentials
   live there; values never reach the browser unless an admin reveals them.
-- **Certificates**: import certificates and keys (keys go into the vault) and track expiry.
+- **Certificates**: import certificates and keys (keys go into the vault) with an optional **CA bundle**
+  (intermediates and root, in any order; NCC orders them and drops ones that did not issue the certificate),
+  add or replace the CA bundle of a stored certificate later, and track expiry.
 - **Certificate deployment**: push a certificate from the vault to your servers: **nginx**, **Apache**,
   **Tomcat** (PKCS#12 keystore or PEM), **Splunk Enterprise** (Splunk Web and/or splunkd, web.conf and
   server.conf updated), **Splunk SOAR**, **Foundry VTT** (options.json updated), any **other Linux service**
@@ -207,6 +209,11 @@ certificate in **Vault & certificates** jumps here with that certificate chosen.
   Files are uploaded to a private temp file and moved into place; existing files keep their owner and a
   `.ncc-bak` copy. Splunk's default restart is `systemctl restart Splunkd` and it can take a couple of
   minutes to come back; SOAR, Foundry and the generic type can run their restart as a service user.
+- **CA bundles**: every server type gets the leaf plus intermediates (never the root, which servers should not
+  send). Set the optional **CA bundle file** on a server to also write the intermediates and root to one file
+  (for nginx `ssl_trusted_certificate`, Apache `SSLCACertificateFile`, HAProxy `ca-file`...). On Splunk with
+  splunkd included it is also set as `sslRootCAPath`. Tomcat keystores and IIS PFX files carry the whole
+  bundle; on IIS, **Trust the root CA** adds the root to Trusted Root Certification Authorities.
 - **Tomcat**: with the PKCS#12 format NCC makes a keystore password on the first deploy and keeps it in the
   vault, so `server.xml` (`certificateKeystoreFile`, `certificateKeystorePassword`) never has to change.
   The preview shows the `<Certificate>` element to use.
