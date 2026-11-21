@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,6 +50,7 @@ type client struct {
 	pin    *netutil.Pinner
 	token  string // "user@realm!tokenid=secret"
 	ticket string
+	csrf   string // CSRFPreventionToken, needed for writes with a ticket
 }
 
 // num reads a JSON number that Proxmox sometimes sends as a string.
@@ -100,6 +102,10 @@ func newClient(t hv.Target, creds map[string]string) (*client, error) {
 		if !strings.Contains(id, "!") {
 			return nil, errors.New("proxmox: the token id looks like user@realm!name, e.g. ncc@pve!monitor")
 		}
+		// accept the whole "user@realm!name=secret" pasted into the secret field
+		if i := strings.LastIndex(sec, "="); i > 0 && strings.Contains(sec[:i], "!") {
+			sec = sec[i+1:]
+		}
 		c.token = id + "=" + sec
 	} else if creds["username"] == "" || creds["password"] == "" {
 		return nil, errors.New("proxmox: give an API token (token_id and token_secret) or a username and password")
@@ -131,6 +137,7 @@ func (c *client) login(ctx context.Context, user, pass string) error {
 	var out struct {
 		Data struct {
 			Ticket  string `json:"ticket"`
+			CSRF    string `json:"CSRFPreventionToken"`
 			NeedTFA num    `json:"NeedTFA"`
 		} `json:"data"`
 	}
@@ -144,38 +151,76 @@ func (c *client) login(ctx context.Context, user, pass string) error {
 		return fmt.Errorf("%w: no ticket returned", ErrUnauthorized)
 	}
 	c.ticket = out.Data.Ticket
+	c.csrf = out.Data.CSRF
 	return nil
 }
 
 func (c *client) get(ctx context.Context, path string, out any) error {
-	r, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	return c.do(ctx, http.MethodGet, path, nil, out)
+}
+
+// do sends a request; form, when set, is sent as the body (POST/PUT) or query (DELETE).
+func (c *client) do(ctx context.Context, method, path string, form url.Values, out any) error {
+	var body io.Reader
+	target := c.base + path
+	if form != nil {
+		if method == http.MethodDelete {
+			target += "?" + form.Encode()
+		} else {
+			body = strings.NewReader(form.Encode())
+		}
+	}
+	r, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
 		return err
 	}
 	r.Header.Set("Accept", "application/json")
+	if body != nil {
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
 	if c.token != "" {
 		r.Header.Set("Authorization", "PVEAPIToken="+c.token)
 	} else if c.ticket != "" {
 		r.AddCookie(&http.Cookie{Name: "PVEAuthCookie", Value: c.ticket})
+		if method != http.MethodGet {
+			r.Header.Set("CSRFPreventionToken", c.csrf)
+		}
 	}
 	resp, err := c.http.Do(r)
 	if err != nil {
 		return fmt.Errorf("proxmox: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if resp.StatusCode == 401 {
+		if c.token != "" {
+			return fmt.Errorf("%w (HTTP 401 on %s): Proxmox did not recognise the token. Check the token id is the full user@realm!name and the secret is the value printed when the token was made", ErrUnauthorized, path)
+		}
 		return fmt.Errorf("%w (HTTP 401 on %s)", ErrUnauthorized, path)
 	}
 	if resp.StatusCode != 200 {
 		// Proxmox puts the reason in the status line, e.g. "500 QEMU guest agent is not running"
 		msg := strings.TrimSpace(strings.TrimPrefix(resp.Status, strconv.Itoa(resp.StatusCode)))
+		// parameter errors come in the body: {"errors":{"memory":"value must be at least 16"}}
+		var perr struct {
+			Errors map[string]string `json:"errors"`
+		}
+		if json.Unmarshal(raw, &perr) == nil && len(perr.Errors) > 0 {
+			keys := make([]string, 0, len(perr.Errors))
+			for k := range perr.Errors {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				msg += "; " + k + ": " + strings.TrimSpace(perr.Errors[k])
+			}
+		}
 		return &httpError{path: path, code: resp.StatusCode, msg: msg}
 	}
 	var env struct {
 		Data json.RawMessage `json:"data"`
 	}
-	if err := json.Unmarshal(body, &env); err != nil {
+	if err := json.Unmarshal(raw, &env); err != nil {
 		return fmt.Errorf("proxmox: %s: %w", path, err)
 	}
 	if out == nil {
@@ -341,8 +386,8 @@ func (c *client) details(ctx context.Context, inv *hv.Inventory, rs []resource, 
 			}
 			vm.OS = osName(r.Type, cfg.OSType)
 			vm.Notes = strings.TrimSpace(cfg.Description)
-			if len(vm.Notes) > 500 {
-				vm.Notes = vm.Notes[:500] + "…"
+			if len(vm.Notes) > 8192 {
+				vm.Notes = vm.Notes[:8192]
 			}
 			agent := r.Type == "qemu" && agentEnabled(cfg.Agent)
 			if r.Type == "qemu" {

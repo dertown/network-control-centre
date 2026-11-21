@@ -444,3 +444,14 @@ table.compact td { padding-top: 7px; padding-bottom: 7px; }
 .kind-chip.k-lxc { background: color-mix(in srgb, var(--c2) 14%, transparent); color: var(--c2); }
 .kind-chip.k-qemu, .kind-chip.k-vm { background: color-mix(in srgb, var(--c3) 14%, transparent); color: var(--c3); }
 .card-head + p.lede { margin: 0 0 18px; line-height: 1.5; }
+.vm-actions { margin-bottom: 14px; }
+.vm-actions .row { margin-bottom: 0; }
+.vm-actions .grow { display: block; flex: 1; }
+.vm-quick { width: 44px; text-align: right; }
+.iconbtn.start { color: var(--good); }
+button.danger-outline { color: var(--bad); }
+button.danger-outline:hover { border-color: var(--bad); }
+button.danger-solid { background: var(--bad); border-color: var(--bad); color: #fff; }
+button.danger-solid:disabled { opacity: 0.5; cursor: not-allowed; }
+button:disabled { cursor: not-allowed; opacity: 0.6; }
+.subcard.danger-zone { border-color: color-mix(in srgb, var(--bad) 50%, transparent); background: var(--bad-bg); }

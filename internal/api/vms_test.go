@@ -74,6 +74,44 @@ func TestVirtualMachines(t *testing.T) {
 	if len(ts) != 1 || ts[0].Options["tls_fingerprint"] == "" {
 		t.Fatalf("targets: %+v", ts)
 	}
+	// power, settings and delete
+	if code := c.do("POST", "/api/vms/power", map[string]string{"id": "pve/qemu/103", "action": "explode"}, nil); code != 400 {
+		t.Fatalf("bad action: %d", code)
+	}
+	if code := c.do("POST", "/api/vms/power", map[string]string{"id": "nope/qemu/1", "action": "start"}, nil); code != 404 {
+		t.Fatalf("unknown connection: %d", code)
+	}
+	if code := c.do("POST", "/api/vms/power", map[string]string{"id": "pve/qemu/103", "action": "start"}, nil); code != 200 {
+		t.Fatalf("start: %d", code)
+	}
+	if code := c.do("POST", "/api/vms/settings", map[string]any{"id": "pve/qemu/103", "cpus": 6, "memory_mb": 4096}, nil); code != 200 {
+		t.Fatalf("settings: %d", code)
+	}
+	if code := c.do("POST", "/api/vms/settings", map[string]any{"id": "pve/qemu/103", "cpus": 0}, nil); code != 400 {
+		t.Fatalf("0 vCPUs accepted: %d", code)
+	}
+	if code := c.do("POST", "/api/vms/delete", map[string]string{"id": "pve/qemu/103", "confirm": "wrong"}, nil); code != 400 {
+		t.Fatalf("delete without the right name: %d", code)
+	}
+	if code := c.do("POST", "/api/vms/delete", map[string]string{"id": "pve/qemu/103", "confirm": "plex"}, nil); code != 502 {
+		t.Fatalf("deleted a running VM: %d", code)
+	}
+	c.do("POST", "/api/vms/power", map[string]string{"id": "pve/qemu/103", "action": "stop"}, nil)
+	if code := c.do("POST", "/api/vms/delete", map[string]string{"id": "pve/qemu/103", "confirm": "plex"}, nil); code != 200 {
+		t.Fatalf("delete: %d", code)
+	}
+	var log []struct {
+		Action string `json:"action"`
+	}
+	c.do("GET", "/api/audit", nil, &log)
+	seen := map[string]int{}
+	for _, e := range log {
+		seen[e.Action]++
+	}
+	if seen["vm.power"] < 2 || seen["vm.settings"] < 1 || seen["vm.delete"] < 1 {
+		t.Fatalf("audit: %v", seen)
+	}
+
 	// removing the connection removes its VMs
 	c.do("DELETE", "/api/targets/"+itoa(tgt.ID), nil, nil)
 	out.VMs = nil

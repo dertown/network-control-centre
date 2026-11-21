@@ -29,6 +29,9 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
   const [adding, setAdding] = useState<Kind | null>(null);
   const [busy, setBusy] = useState(false);
   const isAdmin = user.role === "admin";
+  const canPower = user.role !== "viewer";
+  const [pending, setPending] = useState<Record<string, string>>({});
+  const [note, setNote] = useState<{ id: string; ok: boolean; text: string } | null>(null);
 
   const refetch = () => api<VMView>("GET", "/api/vms").then((v) => { setView(v); setErr(""); }).catch((e) => setErr(e.message));
   useEffect(() => { refetch(); }, [tick]);
@@ -41,6 +44,25 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
       api("POST", `/api/targets/${s.id}/poll`).catch((e) => fails.push(`${s.name}: ${(e as Error).message}`))));
     setErr(fails.join(" · "));
     setBusy(false);
+    refetch();
+  };
+
+  const power = async (v: VM, action: Action) => {
+    const ask: Partial<Record<Action, string>> = {
+      shutdown: `Shut down ${v.name}? The guest OS is asked to shut down cleanly.`,
+      stop: `Power off ${v.name} now? This is like pulling the plug: unsaved work in the machine is lost.`,
+      reboot: `Restart ${v.name}?`,
+    };
+    if (ask[action] && !window.confirm(ask[action])) return;
+    setPending((p) => ({ ...p, [v.id]: actionLabel[action].busy }));
+    try {
+      await api("POST", "/api/vms/power", { id: v.id, action });
+      setNote({ id: v.id, ok: true, text: actionLabel[action].done(v.name) });
+    } catch (e) {
+      setNote({ id: v.id, ok: false, text: `${v.name}: ${(e as Error).message}` });
+      setOpen(v.id);
+    }
+    setPending((p) => { const n = { ...p }; delete n[v.id]; return n; });
     refetch();
   };
 
@@ -162,7 +184,7 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
       <div className="card flush">
         <table className="vmtable">
           <thead>
-            <tr><th>Name</th><th>State</th><th>Host</th><th>CPU</th><th>Memory</th><th>Disk</th><th>IP addresses</th><th className="num">Uptime</th></tr>
+            <tr><th>Name</th><th>State</th><th>Host</th><th>CPU</th><th>Memory</th><th>Disk</th><th>IP addresses</th><th className="num">Uptime</th>{canPower && <th />}</tr>
           </thead>
           <tbody>
             {shown.map((v) => (
@@ -188,10 +210,26 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
                     {(v.ips?.length ?? 0) > 2 && <div className="muted">+{v.ips!.length - 2} more</div>}
                     {!v.ips?.length && v.state === "running" && <span className="muted" title={v.guest_tools}>—</span>}</td>
                   <td className="num">{v.state === "running" ? uptime(v.uptime_s) : ""}</td>
+                  {canPower && (
+                    <td className="vm-quick" onClick={(e) => e.stopPropagation()}>
+                      {!v.template && (pending[v.id] ? <span className="muted small">{pending[v.id]}…</span> : v.state === "running" ? (
+                        <button className="iconbtn" title="Shut down" aria-label={`Shut down ${v.name}`} onClick={() => power(v, "shutdown")}><Icon name="power" size={16} /></button>
+                      ) : (
+                        <button className="iconbtn start" title="Start" aria-label={`Start ${v.name}`} onClick={() => power(v, "start")}><Icon name="play" size={16} /></button>
+                      ))}
+                    </td>
+                  )}
                 </tr>
                 {open === v.id && (
                   <tr className="detail">
-                    <td colSpan={8}>
+                    <td colSpan={canPower ? 9 : 8}>
+                      {(canPower || isAdmin) && !v.template && (
+                        <VMActions vm={v} isAdmin={isAdmin} pending={pending[v.id]} power={power} onDone={(msg) => { setNote({ id: v.id, ok: true, text: msg }); refetch(); }}
+                          onError={(text) => setNote({ id: v.id, ok: false, text })} />
+                      )}
+                      {isAdmin && v.template && <VMActions vm={v} isAdmin={isAdmin} templateOnly power={power} onDone={(msg) => { setNote({ id: v.id, ok: true, text: msg }); refetch(); }}
+                        onError={(text) => setNote({ id: v.id, ok: false, text })} />}
+                      {note?.id === v.id && <div className={note.ok ? "ok block" : "error block"}>{note.text}</div>}
                       <dl className="kv">
                         <dt>Platform</dt><dd>{platformLabel[v.platform]} · {v.target}</dd>
                         <dt>ID</dt><dd className="mono">{v.id.slice(v.target.length + 1)}</dd>
@@ -206,7 +244,7 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
                 )}
               </Fragment>
             ))}
-            {shown.length === 0 && <tr><td colSpan={8} className="muted">{vms.length ? "No machines match the filters." : "No virtual machines read yet."}</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={canPower ? 9 : 8} className="muted">{vms.length ? "No machines match the filters." : "No virtual machines read yet."}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -228,6 +266,115 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
         </section>
       )}
     </>
+  );
+}
+
+type Action = "start" | "shutdown" | "stop" | "reboot";
+
+const actionLabel: Record<Action, { label: string; busy: string; icon: IconName; done: (n: string) => string }> = {
+  start: { label: "Start", busy: "Starting", icon: "play", done: (n) => `${n} is starting.` },
+  shutdown: { label: "Shut down", busy: "Shutting down", icon: "power", done: (n) => `${n} was asked to shut down. It may take a minute.` },
+  reboot: { label: "Restart", busy: "Restarting", icon: "restart", done: (n) => `${n} is restarting.` },
+  stop: { label: "Power off", busy: "Powering off", icon: "power", done: (n) => `${n} was powered off.` },
+};
+
+function VMActions({ vm, isAdmin, pending, power, onDone, onError, templateOnly }: {
+  vm: VM; isAdmin: boolean; pending?: string; power: (v: VM, a: Action) => void; onDone: (msg: string) => void; onError: (msg: string) => void; templateOnly?: boolean;
+}) {
+  const [mode, setMode] = useState<"" | "edit" | "delete">("");
+  const [f, setF] = useState({ name: vm.name, cpus: String(vm.cpus), memory: String(Math.round(vm.mem_bytes / 1048576)), notes: vm.notes ?? "" });
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const running = vm.state === "running";
+  const actions: Action[] = running ? ["shutdown", "reboot", "stop"] : vm.state === "suspended" ? ["start", "stop"] : ["start"];
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const body: Record<string, unknown> = { id: vm.id };
+    if (f.name.trim() !== vm.name) body.name = f.name.trim();
+    if (Number(f.cpus) !== vm.cpus) body.cpus = Number(f.cpus);
+    if (Number(f.memory) !== Math.round(vm.mem_bytes / 1048576)) body.memory_mb = Number(f.memory);
+    if (f.notes !== (vm.notes ?? "")) body.notes = f.notes;
+    if (Object.keys(body).length === 1) { setMode(""); return; }
+    setBusy(true);
+    try {
+      await api("POST", "/api/vms/settings", body);
+      setMode("");
+      onDone(running && (body.cpus || body.memory_mb)
+        ? `Saved. On a running machine, CPU and memory changes may only take effect after the next restart.`
+        : "Saved.");
+    } catch (e) {
+      onError((e as Error).message);
+    }
+    setBusy(false);
+  };
+
+  const del = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api("POST", "/api/vms/delete", { id: vm.id, confirm });
+      onDone(`${vm.name} was deleted.`);
+    } catch (e) {
+      onError((e as Error).message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="vm-actions">
+      <div className="row" style={{ alignItems: "center" }}>
+        {!templateOnly && actions.map((a) => (
+          <button key={a} disabled={!!pending} className={a === "stop" ? "danger-outline" : ""} onClick={() => power(vm, a)}>
+            <Icon name={actionLabel[a].icon} size={15} />{actionLabel[a].label}
+          </button>
+        ))}
+        {pending && <span className="muted small">{pending}…</span>}
+        {isAdmin && (
+          <>
+            <span className="grow" />
+            <button onClick={() => setMode(mode === "edit" ? "" : "edit")} aria-expanded={mode === "edit"}><Icon name="edit" size={15} />Edit settings</button>
+            <button className="danger-outline" onClick={() => setMode(mode === "delete" ? "" : "delete")} aria-expanded={mode === "delete"}><Icon name="trash" size={15} />Delete</button>
+          </>
+        )}
+      </div>
+      {mode === "edit" && (
+        <form className="subcard" onSubmit={save}>
+          <div className="row">
+            <label>Name<input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required maxLength={80} /></label>
+            <label>vCPUs<input type="number" min={1} max={512} value={f.cpus} onChange={(e) => setF({ ...f, cpus: e.target.value })} required /></label>
+            <label>Memory (MB)<input type="number" min={16} step={1} value={f.memory} onChange={(e) => setF({ ...f, memory: e.target.value })} required /></label>
+          </div>
+          <label>Notes<textarea rows={3} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} maxLength={8192} /></label>
+          {running && <p className="muted small">This machine is running. {vm.platform === "vmware"
+            ? "VMware only changes CPU or memory on a running machine when hot-add is turned on; otherwise shut it down first."
+            : "Proxmox applies CPU and memory changes at the next restart unless hotplug is enabled for them."}</p>}
+          <div className="row">
+            <button className="primary" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button>
+            <button type="button" onClick={() => setMode("")}>Cancel</button>
+          </div>
+        </form>
+      )}
+      {mode === "delete" && (
+        <form className="subcard danger-zone" onSubmit={del}>
+          {vm.state !== "stopped" ? (
+            <p className="small" style={{ margin: 0 }}>Shut down or power off <strong>{vm.name}</strong> before deleting it.</p>
+          ) : (
+            <>
+              <p className="small" style={{ marginTop: 0 }}>
+                This permanently deletes <strong>{vm.name}</strong> and its disks from {vm.host}. It can't be undone from NCC.
+                Type the machine's name to confirm.
+              </p>
+              <div className="row">
+                <label>Machine name<input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={vm.name} autoComplete="off" /></label>
+                <button className="danger-solid" disabled={busy || confirm !== vm.name}>{busy ? "Deleting…" : "Delete permanently"}</button>
+                <button type="button" onClick={() => setMode("")}>Cancel</button>
+              </div>
+            </>
+          )}
+        </form>
+      )}
+    </div>
   );
 }
 

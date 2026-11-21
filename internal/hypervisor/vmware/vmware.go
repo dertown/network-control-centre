@@ -55,8 +55,29 @@ func sdkURL(addr string) (*url.URL, error) {
 	return u, nil
 }
 
-// Collect implements hypervisor.Provider.
-func (Provider) Collect(ctx context.Context, t hv.Target, creds map[string]string) (*hv.Result, error) {
+// conn is a logged-in connection. Close logs out.
+type conn struct {
+	vc     *vim25.Client
+	sm     *session.Manager
+	pin    *netutil.Pinner
+	pinned bool // a fingerprint was already pinned or verification is on
+}
+
+func (c *conn) Close() {
+	lctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = c.sm.Logout(lctx)
+}
+
+// newPin returns the fingerprint to save after a trust-on-first-use connection.
+func (c *conn) newPin() map[string]string {
+	if c == nil || c.pinned || c.pin.Seen() == "" {
+		return nil
+	}
+	return map[string]string{OptFingerprint: c.pin.Seen()}
+}
+
+func connect(ctx context.Context, t hv.Target, creds map[string]string) (*conn, error) {
 	u, err := sdkURL(t.Address)
 	if err != nil {
 		return nil, err
@@ -71,31 +92,33 @@ func (Provider) Collect(ctx context.Context, t hv.Target, creds map[string]strin
 	cfg, pin := netutil.TLSConfig(mode, t.Options[OptFingerprint])
 	sc := soap.NewClient(u, false)
 	sc.DefaultTransport().TLSClientConfig = cfg
-	sc.Timeout = 30 * time.Second
-
-	res := &hv.Result{}
-	defer func() {
-		if mode == "pin" && t.Options[OptFingerprint] == "" && pin.Seen() != "" {
-			res.OptionUpdates = map[string]string{OptFingerprint: pin.Seen()}
-		}
-	}()
+	sc.Timeout = 60 * time.Second
+	c := &conn{pin: pin, pinned: mode != "pin" || t.Options[OptFingerprint] != ""}
 
 	vc, err := vim25.NewClient(ctx, sc)
 	if err != nil {
-		return res, fmt.Errorf("vmware: %w", err)
+		return c, fmt.Errorf("vmware: %w", err)
 	}
-	sm := session.NewManager(vc)
-	if err := sm.Login(ctx, url.UserPassword(creds["username"], creds["password"])); err != nil {
+	c.vc = vc
+	c.sm = session.NewManager(vc)
+	if err := c.sm.Login(ctx, url.UserPassword(creds["username"], creds["password"])); err != nil {
 		if invalidLogin(err) {
-			return res, fmt.Errorf("%w: the username or password was refused (vCenter users look like ncc@vsphere.local)", ErrUnauthorized)
+			return c, fmt.Errorf("%w: the username or password was refused (vCenter users look like ncc@vsphere.local)", ErrUnauthorized)
 		}
-		return res, fmt.Errorf("vmware: login: %w", err)
+		return c, fmt.Errorf("vmware: login: %w", err)
 	}
-	defer func() {
-		lctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = sm.Logout(lctx)
-	}()
+	return c, nil
+}
+
+// Collect implements hypervisor.Provider.
+func (Provider) Collect(ctx context.Context, t hv.Target, creds map[string]string) (*hv.Result, error) {
+	c, err := connect(ctx, t, creds)
+	res := &hv.Result{OptionUpdates: c.newPin()}
+	if err != nil {
+		return res, err
+	}
+	defer c.Close()
+	vc := c.vc
 
 	about := vc.ServiceContent.About
 	inv := &hv.Inventory{Target: t.Name, Platform: "vmware", TakenAt: time.Now().UTC(), Version: about.FullName}
@@ -141,7 +164,7 @@ func (Provider) Collect(ctx context.Context, t hv.Target, creds map[string]strin
 	}
 	defer func() { _ = vmView.Destroy(context.Background()) }()
 	var vms []mo.VirtualMachine
-	if err := vmView.Retrieve(ctx, []string{"VirtualMachine"}, []string{"summary", "guest.net"}, &vms); err != nil {
+	if err := vmView.Retrieve(ctx, []string{"VirtualMachine"}, []string{"summary", "guest.net", "config.annotation"}, &vms); err != nil {
 		return res, fmt.Errorf("vmware: read virtual machines: %w", err)
 	}
 	for _, v := range vms {
@@ -203,8 +226,11 @@ func convert(target string, v mo.VirtualMachine, hostName map[string]string, hos
 	if len(out.IPs) == 0 && s.Guest != nil && s.Guest.IpAddress != "" {
 		out.IPs = appendIP(out.IPs, s.Guest.IpAddress)
 	}
-	if len(out.Notes) > 500 {
-		out.Notes = out.Notes[:500] + "…"
+	if v.Config != nil {
+		out.Notes = strings.TrimSpace(v.Config.Annotation)
+	}
+	if len(out.Notes) > 8192 {
+		out.Notes = out.Notes[:8192]
 	}
 	return out
 }

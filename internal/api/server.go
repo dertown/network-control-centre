@@ -106,6 +106,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/loops", v(s.loops))
 	mux.Handle("GET /api/traffic", v(s.traffic))
 	mux.Handle("GET /api/vms", v(s.listVMs))
+	mux.Handle("POST /api/vms/power", o(s.vmPower))
+	mux.Handle("POST /api/vms/settings", a(s.vmSettings))
+	mux.Handle("POST /api/vms/delete", a(s.vmDelete))
 
 	mux.Handle("GET /api/dns/{server}/zones", v(s.dnsZones))
 	mux.Handle("GET /api/dns/{server}/zones/{zone}/records", v(s.dnsRecords))
