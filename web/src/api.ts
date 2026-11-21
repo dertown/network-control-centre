@@ -43,7 +43,7 @@ export interface Client {
   parent_port?: string; network?: string; vlan?: number; network_id?: string; ssid?: string;
 }
 export interface Target {
-  id: number; kind: string; category: "device" | "dns"; name: string; address: string;
+  id: number; kind: string; category: "device" | "dns" | "hypervisor"; name: string; address: string;
   options: Record<string, string>; secret_path: string; enabled: boolean; last_poll?: string; last_error: string;
 }
 export interface NodePort { name: string; up: boolean; uplink?: boolean; profile?: string; native?: string; tagged?: string[] }
@@ -87,3 +87,18 @@ export interface TrafficView {
   window: string; taken_at?: string; dpi: boolean; dpi_notes?: string[]; dpi_sources?: string[]; categories: AppUsage[];
   clients: TrafficClient[]; sites: SiteCount[]; unmatched_sources?: string[]; dns_log: DNSLogStatus;
 }
+export interface VM {
+  id: string; name: string; type: "qemu" | "lxc" | "vm"; state: "running" | "stopped" | "suspended" | "unknown"; host: string;
+  template?: boolean; cpus: number; cpu_usage: number; mem_bytes: number; mem_used: number; disk_bytes: number; disk_used: number;
+  ips?: string[]; os?: string; uptime_s: number; tags?: string[]; notes?: string; guest_tools?: string; target: string;
+  platform: "proxmox" | "vmware";
+}
+export interface VMHost {
+  name: string; online: boolean; cpus: number; cpu_usage: number; mem_bytes: number; mem_used: number; uptime_s: number;
+  version?: string; model?: string; target: string; platform: "proxmox" | "vmware";
+}
+export interface VMSource {
+  id: number; name: string; kind: "proxmox" | "vmware"; address: string; enabled: boolean; version?: string; taken_at?: string;
+  last_error?: string; warnings?: string[];
+}
+export interface VMView { sources: VMSource[]; hosts: VMHost[]; vms: VM[] }

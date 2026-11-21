@@ -115,7 +115,8 @@ func (p *Poller) PollAll(ctx context.Context) {
 }
 
 // PollOne collects one device target now and stores the snapshot, or checks
-// one DNS target. A DNS check returns a nil snapshot.
+// one DNS target, or reads the virtual machines of one hypervisor. DNS checks and
+// hypervisors return a nil snapshot.
 func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, error) {
 	p.mu.Lock()
 	if p.running == nil {
@@ -144,6 +145,18 @@ func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, er
 				ev["error"] = err.Error()
 			}
 			p.Hub.Publish(kind, ev)
+		}
+		return nil, err
+	}
+	if t.Category == CategoryHypervisor {
+		inv, err := p.collectVMs(ctx, t)
+		_ = p.Targets.RecordPoll(ctx, t.ID, err)
+		if p.Hub != nil {
+			if err != nil {
+				p.Hub.Publish("poll_error", map[string]any{"target": t.Name, "error": err.Error()})
+			} else {
+				p.Hub.Publish("vms", map[string]any{"target": t.Name, "vms": len(inv.VMs), "hosts": len(inv.Hosts)})
+			}
 		}
 		return nil, err
 	}

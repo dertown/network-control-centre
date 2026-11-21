@@ -13,6 +13,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/core"
 	"github.com/dertown/network-control-centre/internal/dns"
 	"github.com/dertown/network-control-centre/internal/drivers"
+	"github.com/dertown/network-control-centre/internal/hypervisor"
 	"github.com/dertown/network-control-centre/internal/inventory"
 	"github.com/dertown/network-control-centre/internal/vault"
 )
@@ -22,7 +23,7 @@ func (s *Server) bg() context.Context {
 }
 
 func (s *Server) listDrivers(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string][]string{"device": drivers.Kinds(), "dns": dns.Kinds()})
+	writeJSON(w, 200, map[string][]string{"device": drivers.Kinds(), "dns": dns.Kinds(), "hypervisor": hypervisor.Kinds()})
 }
 
 // ---- targets ----
@@ -62,8 +63,13 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, err.Error())
 			return
 		}
+	case core.CategoryHypervisor:
+		if _, err := hypervisor.Get(in.Kind); err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
 	default:
-		writeErr(w, 400, "category must be device or dns")
+		writeErr(w, 400, "category must be device, dns or hypervisor")
 		return
 	}
 	if !strings.HasPrefix(in.Address, "https://") && !strings.HasPrefix(in.Address, "http://") {
@@ -190,7 +196,7 @@ func (s *Server) pollTarget(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	if snap == nil { // DNS server check
+	if snap == nil { // DNS server check or hypervisor
 		writeJSON(w, 200, map[string]any{"ok": true})
 		return
 	}

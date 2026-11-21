@@ -15,6 +15,8 @@ import (
 const (
 	CategoryDevice = "device"
 	CategoryDNS    = "dns"
+	// CategoryHypervisor is a Proxmox VE or VMware vCenter/ESXi connection.
+	CategoryHypervisor = "hypervisor"
 )
 
 // Target is a stored controller, device or DNS server.
@@ -68,7 +70,7 @@ func (r *Targets) Create(ctx context.Context, t *Target) error {
 	if !nameRe.MatchString(t.Name) {
 		return errors.New("name may use letters, digits, dot, dash and underscore (max 63)")
 	}
-	if t.Category != CategoryDevice && t.Category != CategoryDNS {
+	if t.Category != CategoryDevice && t.Category != CategoryDNS && t.Category != CategoryHypervisor {
 		return fmt.Errorf("unknown category %q", t.Category)
 	}
 	if t.Options == nil {

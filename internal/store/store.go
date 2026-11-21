@@ -106,6 +106,12 @@ var migrations = []string{
 		PRIMARY KEY (client_ip, site, hour)
 	)`,
 	`CREATE INDEX IF NOT EXISTS dns_queries_hour ON dns_queries(hour)`,
+	// vm_inventory holds the latest virtual machine list from each Proxmox or VMware connection.
+	`CREATE TABLE IF NOT EXISTS vm_inventory (
+		target_id INTEGER PRIMARY KEY REFERENCES targets(id) ON DELETE CASCADE,
+		taken_at TIMESTAMP NOT NULL,
+		data TEXT NOT NULL
+	)`,
 }
 
 // Open opens (and migrates) the database in dataDir.
