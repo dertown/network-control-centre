@@ -19,6 +19,7 @@ type uState struct {
 	devices  []map[string]any
 	clients  []map[string]any
 	users    map[string]map[string]any // by MAC
+	down     map[string]bool           // switch ports switched off, "mac#port"
 	nextID   int
 	// Writes records every change request, for tests: "METHOD path body".
 	writes []string
@@ -35,7 +36,7 @@ func dataOf(b []byte) []map[string]any {
 }
 
 func newUState(devices []byte) *uState {
-	s := &uState{networks: dataOf(RestNetworkConf), devices: dataOf(devices), clients: dataOf(StatSta), users: map[string]map[string]any{}}
+	s := &uState{networks: dataOf(RestNetworkConf), devices: dataOf(devices), clients: dataOf(StatSta), users: map[string]map[string]any{}, down: map[string]bool{}}
 	for _, d := range s.devices {
 		if str(d["_id"]) == "" {
 			d["_id"] = "dev_" + strings.ReplaceAll(strings.ToLower(str(d["mac"])), ":", "")
@@ -85,7 +86,8 @@ func (s *uState) network(id string) map[string]any {
 	return nil
 }
 
-// readdress gives a client an address in its new network, keeping the last number.
+// readdress puts a client in a network. Like a real device, it keeps its old address until
+// it reconnects (renew).
 func (s *uState) readdress(c map[string]any, netID string) {
 	n := s.network(netID)
 	if n == nil {
@@ -96,6 +98,19 @@ func (s *uState) readdress(c map[string]any, netID string) {
 		c["vlan"] = v
 	} else {
 		delete(c, "vlan")
+	}
+}
+
+// renew is a client asking DHCP again: it gets its fixed IP, or an address in its network
+// keeping the last number.
+func (s *uState) renew(c map[string]any) {
+	n := s.network(str(c["network_id"]))
+	if n == nil {
+		return
+	}
+	if u, ok := s.users[strings.ToLower(str(c["mac"]))]; ok && u["use_fixedip"] == true && str(u["network_id"]) == str(c["network_id"]) {
+		c["ip"] = u["fixed_ip"]
+		return
 	}
 	p, err := netip.ParsePrefix(str(n["ip_subnet"]))
 	old, err2 := netip.ParseAddr(str(c["ip"]))
@@ -159,14 +174,20 @@ func (s *uState) updateDevice(w http.ResponseWriter, r *http.Request) {
 	for i, o := range in.PortOverrides {
 		list[i] = o
 		idx, _ := o["port_idx"].(float64)
-		native := str(o["native_networkconf_id"])
-		if native == "" || s.network(native) == nil {
+		key := fmt.Sprintf("%s#%d", strings.ToLower(str(dev["mac"])), int(idx))
+		if str(o["forward"]) == "disabled" {
+			s.down[key] = true
 			continue
 		}
-		for _, c := range s.clients {
-			sw, _ := c["sw_port"].(float64)
-			if strings.EqualFold(str(c["sw_mac"]), str(dev["mac"])) && sw == idx && c["is_wired"] == true {
+		wasDown := s.down[key]
+		delete(s.down, key)
+		native := str(o["native_networkconf_id"])
+		for _, c := range s.portClients(str(dev["mac"]), int(idx)) {
+			if native != "" && s.network(native) != nil {
 				s.readdress(c, native)
+			}
+			if wasDown { // the link came back: the device asks for an address again
+				s.renew(c)
 			}
 		}
 	}
@@ -236,11 +257,37 @@ func (s *uState) updateUser(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(envelope([]any{u}))
 }
 
+func (s *uState) portClients(swMAC string, idx int) []map[string]any {
+	var out []map[string]any
+	for _, c := range s.clients {
+		sw, _ := c["sw_port"].(float64)
+		if strings.EqualFold(str(c["sw_mac"]), swMAC) && int(sw) == idx && c["is_wired"] == true {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func (s *uState) command(w http.ResponseWriter, r *http.Request) {
 	raw, _ := readAll(r)
+	var in map[string]any
+	_ = json.Unmarshal(raw, &in)
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.writes = append(s.writes, "POST cmd/"+r.PathValue("mgr")+" "+string(raw))
-	s.mu.Unlock()
+	switch str(in["cmd"]) {
+	case "kick-sta": // the client rejoins and asks for an address
+		for _, c := range s.clients {
+			if strings.EqualFold(str(c["mac"]), str(in["mac"])) {
+				s.renew(c)
+			}
+		}
+	case "power-cycle":
+		idx, _ := in["port_idx"].(float64)
+		for _, c := range s.portClients(str(in["mac"]), int(idx)) {
+			s.renew(c)
+		}
+	}
 	_, _ = w.Write(envelope([]any{}))
 }
 
@@ -254,4 +301,15 @@ func (s *uState) Writes() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.writes...)
+}
+
+// allUsers is rest/user: every client's saved record.
+func (s *uState) allUsers() []map[string]any {
+	var out []map[string]any
+	for _, c := range s.clients {
+		if u := s.user(str(c["mac"])); u != nil {
+			out = append(out, u)
+		}
+	}
+	return out
 }

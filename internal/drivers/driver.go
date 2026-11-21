@@ -121,7 +121,10 @@ type MoveResult struct {
 type NetworkWriter interface {
 	// CreateNetwork adds a VLAN network and returns its id.
 	CreateNetwork(ctx context.Context, t Target, creds vault.Secret, spec NetworkSpec) (string, error)
-	// MoveClients puts clients in the network with id networkID. With reconnect, wireless
-	// clients are disconnected so they rejoin straight away and get an address in the new network.
+	// MoveClients puts clients in the network with id networkID. With reconnect, clients are
+	// made to ask for a new address straight away (see Reconnect).
 	MoveClients(ctx context.Context, t Target, creds vault.Secret, networkID string, moves []ClientMove, reconnect bool) ([]MoveResult, error)
+	// Reconnect makes clients ask for a new address: Wi-Fi clients rejoin, a wired client's
+	// switch port is power-cycled (PoE) or switched off briefly.
+	Reconnect(ctx context.Context, t Target, creds vault.Secret, moves []ClientMove) ([]MoveResult, error)
 }

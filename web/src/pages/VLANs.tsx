@@ -38,6 +38,7 @@ export function VLANs({ tick, user }: { tick: number; user: User }) {
   const [dragging, setDragging] = useState(false);
   const [move, setMove] = useState<{ network: Network; macs: string[] } | null>(null);
   const [creating, setCreating] = useState(false);
+  const [renew, setRenew] = useState<NetClient[] | null>(null);
   const [flash, setFlash] = useState("");
   const isAdmin = user.role === "admin";
 
@@ -106,6 +107,7 @@ export function VLANs({ tick, user }: { tick: number; user: User }) {
   };
 
   const unknown = columns.get(UNKNOWN) ?? [];
+  const stale = t.clients.filter((c) => c.stale);
 
   return (
     <>
@@ -127,6 +129,13 @@ export function VLANs({ tick, user }: { tick: number; user: User }) {
       {err && <div className="error block">{err}</div>}
       {t.last_error && <div className="banner bad" role="alert"><Icon name="alert" size={16} /><strong>{t.name}</strong><span>{t.last_error}</span></div>}
       {flash && <div className="banner good" role="status"><Icon name="check" size={16} /><span>{flash}</span><button className="link" onClick={() => setFlash("")}>Dismiss</button></div>}
+      {stale.length > 0 && (
+        <div className="banner warn" role="status">
+          <Icon name="alert" size={16} />
+          <span><strong>{stale.length} device{stale.length === 1 ? " still has an address" : "s still have addresses"}</strong> from {stale.length === 1 ? "its" : "their"} old network: {stale.slice(0, 6).map((c) => c.name).join(", ")}{stale.length > 6 ? "…" : ""}.</span>
+          {isAdmin && t.writable && <button onClick={() => setRenew(stale)}>Reconnect {stale.length === 1 ? "it" : "them"}</button>}
+        </div>
+      )}
       {!t.writable && <div className="banner warn"><Icon name="alert" size={16} /><span>NCC cannot change networks on {t.kind} connections yet. You can still see them here.</span></div>}
 
       <div className="toolbar">
@@ -198,14 +207,16 @@ export function VLANs({ tick, user }: { tick: number; user: User }) {
       <section className="card vlan-howto">
         <h2><Icon name="vlan" size={16} /> How clients are moved</h2>
         <ul className="small">
-          <li><strong>Wi-Fi clients</strong> keep their Wi-Fi name and password. The router puts just that device in the new VLAN (UniFi's per-client network override), so nothing needs setting up again. With "reconnect" ticked they rejoin at once and get an address in the new network.</li>
-          <li><strong>Wired clients</strong> move by changing the untagged VLAN of the switch port they are plugged into. Everything on that port moves together, so if a small unmanaged switch sits there you see the other devices listed first. Ports that lead to other switches or access points are never changed.</li>
+          <li><strong>Wi-Fi clients</strong> keep their Wi-Fi name and password. The router puts just that device in the new VLAN (UniFi's per-client network override), so nothing needs setting up again. They are disconnected so they rejoin straight away and get an address in the new network.</li>
+          <li><strong>Wired clients</strong> move by changing the untagged VLAN of the switch port they are plugged into. Everything on that port moves together, so if a small unmanaged switch sits there you see the other devices listed first. Ports that lead to other switches or access points are never changed. To make the devices ask for a new address, NCC turns the port off for about 10 seconds and back on, or power-cycles it if it is a PoE port.</li>
+          <li>A <strong>fixed IP</strong> reserved for a device moves with it, keeping the same last number in the new subnet (192.168.1.50 becomes 192.168.30.50) when that number is free. If it isn't, the reservation is removed and the device gets an address from DHCP.</li>
           <li>Every change is shown for confirmation first and written to the audit log. Changes need the router account NCC uses to have a role that can change settings: a View Only account can see this page, but the router refuses changes.</li>
         </ul>
       </section>
 
       {move && <MoveDialog target={t} network={move.network} macs={move.macs} canApply={isAdmin && t.writable}
         onClose={(msg) => { setMove(null); if (msg) { setFlash(msg); setSel(new Set()); refetch(); } }} />}
+      {renew && <ReconnectDialog target={t} clients={renew} onClose={(msg) => { setRenew(null); if (msg) { setFlash(msg); refetch(); } }} />}
       {creating && <CreateDialog target={t} onClose={(msg) => { setCreating(false); if (msg) { setFlash(msg); refetch(); } }} />}
     </>
   );
@@ -230,6 +241,7 @@ function ClientCard({ c, t, devName, selected, onToggle, onDragStart, onDragEnd 
         <span className="vlan-card-name">{c.name}</span>
         <span className="muted small">{[c.ip, c.vendor].filter(Boolean).join(" · ")}</span>
         <span className="muted small vlan-via">{via}
+          {c.stale && <span className="pill bad" title="It is in this network but still has an address from its old one. Reconnect it to get a new address.">old address</span>}
           {shared && <span className="pill warn" title={`${port!.clients} devices share this port; they move together`}>shared port</span>}
           {behind && <span className="pill" title="Behind another switch: set the VLAN on that switch">behind a switch</span>}
         </span>
@@ -273,6 +285,7 @@ function MoveDialog({ target, network, macs, canApply, onClose }: {
   const blocked = plan?.steps.filter((s) => s.blocked) ?? [];
   const already = plan?.steps.filter((s) => !s.method && s.already) ?? [];
   const wifi = moving.filter((s) => s.method === "client").length;
+  const wired = moving.length - wifi;
 
   const apply = async () => {
     setBusy(true);
@@ -300,7 +313,7 @@ function MoveDialog({ target, network, macs, canApply, onClose }: {
             </li>
           ))}
         </ul>
-        <p className="muted small">Wired devices usually pick up the new network when the switch applies the change. One that keeps its old address needs unplugging for a moment or restarting.</p>
+        <p className="muted small">Devices show their new addresses after the next refresh. Any still on an old address are marked "old address" on the board, with a button to reconnect them.</p>
         <div className="row"><button className="primary" onClick={() => onClose(`${ok} of ${results.length} clients moved to ${network.name}.`)}>Done</button></div>
       </Modal>
     );
@@ -353,10 +366,17 @@ function MoveDialog({ target, network, macs, canApply, onClose }: {
           )}
           {already.length > 0 && <p className="muted small">Already in {network.name}: {already.map((s) => s.name).join(", ")}.</p>}
           {(plan.warnings ?? []).map((w) => <div key={w} className="banner warn"><Icon name="alert" size={16} /><span>{w}</span></div>)}
-          {wifi > 0 && (
-            <label className="check" style={{ margin: "10px 0" }}>
+          {moving.length > 0 && (
+            <label className="check vlan-reconnect">
               <input type="checkbox" checked={reconnect} onChange={(e) => setReconnect(e.target.checked)} />
-              Reconnect the {wifi} Wi-Fi client{wifi === 1 ? "" : "s"} now so {wifi === 1 ? "it moves" : "they move"} straight away (a few seconds offline)
+              <span>
+                <strong>Give them addresses in {network.name} now</strong>
+                <span className="muted small">
+                  {wifi > 0 && <>Wi-Fi devices are disconnected and rejoin. </>}
+                  {wired > 0 && <>Wired devices have their switch port turned off for about 10 seconds; PoE ports are power-cycled instead, which restarts the device. </>}
+                  Without this, each device moves when it next renews its address, which can take hours.
+                </span>
+              </span>
             </label>
           )}
           <div className="row" style={{ marginTop: 12 }}>
@@ -368,6 +388,57 @@ function MoveDialog({ target, network, macs, canApply, onClose }: {
           </div>
         </>
       )}
+    </Modal>
+  );
+}
+
+function ReconnectDialog({ target, clients, onClose }: { target: VLANTarget; clients: NetClient[]; onClose: (msg?: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [results, setResults] = useState<MoveResult[] | null>(null);
+  const run = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await api<{ results: MoveResult[] }>("POST", "/api/vlans/reconnect", { target_id: target.id, macs: clients.map((c) => c.mac) });
+      setResults(r.results);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setBusy(false);
+  };
+  const title = `Reconnect ${clients.length === 1 ? clients[0].name : `${clients.length} devices`}`;
+  const done = () => onClose(`Reconnected ${results?.filter((r) => r.ok).length ?? 0} of ${results?.length ?? 0}. New addresses show after the next refresh.`);
+  if (results) {
+    return (
+      <Modal title={title} onClose={done}>
+        <ul className="vlan-steps">
+          {results.map((r) => (
+            <li key={r.mac}>
+              <span className={`dot ${r.ok ? "good" : "bad"}`} /><strong>{r.name}</strong>
+              {r.ok ? (r.notes ?? []).map((n) => <div key={n} className="muted small">{n}</div>) : <div className="error small">{r.error}</div>}
+            </li>
+          ))}
+        </ul>
+        <div className="row"><button className="primary" onClick={done}>Done</button></div>
+      </Modal>
+    );
+  }
+  return (
+    <Modal title={title} onClose={() => onClose()}>
+      <p className="small" style={{ marginTop: 0 }}>
+        These devices are in their new network but still have an address from the old one. NCC makes them ask for a new address:
+        Wi-Fi devices are disconnected and rejoin; wired devices have their switch port turned off for about 10 seconds (PoE ports are power-cycled, which restarts the device).
+        Anything else on the same port reconnects too.
+      </p>
+      <ul className="vlan-steps">
+        {clients.map((c) => <li key={c.mac}><Icon name={c.wired ? "cable" : "wifi"} size={14} /> <strong>{c.name}</strong> <span className="muted">{c.ip} · now in {c.network}</span></li>)}
+      </ul>
+      {err && <div className="error block">{err}</div>}
+      <div className="row" style={{ marginTop: 12 }}>
+        <button className="primary" disabled={busy} onClick={run}>{busy ? "Reconnecting…" : "Reconnect"}</button>
+        <button onClick={() => onClose()}>Cancel</button>
+      </div>
     </Modal>
   );
 }

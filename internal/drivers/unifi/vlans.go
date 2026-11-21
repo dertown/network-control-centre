@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/dertown/network-control-centre/internal/drivers"
 	inv "github.com/dertown/network-control-centre/internal/inventory"
@@ -281,6 +283,10 @@ func (d Driver) MoveClients(ctx context.Context, t drivers.Target, creds vault.S
 			}
 		}
 
+		// a fixed IP reserved in the old network would no longer fit: it is moved into the new
+		// subnet (same last number when that is free), or dropped when it can't be
+		fixed := newFixedIPs(ctx, c, target)
+
 		// wireless (and anything else moved per client)
 		for i, m := range moves {
 			if m.Method != drivers.MoveClient {
@@ -289,7 +295,7 @@ func (d Driver) MoveClients(ctx context.Context, t drivers.Target, creds vault.S
 				}
 				continue
 			}
-			notes, err := overrideClient(ctx, c, results[i].MAC, networkID)
+			notes, err := overrideClient(ctx, c, results[i].MAC, networkID, fixed)
 			err = asPerm(err)
 			if err != nil {
 				results[i].Error = err.Error()
@@ -299,20 +305,27 @@ func (d Driver) MoveClients(ctx context.Context, t drivers.Target, creds vault.S
 				continue
 			}
 			results[i].OK, results[i].Notes = true, notes
-			if reconnect {
-				if _, err := write[json.RawMessage](ctx, c, http.MethodPost, "cmd/stamgr", map[string]string{"cmd": "kick-sta", "mac": results[i].MAC}); err != nil {
-					results[i].Notes = append(results[i].Notes, "could not reconnect it ("+err.Error()+"); it moves when it next reconnects")
-				} else {
-					results[i].Notes = append(results[i].Notes, "disconnected so it rejoins in the new network")
+		}
+		for i, m := range moves {
+			if m.Method == drivers.MovePort && results[i].OK {
+				if note, err := rehomeFixedIP(ctx, c, results[i].MAC, fixed); err != nil {
+					results[i].Notes = append(results[i].Notes, "could not update its fixed IP: "+err.Error())
+				} else if note != "" {
+					results[i].Notes = append(results[i].Notes, note)
 				}
 			}
 		}
-		// a fixed IP reserved in the old network no longer fits: clear it for wired clients too
-		for i, m := range moves {
-			if m.Method == drivers.MovePort && results[i].OK {
-				if note, err := clearFixedIP(ctx, c, results[i].MAC, networkID); err == nil && note != "" {
-					results[i].Notes = append(results[i].Notes, note)
+		if reconnect {
+			var done []drivers.ClientMove
+			var idx []int
+			for i, m := range moves {
+				if results[i].OK {
+					done, idx = append(done, m), append(idx, i)
 				}
+			}
+			notes := reconnectWith(ctx, c, done)
+			for j, i := range idx {
+				results[i].Notes = append(results[i].Notes, notes[j])
 			}
 		}
 		return nil
@@ -470,8 +483,72 @@ func lookupUser(ctx context.Context, c *client, mac string) (*rawUser, error) {
 	return nil, nil
 }
 
+// fixedIPs hands out fixed IPs in the network clients move to.
+type fixedIPs struct {
+	net    *rawNetwork
+	prefix netip.Prefix
+	ok     bool
+	taken  map[netip.Addr]bool
+}
+
+func newFixedIPs(ctx context.Context, c *client, target *rawNetwork) *fixedIPs {
+	f := &fixedIPs{net: target, taken: map[netip.Addr]bool{}}
+	gw, err := netip.ParsePrefix(strings.TrimSpace(target.IPSubnet))
+	if err != nil || !gw.Addr().Is4() {
+		return f // VLAN-only network: no subnet to put a fixed IP in
+	}
+	f.prefix, f.ok = gw.Masked(), true
+	f.taken[gw.Addr()] = true
+	if users, err := getList[rawUser](ctx, c, "rest/user"); err == nil {
+		for _, u := range users {
+			if a, err := netip.ParseAddr(u.FixedIP); err == nil && u.UseFixedIP {
+				f.taken[a] = true
+			}
+		}
+	}
+	return f
+}
+
+// place returns the address in the new subnet with the same last number as old, if free.
+func (f *fixedIPs) place(old string) (netip.Addr, bool) {
+	a, err := netip.ParseAddr(old)
+	if !f.ok || err != nil || !a.Is4() {
+		return netip.Addr{}, false
+	}
+	if f.prefix.Contains(a) {
+		return a, true
+	}
+	n, o := f.prefix.Addr().As4(), a.As4()
+	bits := f.prefix.Bits()
+	var nv, ov uint32
+	for i := 0; i < 4; i++ {
+		nv, ov = nv<<8|uint32(n[i]), ov<<8|uint32(o[i])
+	}
+	host := ov & (uint32(1)<<(32-bits) - 1)
+	v := nv | host
+	cand := netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)})
+	if host == 0 || host == uint32(1)<<(32-bits)-1 || f.taken[cand] {
+		return netip.Addr{}, false
+	}
+	f.taken[cand] = true
+	return cand, true
+}
+
+// fixedIPChange returns the client settings that move its fixed IP to the new network.
+func (f *fixedIPs) change(u *rawUser) (map[string]any, string) {
+	if u == nil || !u.UseFixedIP || u.NetworkID == f.net.ID {
+		return nil, ""
+	}
+	if a, ok := f.place(u.FixedIP); ok {
+		return map[string]any{"use_fixedip": true, "fixed_ip": a.String(), "network_id": f.net.ID},
+			fmt.Sprintf("fixed IP moved from %s to %s", u.FixedIP, a)
+	}
+	return map[string]any{"use_fixedip": false},
+		fmt.Sprintf("fixed IP %s removed: it belonged to the old network and its number is taken or doesn't fit in %s", u.FixedIP, f.net.Name)
+}
+
 // overrideClient puts one client in a network with UniFi's Virtual Network Override.
-func overrideClient(ctx context.Context, c *client, mac, networkID string) ([]string, error) {
+func overrideClient(ctx context.Context, c *client, mac, networkID string, fixed *fixedIPs) ([]string, error) {
 	u, err := lookupUser(ctx, c, mac)
 	if err != nil {
 		return nil, err
@@ -487,23 +564,187 @@ func overrideClient(ctx context.Context, c *client, mac, networkID string) ([]st
 	}
 	body := map[string]any{"virtual_network_override_enabled": true, "virtual_network_override_id": networkID}
 	var notes []string
-	if u.UseFixedIP && u.NetworkID != networkID {
-		body["use_fixedip"] = false
-		notes = append(notes, fmt.Sprintf("fixed IP %s removed: it belonged to the old network", u.FixedIP))
+	if ch, note := fixed.change(u); ch != nil {
+		for k, v := range ch {
+			body[k] = v
+		}
+		notes = append(notes, note)
 	}
 	_, err = write[json.RawMessage](ctx, c, http.MethodPut, "rest/user/"+url.PathEscape(u.ID), body)
 	return notes, err
 }
 
-// clearFixedIP drops a fixed IP reserved in another network.
-func clearFixedIP(ctx context.Context, c *client, mac, networkID string) (string, error) {
+// rehomeFixedIP moves a wired client's fixed IP into the new network.
+func rehomeFixedIP(ctx context.Context, c *client, mac string, fixed *fixedIPs) (string, error) {
 	u, err := lookupUser(ctx, c, mac)
-	if err != nil || u == nil || !u.UseFixedIP || u.NetworkID == networkID {
+	if err != nil || u == nil {
 		return "", err
 	}
-	_, err = write[json.RawMessage](ctx, c, http.MethodPut, "rest/user/"+url.PathEscape(u.ID), map[string]any{"use_fixedip": false})
-	if err != nil {
-		return "", err
+	ch, note := fixed.change(u)
+	if ch == nil {
+		return "", nil
 	}
-	return fmt.Sprintf("fixed IP %s removed: it belonged to the old network", u.FixedIP), nil
+	_, err = write[json.RawMessage](ctx, c, http.MethodPut, "rest/user/"+url.PathEscape(u.ID), ch)
+	return note, err
+}
+
+// BounceDown is how long a wired port is switched off so the device on it notices and asks
+// for a new address. Tests shorten it.
+var BounceDown = 10 * time.Second
+
+// reconnectWith makes clients ask for a new address: Wi-Fi clients are disconnected and
+// rejoin; a PoE port is power-cycled; any other wired port is switched off for BounceDown
+// and back on. It returns one note per move.
+func reconnectWith(ctx context.Context, c *client, moves []drivers.ClientMove) []string {
+	notes := make([]string, len(moves))
+	type port struct {
+		sw  string
+		idx int
+	}
+	portNote := map[port]string{}
+	byPort := map[port][]int{}
+	var ports []port
+	for i, m := range moves {
+		switch m.Method {
+		case drivers.MoveClient:
+			mac := inv.NormMAC(m.MAC)
+			if _, err := write[json.RawMessage](ctx, c, http.MethodPost, "cmd/stamgr", map[string]string{"cmd": "kick-sta", "mac": mac}); err != nil {
+				notes[i] = "could not reconnect it (" + err.Error() + "); it gets the new address when it next reconnects"
+			} else {
+				notes[i] = "disconnected so it rejoins and gets an address in the new network"
+			}
+		case drivers.MovePort:
+			p := port{inv.NormMAC(m.SwitchMAC), m.SwitchPort}
+			if _, ok := byPort[p]; !ok {
+				ports = append(ports, p)
+			}
+			byPort[p] = append(byPort[p], i)
+		}
+	}
+	if len(ports) > 0 {
+		devs, err := getList[rawDeviceConf](ctx, c, "stat/device")
+		if err != nil {
+			for _, p := range ports {
+				portNote[p] = "could not reconnect it (" + err.Error() + ")"
+			}
+		}
+		bounce := map[string]map[int]bool{}
+		for _, p := range ports {
+			if err != nil {
+				continue
+			}
+			var dev *rawDeviceConf
+			for i := range devs {
+				if inv.NormMAC(devs[i].MAC) == p.sw {
+					dev = &devs[i]
+				}
+			}
+			if dev == nil {
+				portNote[p] = "could not reconnect it: the switch is gone"
+				continue
+			}
+			poe := false
+			for _, pt := range dev.PortTable {
+				if pt.PortIdx == p.idx && pt.PoEEnable && float64(pt.PoEPower) > 0 {
+					poe = true
+				}
+			}
+			if poe {
+				_, perr := write[json.RawMessage](ctx, c, http.MethodPost, "cmd/devmgr",
+					map[string]any{"cmd": "power-cycle", "mac": p.sw, "port_idx": p.idx})
+				if perr == nil {
+					portNote[p] = "PoE port power-cycled so it restarts and gets an address in the new network"
+					continue
+				}
+			}
+			if bounce[p.sw] == nil {
+				bounce[p.sw] = map[int]bool{}
+			}
+			bounce[p.sw][p.idx] = true
+		}
+		for sw, idxs := range bounce {
+			var dev *rawDeviceConf
+			for i := range devs {
+				if inv.NormMAC(devs[i].MAC) == sw {
+					dev = &devs[i]
+				}
+			}
+			berr := bouncePorts(ctx, c, dev, idxs)
+			for idx := range idxs {
+				p := port{sw, idx}
+				if berr != nil {
+					portNote[p] = "could not reconnect it (" + berr.Error() + "); unplug it for a moment or restart it to get the new address"
+				} else {
+					portNote[p] = fmt.Sprintf("switch port turned off for %s and back on so it asks for an address in the new network", BounceDown.Round(time.Second))
+				}
+			}
+		}
+	}
+	for p, idx := range byPort {
+		for _, i := range idx {
+			notes[i] = portNote[p]
+		}
+	}
+	return notes
+}
+
+// bouncePorts switches ports off, waits, and restores the overrides as they were. Restoring
+// is retried, since a port left off cuts the device off.
+func bouncePorts(ctx context.Context, c *client, dev *rawDeviceConf, idxs map[int]bool) error {
+	orig := dev.PortOverrides
+	off := make([]map[string]any, 0, len(orig)+len(idxs))
+	seen := map[int]bool{}
+	for _, o := range orig {
+		idx := portIdxOf(o)
+		if idxs[idx] {
+			o = cloneMap(o)
+			o["forward"] = "disabled"
+			seen[idx] = true
+		}
+		off = append(off, o)
+	}
+	for idx := range idxs {
+		if !seen[idx] {
+			off = append(off, map[string]any{"port_idx": idx, "forward": "disabled"})
+		}
+	}
+	path := "rest/device/" + url.PathEscape(dev.ID)
+	if _, err := write[json.RawMessage](ctx, c, http.MethodPut, path, map[string]any{"port_overrides": off}); err != nil {
+		return err
+	}
+	select {
+	case <-time.After(BounceDown):
+	case <-ctx.Done():
+	}
+	restore := orig
+	if restore == nil {
+		restore = []map[string]any{}
+	}
+	// use a fresh context: the port must come back even if the request was cancelled
+	rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var err error
+	for try := 0; try < 4; try++ {
+		if _, err = write[json.RawMessage](rctx, c, http.MethodPut, path, map[string]any{"port_overrides": restore}); err == nil {
+			return nil
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("the port may still be off: turning it back on failed (%v); turn it on in UniFi", err)
+}
+
+// Reconnect implements drivers.NetworkWriter.
+func (d Driver) Reconnect(ctx context.Context, t drivers.Target, creds vault.Secret, moves []drivers.ClientMove) ([]drivers.MoveResult, error) {
+	results := make([]drivers.MoveResult, len(moves))
+	err := d.writeSession(ctx, t, creds, func(c *client) error {
+		notes := reconnectWith(ctx, c, moves)
+		for i, m := range moves {
+			results[i] = drivers.MoveResult{MAC: inv.NormMAC(m.MAC), Name: m.Name, OK: !strings.HasPrefix(notes[i], "could not"), Notes: []string{notes[i]}}
+			if !results[i].OK {
+				results[i].Error, results[i].Notes = notes[i], nil
+			}
+		}
+		return nil
+	})
+	return results, err
 }
