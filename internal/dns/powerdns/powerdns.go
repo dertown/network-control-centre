@@ -317,3 +317,37 @@ func StripPort(a string) string {
 	}
 	return a
 }
+
+// CreateZone implements dns.ZoneManager. PowerDNS writes the SOA from its default-soa-content
+// setting and the NS records from the nameservers; soa_edit_api keeps the serial moving on
+// every change NCC makes through the API.
+func (Provider) CreateZone(ctx context.Context, s dns.Server, creds map[string]string, spec dns.ZoneSpec) error {
+	a, err := newAPI(s, creds)
+	if err != nil {
+		return err
+	}
+	kind := spec.Kind
+	if kind == "" {
+		kind = "Native"
+	}
+	ns := make([]string, 0, len(spec.Nameservers))
+	for _, n := range spec.Nameservers {
+		ns = append(ns, dns.FQDN(n))
+	}
+	body := map[string]any{"name": dns.FQDN(spec.Name), "kind": kind, "nameservers": ns, "soa_edit_api": "DEFAULT"}
+	err = a.do(ctx, http.MethodPost, "/zones", body, nil)
+	var he *httpError
+	if errors.As(err, &he) && he.Status == http.StatusConflict {
+		return fmt.Errorf("powerdns: zone %s already exists", dns.FQDN(spec.Name))
+	}
+	return err
+}
+
+// DeleteZone implements dns.ZoneManager.
+func (Provider) DeleteZone(ctx context.Context, s dns.Server, creds map[string]string, zone string) error {
+	a, err := newAPI(s, creds)
+	if err != nil {
+		return err
+	}
+	return a.do(ctx, http.MethodDelete, zonePath(zone), nil, nil)
+}

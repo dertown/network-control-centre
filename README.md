@@ -50,6 +50,17 @@ This first release (the MVP) covers:
   hidden unless you ask for them. A View Only account is enough.
 - **PowerDNS**: browse zones and records; add, edit and delete records with a preview step;
   matching **PTR records are created and removed automatically** in your reverse zone.
+- **DNS zones and VLANs** (DNS → Zones & VLANs): create zones and **subdomains** (e.g. `iot.home.lan`,
+  `dmz.home.lan`, delegated from the parent with NS records) and **assign a zone to each VLAN**. NCC can
+  also create the VLAN's reverse zone and make the router hand out the zone as the network's DHCP domain
+  name (UniFi `domain_name`), so clients resolve short names in it. A check lists every router network
+  with its zone and flags what's off: no zone, a zone the DNS server doesn't have, a zone named for another
+  VLAN (IoT put in `dmz.home.lan`), one zone shared by several VLANs, the router handing out another domain,
+  no reverse zone for the subnet, and assignments to networks that no longer exist. Missing zones are
+  suggested under your main domain, and **Create suggested zones** plans them all in one preview. Every step
+  is previewed and audited; admins only. Zones on each DNS server are shown as a tree, and unused ones can
+  be deleted. The planner (`internal/dnszones`, `POST /api/dns/zoneplan`) takes the same request from
+  anything that proposes changes. PowerDNS can create zones today; BIND comes with its provider.
 - **Virtual machines**: every VM and container on **Proxmox VE** (API token or user login) and
   **VMware vCenter or standalone ESXi** in one list, with state, host or node, vCPUs and CPU use,
   memory, disk, guest IP addresses (QEMU guest agent / VMware Tools), guest OS and uptime, plus
