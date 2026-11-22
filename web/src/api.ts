@@ -47,6 +47,15 @@ export interface Device {
   ip?: string; firmware?: string; serial?: string; online: boolean; uptime_s?: number; managed: boolean;
   discovery: string; detail?: string; ports?: Port[]; clients: number; target: string;
 }
+export interface PortClient {
+  mac: string; name: string; ip?: string; vendor?: string; network?: string; network_id?: string; vlan?: number; ssid?: string;
+  /** The switch the client really hangs off, when it is not this device (an inferred unmanaged switch or LLDP neighbour). */
+  behind?: string; behind_id?: string;
+}
+export interface PortNeighbour { id: string; name: string; kind: string; port?: string; online: boolean; clients: number }
+export interface PortView extends Port { stp?: string; clients: PortClient[]; devices: PortNeighbour[] }
+/** A device's ports and who is on each; `attached` are clients with no known port (wireless, or behind an unmanaged switch). */
+export interface DevicePorts { id: string; name: string; kind: string; ports: PortView[]; attached: PortClient[] }
 export interface Client {
   mac: string; name: string; ip?: string; vendor?: string; wired: boolean; parent_id?: string;
   parent_port?: string; network?: string; vlan?: number; network_id?: string; ssid?: string;

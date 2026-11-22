@@ -251,6 +251,21 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
+// devicePorts lists a device's ports with the clients and network devices on each.
+func (s *Server) devicePorts(w http.ResponseWriter, r *http.Request) {
+	snaps, err := core.LatestSnapshots(r.Context(), s.Store.DB)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	out, ok := core.PortsFor(snaps, r.PathValue("id"))
+	if !ok {
+		writeErr(w, 404, "no such device")
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
 func (s *Server) listClients(w http.ResponseWriter, r *http.Request) {
 	snaps, err := core.LatestSnapshots(r.Context(), s.Store.DB)
 	if err != nil {

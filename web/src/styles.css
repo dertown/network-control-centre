@@ -329,6 +329,31 @@ dl.kv dd { margin: 0; }
 .port small { color: #8796ad; font-size: 10px; }
 .port.up { border-color: #3f6d55; }
 .port.uplink { box-shadow: inset 0 -3px 0 #6b8cff; }
+button.port { font: inherit; cursor: pointer; margin: 0; display: block; padding: 5px 0 4px; gap: 0; border-radius: 5px; background: #0f1520; color: #c8d2e2; border: 1px solid #39465c; transition: none; }
+button.port.up { border-color: #3f6d55; }
+button.port.uplink:not(.on) { box-shadow: inset 0 -3px 0 #6b8cff; }
+button.port:not(.uplink):not(.on) { box-shadow: none; }
+button.port:hover { border-color: #6b8cff; }
+button.port:focus-visible { outline: 2px solid #8aa4ff; outline-offset: 2px; }
+button.port.on { border-color: #8aa4ff; background: #1c2a4a; box-shadow: 0 0 0 1px #8aa4ff; }
+button.port.uplink.on { box-shadow: 0 0 0 1px #8aa4ff, inset 0 -3px 0 #6b8cff; }
+.port-count { position: absolute; top: -7px; right: -7px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; background: #6b8cff; color: #0a0e16; font-size: 10.5px; font-weight: 700; line-height: 17px; box-sizing: border-box; }
+.port-panel { display: grid; gap: 10px; justify-items: start; }
+.port-panel > * { max-width: 100%; }
+.port-hint { margin: 0; }
+.port-detail { width: 100%; max-width: 640px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--surface-2); box-sizing: border-box; }
+.port-detail h4 { margin: 10px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; }
+.port-detail-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.port-detail-head .link { margin-left: auto; font-size: 12px; }
+.port-clients { list-style: none; margin: 0; padding: 0; }
+.port-clients li { padding: 7px 0; border-bottom: 1px solid var(--line); display: grid; gap: 2px; min-width: 0; }
+.port-clients li:last-child { border-bottom: 0; }
+.port-clients .link { padding: 0; }
+.pc-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.pc-net { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+.pc-meta { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; overflow-wrap: anywhere; }
+.topo-side .ports { padding: 8px; gap: 8px 5px; }
+.topo-side .port { width: 38px; }
 
 /* ───────────── Topology ───────────── */
 .topo { display: flex; gap: 16px; align-items: flex-start; }

@@ -8,6 +8,7 @@ import { discoveryLabel, kindLabel } from "../live";
 import { cssVar, topoStyle } from "../topoStyle";
 import { clusterID, clusterLinkID, INTERNET, planLayout, wanLinkID } from "./topoLayout";
 import { Icon } from "../icons";
+import { PortsPanel } from "../ports";
 import { groupID, groupNodes, networkColors, trunkLabel, vlanText, zonePill, zoneText } from "./topoVlan";
 
 type Selection = { type: "node"; node: GNode } | { type: "edge"; edge: GEdge } | { type: "network"; id: string };
@@ -214,12 +215,20 @@ export function Topology({ tick }: { tick: number }) {
     if (!inst || !q) return;
     const hit = graph?.nodes.find((n) => n.label.toLowerCase().includes(q) || n.ip?.includes(q) || n.id.toLowerCase() === q || n.model?.toLowerCase().includes(q));
     setMiss(!hit);
-    if (!hit) return;
+    if (hit) selectNode(hit);
+  };
+  const selectNode = (hit: GNode) => {
+    const inst = cy.current;
+    if (!inst) return;
     const ele = inst.getElementById(hit.id);
     inst.elements().unselect();
     ele.select();
     setSelected({ type: "node", node: hit });
     inst.animate({ center: { eles: ele }, zoom: Math.max(inst.zoom(), 1.1) } as cytoscape.AnimationOptions, { duration: 250 });
+  };
+  const pickNode = (id: string) => {
+    const n = graph?.nodes.find((x) => x.id === id);
+    if (n) selectNode(n);
   };
   const sel = selected?.type === "node" ? selected.node : null;
 
@@ -313,6 +322,12 @@ export function Topology({ tick }: { tick: number }) {
                 <LoopList compact loops={sel.loops.map((id) => loopsByID.get(id)).filter((l): l is Loop => !!l)} focus={loopFocus} onFocus={setLoopFocus} />
               </>
             ) : null}
+            {sel.kind !== "client" && sel.kind !== "internet" && (
+              <>
+                <h3 className="small">Ports</h3>
+                <PortsPanel id={sel.id} tick={tick} swatch={(id) => (id ? colors.get(id) : undefined)} onPick={pickNode} />
+              </>
+            )}
             {sel.ports && sel.ports.length > 0 && (
               <>
                 <h3 className="small">Port VLANs</h3>
