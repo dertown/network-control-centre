@@ -78,6 +78,21 @@ page refetches once per poll cycle, and it skips refetching while the browser ta
   before anything runs; deployments run in the background and are recorded with each step's
   output.
 
+## The AI assistant
+
+`internal/assistant` builds a `Picture` of the network from the latest reads (routers and their networks and
+clients, the IoT inventory, port forwards, DNS zones), makes a rule-based plan (`Baseline`), and asks a model to
+improve it (`Prompt`, `ParseAnswer`). `Check` turns any answer into `Step`s, validating each against the picture
+with `core.ValidateNetwork` and `core.PlanMove`, so the model can only propose changes NCC would make itself.
+Plans are stored in `ai_plans`; `Deploy` applies the picked steps through an `Env` the API implements with the
+same driver calls and audit records as the VLANs page.
+
+Models are reached without API keys by running the vendors' CLIs (`providers.go`). Each run gets a private
+temporary home with only PATH and proxy settings from NCC's environment; the tool's sign-in (a token, or its
+credential files) is restored there from the vault (`ai/<kind>`) and refreshed tokens are copied back
+(`runner.go`). Sign-in runs the CLI's own login under a pseudo-terminal (`signin.go`, creack/pty) whose output
+the page shows and whose input the page sends.
+
 ## Authentication
 
 `internal/auth` stores users with Argon2id password hashes and optional TOTP, issues session

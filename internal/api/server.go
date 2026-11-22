@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dertown/network-control-centre/internal/assistant"
 	"github.com/dertown/network-control-centre/internal/audit"
 	"github.com/dertown/network-control-centre/internal/auth"
 	"github.com/dertown/network-control-centre/internal/certdeploy"
@@ -36,12 +37,15 @@ type Server struct {
 	Deploy  *certdeploy.Service // certificate deployment to servers; nil disables it
 	Traffic *core.Traffic       // per-client traffic; nil disables the Traffic page data
 	DNSLog  *dnslog.Collector   // DNS query log receiver; nil when dns_log is not configured
-	UI      fs.FS               // built web UI; nil serves a placeholder
-	Log     *slog.Logger
+	// Assistant is the AI assistant; nil makes one on the server's database and vault.
+	Assistant *assistant.Service
+	UI        fs.FS // built web UI; nil serves a placeholder
+	Log       *slog.Logger
 	// SecureCookies sets the Secure flag; true unless running plain HTTP in development.
 	SecureCookies bool
 
 	limiter *loginLimiter
+	aiState assistantState
 }
 
 const cookieName = "ncc_session"
@@ -141,6 +145,21 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/dns/{server}/zones", v(s.dnsZones))
 	mux.Handle("GET /api/dns/{server}/zones/{zone}/records", v(s.dnsRecords))
 	mux.Handle("POST /api/dns/{server}/zones/{zone}/changes", o(s.dnsChanges))
+
+	mux.Handle("GET /api/assistant", v(s.assistantHome))
+	mux.Handle("GET /api/assistant/picture", v(s.aiPicture))
+	mux.Handle("PUT /api/assistant/providers/{kind}", a(s.aiUpdateProvider))
+	mux.Handle("POST /api/assistant/providers/{kind}/signin", a(s.aiSignIn))
+	mux.Handle("POST /api/assistant/providers/{kind}/paste", a(s.aiPaste))
+	mux.Handle("DELETE /api/assistant/providers/{kind}/credentials", a(s.aiSignOut))
+	mux.Handle("POST /api/assistant/providers/{kind}/test", a(s.aiTest))
+	mux.Handle("GET /api/assistant/signin/{id}", a(s.aiSignInView))
+	mux.Handle("POST /api/assistant/signin/{id}/input", a(s.aiSignInInput))
+	mux.Handle("DELETE /api/assistant/signin/{id}", a(s.aiSignInCancel))
+	mux.Handle("POST /api/assistant/plans", o(s.aiMakePlan))
+	mux.Handle("GET /api/assistant/plans/{id}", v(s.aiPlan))
+	mux.Handle("POST /api/assistant/plans/{id}/discard", o(s.aiDiscard))
+	mux.Handle("POST /api/assistant/plans/{id}/deploy", a(s.aiDeploy))
 
 	mux.Handle("GET /api/certs", v(s.listCerts))
 	mux.Handle("POST /api/certs", a(s.importCert))

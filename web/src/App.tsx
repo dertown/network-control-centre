@@ -26,6 +26,7 @@ const Vault = named(() => import("./pages/Vault"), "Vault");
 const CertDeploy = named(() => import("./pages/CertDeploy"), "CertDeploy");
 const Settings = named(() => import("./pages/Settings"), "Settings");
 const Audit = named(() => import("./pages/Audit"), "Audit");
+const Assistant = named(() => import("./pages/Assistant"), "Assistant");
 
 // The side menu, in order. admin pages are hidden from other roles (the API enforces it too).
 const pages = [
@@ -38,6 +39,7 @@ const pages = [
   { id: "firewall", label: "Firewall", icon: "firewall", group: "Monitor" },
   { id: "vlans", label: "VLANs", icon: "vlan", group: "Configure" },
   { id: "iot", label: "IoT devices", icon: "plug", group: "Configure" },
+  { id: "assistant", label: "AI assistant", icon: "sparkle", group: "Configure" },
   { id: "dns", label: "DNS", icon: "dns", group: "Services" },
   { id: "vault", label: "Vault & certificates", icon: "vault", group: "Services" },
   { id: "deploy", label: "Certificate deployment", icon: "upload", group: "Services" },
@@ -171,6 +173,7 @@ export default function App() {
           {page === "firewall" && <Firewall tick={tick} />}
           {page === "vlans" && <VLANs tick={tick} user={user} />}
           {page === "iot" && <IoT tick={tick} user={user} />}
+          {page === "assistant" && <Assistant tick={tick} user={user} />}
           {page === "dns" && <DNS user={user} tick={tick} />}
           {page === "vault" && <Vault user={user} vault={vault} onVault={setVault} />}
           {page === "deploy" && <CertDeploy user={user} tick={tick} />}
