@@ -1015,10 +1015,26 @@ func editYAML(b []byte, vals []kv) ([]byte, []string, error) {
 	if root.Kind != yaml.MappingNode {
 		return nil, nil, errors.New("recursor.yml is not a mapping")
 	}
+	// section finds a top-level section, also one that is empty or holds only comments
+	// ("incoming:" with every setting commented out, as Ubuntu ships it): adding a second
+	// "incoming:" makes the whole file invalid ("duplicate field").
+	var bad error
 	section := func(name string) *yaml.Node {
 		for i := 0; i+1 < len(root.Content); i += 2 {
-			if root.Content[i].Value == name && root.Content[i+1].Kind == yaml.MappingNode {
-				return root.Content[i+1]
+			if root.Content[i].Value != name {
+				continue
+			}
+			v := root.Content[i+1]
+			switch {
+			case v.Kind == yaml.MappingNode:
+				return v
+			case isNull(v):
+				m := &yaml.Node{Kind: yaml.MappingNode, HeadComment: v.HeadComment, LineComment: v.LineComment, FootComment: v.FootComment}
+				root.Content[i+1] = m
+				return m
+			default:
+				bad = fmt.Errorf("%s in the Recursor's file is not a section", name)
+				return &yaml.Node{Kind: yaml.MappingNode}
 			}
 		}
 		n := &yaml.Node{Kind: yaml.MappingNode}
@@ -1080,11 +1096,40 @@ func editYAML(b []byte, vals []kv) ([]byte, []string, error) {
 			diff = append(diff, "+ "+key+": "+show)
 		}
 	}
+	if bad != nil {
+		return nil, nil, bad
+	}
 	out, err := yaml.Marshal(&doc)
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := checkYAML(out); err != nil {
+		return nil, nil, fmt.Errorf("the new Recursor file would not be valid: %w", err)
+	}
 	return out, diff, nil
+}
+
+// isNull reports an empty YAML value ("key:" with nothing, "~" or "null").
+func isNull(n *yaml.Node) bool {
+	return n.Kind == yaml.ScalarNode && (n.Tag == "!!null" || n.Value == "" || n.Value == "~" || n.Value == "null")
+}
+
+// checkYAML is a local version of the Recursor's own check: one mapping, no key twice
+// at any level (the Recursor refuses the whole file for a duplicate), and every section
+// NCC writes is a mapping.
+func checkYAML(b []byte) error {
+	var doc map[string]any
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return err
+	}
+	for _, sec := range []string{"incoming", "recursor", "webservice"} {
+		if v, ok := doc[sec]; ok && v != nil {
+			if _, ok := v.(map[string]any); !ok {
+				return fmt.Errorf("%s is not a section", sec)
+			}
+		}
+	}
+	return nil
 }
 
 func randomKey() string {

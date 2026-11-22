@@ -392,3 +392,66 @@ func TestOldStyleIsNotYAML(t *testing.T) {
 		t.Fatal("format detection")
 	}
 }
+
+// Ubuntu's file keeps sections whose settings are all commented out; yaml sees
+// "incoming:" as an empty value, not a section.
+const ubuntuEmptySections = `# PowerDNS Recursor configuration (YAML)
+dnssec:
+  # validation: process
+  trustanchorfile: /usr/share/dns/root.key
+recursor:
+  hint_file: /usr/share/dns/root.hints
+  include_dir: /etc/powerdns/recursor.d
+incoming:
+  # listen:
+  #   - 127.0.0.1
+  # port: 53
+outgoing:
+  source_address:
+    - 0.0.0.0
+webservice:
+  # webserver: false
+`
+
+func TestYAMLEmptySectionsAreReused(t *testing.T) {
+	srv := &fakeServer{facts: facts(ssAuth53, "Recursor 4.8.4=>Recursor 5.3.5", "Debian GNU/Linux 12 (bookworm)=>Ubuntu 25.10"),
+		files: map[string]string{"/etc/powerdns/recursor.conf": ubuntuEmptySections, "/etc/powerdns/pdns.conf": authConf}}
+	o := opts()
+	o.MakeResolver, o.AuthZones, o.ISP = true, []string{"izanami.org."}, []string{"76.76.10.155"}
+	p, err := Inspect(context.Background(), srv, o)
+	if err != nil || p.Blocked != "" || p.Facts.Style != "yaml" {
+		t.Fatalf("inspect: %v %+v", err, p)
+	}
+	if r := Apply(context.Background(), srv, p, okChecks()); !r.OK {
+		t.Fatalf("apply: %+v", r)
+	}
+	out := srv.files["/etc/powerdns/recursor.conf"]
+	for _, sec := range []string{"dnssec:", "recursor:", "incoming:", "outgoing:", "webservice:"} {
+		if n := strings.Count("\n"+out, "\n"+sec); n != 1 {
+			t.Errorf("%s appears %d times:\n%s", sec, n, out)
+		}
+	}
+	if err := checkYAML([]byte(out)); err != nil {
+		t.Fatalf("%v:\n%s", err, out)
+	}
+	for _, want := range []string{"trustanchorfile: /usr/share/dns/root.key", "listen: [0.0.0.0]", "port: 53", "webserver: true", "zone: izanami.org"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestCheckYAMLRejectsDuplicates(t *testing.T) {
+	if checkYAML([]byte("incoming:\nincoming:\n  port: 53\n")) == nil {
+		t.Fatal("duplicate top-level section must be rejected")
+	}
+	if checkYAML([]byte("incoming:\n  port: 53\n  port: 54\n")) == nil {
+		t.Fatal("duplicate setting must be rejected")
+	}
+	if checkYAML([]byte("incoming: 53\n")) == nil {
+		t.Fatal("non-section must be rejected")
+	}
+	if _, _, err := editYAML([]byte("incoming: yes\n"), []kv{{k: "local-port", v: "53"}}); err == nil {
+		t.Fatal("editYAML must refuse a section it can't merge into")
+	}
+}
