@@ -1,9 +1,12 @@
+// Cytoscape stylesheet for the topology map, built from the theme's CSS variables so the
+// map follows light and dark mode. Icons are drawn as SVG data URIs and memoised per colour.
 import cytoscape from "cytoscape";
 import { iconURI, kindIcon } from "./icons";
 import { vlanStyle } from "./pages/topoVlan";
 import { TAXI_TURN } from "./pages/topoLayout";
 
-function cssVar(name: string) {
+/** cssVar reads a CSS custom property (a theme colour) from the document root. */
+export function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 

@@ -1,7 +1,10 @@
+// VLANs page: the router's networks as columns of clients. Drag clients (or a selection)
+// between networks to move them, always through a preview; create networks; reconnect stale clients.
 import { useEffect, useMemo, useState } from "react";
 import { api, MovePlan, MoveResult, NetClient, Network, NetworkSpec, User, VLANTarget } from "../api";
-import { ago } from "../live";
+import { ago } from "../format";
 import { Icon } from "../icons";
+import { Modal } from "../ui";
 import { networkColors, zonePill, zoneText } from "./topoVlan";
 
 // Vendors whose devices are almost always "smart home" gear. Used by "Select likely IoT".
@@ -246,22 +249,6 @@ function ClientCard({ c, t, devName, selected, onToggle, onDragStart, onDragEnd 
           {behind && <span className="pill" title="Behind another switch: set the VLAN on that switch">behind a switch</span>}
         </span>
       </span>
-    </div>
-  );
-}
-
-export function Modal({ title, children, onClose, wide }: { title: string; children: React.ReactNode; onClose: () => void; wide?: boolean }) {
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", k);
-    return () => window.removeEventListener("keydown", k);
-  }, [onClose]);
-  return (
-    <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={`modal ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
-        <div className="modal-head"><h2>{title}</h2><button className="iconbtn" onClick={onClose} aria-label="Close">✕</button></div>
-        {children}
-      </div>
     </div>
   );
 }

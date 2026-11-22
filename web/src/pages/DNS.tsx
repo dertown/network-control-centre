@@ -1,3 +1,5 @@
+// DNS page: browse a PowerDNS server's zones and records and add, change or delete records,
+// always through a preview of the exact changes (including the automatic PTR records).
 import { useEffect, useMemo, useState } from "react";
 import { api, Change, RRSet, Target, User, Zone, ZonePlan } from "../api";
 

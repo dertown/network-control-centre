@@ -1,3 +1,4 @@
+// First-run setup (create the admin and the vault passphrase) and the login form with optional TOTP.
 import { useState } from "react";
 import { api, setCSRF } from "../api";
 import { Icon } from "../icons";

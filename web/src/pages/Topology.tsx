@@ -1,16 +1,14 @@
+// Topology page: the network map (Cytoscape) with VLAN colouring and grouping, loop
+// highlighting, client clusters, search and a details panel for the selected node, link or network.
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, { Core } from "cytoscape";
 import { api, Graph, GEdge, GNetwork, GNode, Loop } from "../api";
 import { LoopList, worstLoop } from "../loops";
 import { discoveryLabel, kindLabel } from "../live";
-import { topoStyle } from "../topoStyle";
+import { cssVar, topoStyle } from "../topoStyle";
 import { clusterID, clusterLinkID, INTERNET, planLayout, wanLinkID } from "./topoLayout";
 import { Icon } from "../icons";
 import { groupID, groupNodes, networkColors, trunkLabel, vlanText, zonePill, zoneText } from "./topoVlan";
-
-function cssVar(name: string) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
 
 type Selection = { type: "node"; node: GNode } | { type: "edge"; edge: GEdge } | { type: "network"; id: string };
 
