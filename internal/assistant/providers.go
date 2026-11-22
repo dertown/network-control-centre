@@ -54,6 +54,8 @@ type Kind struct {
 	// HTTP is set for providers reached over HTTP (Ollama) rather than a tool.
 	HTTP bool `json:"http,omitempty"`
 
+	// npmPackage is the tool's package on the npm registry, which NCC installs itself.
+	npmPackage string
 	// credFiles are the files (relative to the tool's home) that hold its sign-in. They are
 	// copied into the vault after sign-in and back into a private home for every run.
 	credFiles []string
@@ -79,7 +81,7 @@ type Kind struct {
 var Kinds = []*Kind{
 	{
 		ID: KindClaude, Label: "Claude (Claude Code)", Account: "Claude Pro, Max, Team or Enterprise subscription",
-		Binary: "claude", Install: "npm install -g @anthropic-ai/claude-code",
+		Binary: "claude", Install: "npm install -g @anthropic-ai/claude-code", npmPackage: "@anthropic-ai/claude-code",
 		SignIn:     []string{"setup-token"},
 		SignInHelp: "NCC runs `claude setup-token`. Open the link it shows, sign in with your Claude account, and paste the code you get back here.",
 		Paste:      "Or run `claude setup-token` on any computer and paste the token it prints (it starts with sk-ant-oat).",
@@ -100,7 +102,7 @@ var Kinds = []*Kind{
 	},
 	{
 		ID: KindCopilot, Label: "GitHub Copilot (Copilot CLI)", Account: "GitHub account with a Copilot plan (Free, Pro, Business or Enterprise)",
-		Binary: "copilot", Install: "npm install -g @github/copilot",
+		Binary: "copilot", Install: "npm install -g @github/copilot", npmPackage: "@github/copilot",
 		SignIn:     []string{"login", "--device-code"},
 		SignInHelp: "NCC runs `copilot login`. Open github.com/login/device, enter the code it shows and approve. If it asks whether to store the sign-in in a file, answer y: NCC moves it into the vault.",
 		Paste:      "Or paste a GitHub sign-in token from `gh auth token` (it starts with gho_).",
@@ -117,7 +119,7 @@ var Kinds = []*Kind{
 	},
 	{
 		ID: KindGemini, Label: "Google Gemini (Gemini CLI)", Account: "Google account (free Gemini Code Assist, Google AI Pro or Ultra)",
-		Binary: "gemini", Install: "npm install -g @google/gemini-cli",
+		Binary: "gemini", Install: "npm install -g @google/gemini-cli", npmPackage: "@google/gemini-cli",
 		SignIn:     []string{"-p", "Reply with the single word OK."},
 		SignInHelp: "NCC runs Gemini CLI with Login with Google. Open the link it shows, sign in with your Google account, and paste the authorization code here.",
 		Paste:      "Or sign in to Gemini CLI on any computer and paste the contents of ~/.gemini/oauth_creds.json.",
@@ -136,7 +138,7 @@ var Kinds = []*Kind{
 	},
 	{
 		ID: KindCodex, Label: "ChatGPT (OpenAI Codex CLI)", Account: "ChatGPT Plus, Pro, Business or Enterprise subscription",
-		Binary: "codex", Install: "npm install -g @openai/codex",
+		Binary: "codex", Install: "npm install -g @openai/codex", npmPackage: "@openai/codex",
 		SignIn:     []string{"login", "--device-auth"},
 		SignInHelp: "NCC runs `codex login --device-auth`. Open the link it shows, sign in with your ChatGPT account and enter the code.",
 		Paste:      "Or sign in to Codex on any computer and paste the contents of ~/.codex/auth.json.",

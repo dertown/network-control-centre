@@ -8,8 +8,8 @@ import (
 
 	"github.com/dertown/network-control-centre/internal/assistant"
 	"github.com/dertown/network-control-centre/internal/dnszones"
-	"github.com/dertown/network-control-centre/internal/mocklab"
 	"github.com/dertown/network-control-centre/internal/drivers/unifi"
+	"github.com/dertown/network-control-centre/internal/mocklab"
 )
 
 func TestAssistant(t *testing.T) {
@@ -33,6 +33,18 @@ func TestAssistant(t *testing.T) {
 	}
 	if p := home.Providers[4]; p.ID != assistant.KindOllama || !p.Connected {
 		t.Fatalf("ollama needs no sign-in: %+v", p)
+	}
+
+	// installing a tool shows its plan, and needs confirming
+	var ip assistant.InstallPlan
+	if code := c.do("GET", "/api/assistant/providers/ollama/install", nil, &ip); code != 200 || ip.CanInstall || ip.Problem == "" {
+		t.Fatalf("ollama install plan: %d %+v", code, ip)
+	}
+	if code := c.do("POST", "/api/assistant/providers/claude-code/install", map[string]bool{"confirm": false}, nil); code != 400 {
+		t.Fatalf("install without confirming: %d", code)
+	}
+	if code := c.do("POST", "/api/assistant/providers/ollama/install", map[string]bool{"confirm": true}, nil); code != 409 {
+		t.Fatalf("installing ollama: %d", code)
 	}
 
 	// an API key is not a way in

@@ -273,8 +273,13 @@ export interface AIProvider {
   id: string; label: string; account: string; binary?: string; install?: string; sign_in?: string[]; sign_in_help?: string;
   paste?: string; note?: string; default_model?: string; http?: boolean;
   kind: string; enabled: boolean; model: string; address: string; connected_at?: string; last_used?: string; last_error?: string;
-  installed: boolean; connected: boolean; problem?: string;
+  installed: boolean; connected: boolean; problem?: string; path?: string; ncc_version?: string; can_install: boolean;
 }
+export interface AIInstallPlan {
+  kind: string; package?: string; location?: string; node?: string; download_node?: boolean; commands: string[];
+  installed?: string; can_install: boolean; problem?: string;
+}
+export interface AIInstall { id: string; kind: string; state: "running" | "done" | "failed"; output: string; version?: string; error?: string }
 export interface AISignIn { id: string; kind: string; state: "running" | "connected" | "failed"; output: string; error?: string }
 export interface AIStepClient { mac: string; name: string; ip?: string; from?: string; type?: string; via?: string; blocked?: string; along_with?: boolean }
 export interface AIStep {
