@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  api, Cert, Client, Device, Firewall, Loop, PortForward, SmartSource, StorageSource, Target, TrafficView, VMView,
+  api, Cert, Client, Device, DNSReport, Firewall, Loop, PortForward, SmartSource, StorageSource, Target, TrafficView, VMView,
 } from "../api";
 import { record, recent } from "../history";
 import { IconName } from "../icons";
@@ -30,6 +30,7 @@ export interface DashData {
   storage?: StorageSource[];
   vms?: VMView;
   smart?: SmartSource[];
+  dns?: DNSReport;
   /** Recent samples for the sparklines (kept per browser tab by history.ts). */
   hist: { clients: number[]; down: number[]; up: number[] };
 }
@@ -38,7 +39,7 @@ export interface DashData {
 // or a permissions error) never blanks the rest of the page; it simply keeps its last value.
 async function loadAll(): Promise<Partial<DashData>> {
   const get = <T>(path: string) => api<T>("GET", path).catch(() => undefined);
-  const [devices, clients, targets, certs, loops, traffic, firewall, storage, vms, smart] = await Promise.all([
+  const [devices, clients, targets, certs, loops, traffic, firewall, storage, vms, smart, dns] = await Promise.all([
     get<Device[]>("/api/devices"),
     get<Client[]>("/api/clients"),
     get<Target[]>("/api/targets"),
@@ -49,8 +50,9 @@ async function loadAll(): Promise<Partial<DashData>> {
     get<{ sources: StorageSource[] | null }>("/api/storage"),
     get<VMView>("/api/vms"),
     get<{ sources: SmartSource[] | null }>("/api/smarthome"),
+    get<DNSReport>("/api/dns/check"),
   ]);
-  const out: Partial<DashData> = { devices, clients, targets, certs, loops, traffic, firewall, vms };
+  const out: Partial<DashData> = { devices, clients, targets, certs, loops, traffic, firewall, vms, dns };
   if (storage) out.storage = storage.sources ?? [];
   if (smart) out.smart = smart.sources ?? [];
   // drop failed loads so the merge below keeps the previous value
@@ -201,6 +203,17 @@ export function buildAttention(d: DashData): Attention[] {
         title: a.subject, detail: a.message,
       });
     }
+  }
+
+  // DNS chain: clients should get the internal DNS server, which forwards to the ISP.
+  // Things NCC can't check yet are listed too, so a half-configured check isn't silently green.
+  for (const c of d.dns?.checks ?? []) {
+    if (c.status === "pass" || c.status === "skip") continue;
+    const parts = c.status === "unknown" ? [c.detail] : [c.actual && `Set to ${c.actual}`, c.expected && `expected ${c.expected}`];
+    out.push({
+      key: `dns-${c.id}`, level: "warning", icon: "dns", area: "DNS", href: "#/dns",
+      title: c.title, detail: parts.filter(Boolean).join(", ") || c.detail,
+    });
   }
 
   for (const c of d.certs ?? []) {

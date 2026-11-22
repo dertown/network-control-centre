@@ -254,3 +254,66 @@ func canonical(typ, v string) string {
 	}
 	return v
 }
+
+// Forwarders implements dns.Forwarder. The PowerDNS Authoritative server never forwards, so
+// this reads the PowerDNS Recursor that answers clients, through its own API.
+//
+// Options: "recursor_url" is the Recursor's API base (webserver-address/webserver-port in
+// recursor.conf, e.g. http://ns1:8082); without it there is nothing to read and
+// dns.ErrNoResolver is returned. The Recursor's own api-key goes in the credentials as
+// "recursor_api_key"; when it is missing the Authoritative "api_key" is tried.
+func (Provider) Forwarders(ctx context.Context, s dns.Server, creds map[string]string) (*dns.Forwarding, error) {
+	base := strings.TrimSpace(s.Options["recursor_url"])
+	if base == "" {
+		return nil, dns.ErrNoResolver
+	}
+	key := creds["recursor_api_key"]
+	if key == "" {
+		key = creds["api_key"]
+	}
+	rs := dns.Server{ID: s.ID, Name: s.Name, Kind: s.Kind, Address: base,
+		Options: map[string]string{"server_id": "localhost", "tls": s.Options["recursor_tls"], "tls_fingerprint": s.Options["recursor_tls_fingerprint"]}}
+	a, err := newAPI(rs, map[string]string{"api_key": key})
+	if err != nil {
+		return nil, fmt.Errorf("powerdns recursor: %w", err)
+	}
+	var zones []struct {
+		Name             string   `json:"name"`
+		Kind             string   `json:"kind"`
+		Servers          []string `json:"servers"`
+		RecursionDesired bool     `json:"recursion_desired"`
+	}
+	if err := a.do(ctx, http.MethodGet, "/zones", nil, &zones); err != nil {
+		var he *httpError
+		if errors.As(err, &he) && (he.Status == http.StatusUnauthorized || he.Status == http.StatusForbidden) {
+			return nil, fmt.Errorf("powerdns recursor: the API key was rejected (HTTP %d); set the Recursor's api-key from recursor.conf on this connection", he.Status)
+		}
+		return nil, err
+	}
+	f := &dns.Forwarding{Source: "PowerDNS Recursor at " + base, Servers: []string{}}
+	for _, z := range zones {
+		if z.Name != "." || !strings.EqualFold(z.Kind, "Forwarded") {
+			continue
+		}
+		f.RecursionDesired = z.RecursionDesired
+		for _, srv := range z.Servers {
+			f.Servers = append(f.Servers, StripPort(srv))
+		}
+	}
+	return f, nil
+}
+
+// StripPort drops the port from a forwarder address: "1.2.3.4:53" and "[2001:db8::1]:53"
+// become "1.2.3.4" and "2001:db8::1". An address without a port is returned as is.
+func StripPort(a string) string {
+	a = strings.TrimSpace(a)
+	if strings.HasPrefix(a, "[") {
+		if i := strings.Index(a, "]"); i > 0 {
+			return a[1:i]
+		}
+	}
+	if strings.Count(a, ":") == 1 {
+		return a[:strings.Index(a, ":")]
+	}
+	return a
+}

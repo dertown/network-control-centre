@@ -692,6 +692,19 @@ label.check.field-check .field-help { flex-basis: 100%; }
 .vlan-reconnect input { margin-top: 2px; }
 .banner > button { margin-left: auto; }
 
+/* ───────────── DNS: router DNS check ───────────── */
+.dns-chain h2 { display: flex; align-items: center; gap: 10px; }
+.dns-chain-path { margin: 0 0 6px; overflow-wrap: anywhere; }
+.dns-chain .lede { margin: 0 0 12px; }
+.dns-checks { display: grid; gap: 8px; margin-bottom: 10px; }
+.dns-checks > .dns-check { padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface); display: grid; gap: 4px; }
+.dns-check.bad { background: var(--bad-bg); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+.dns-check.warn { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.dns-compare { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 4px 0; }
+.dns-compare dt { color: var(--muted); }
+.dns-compare dd { margin: 0; overflow-wrap: anywhere; }
+.dns-fix { padding-top: 4px; border-top: 1px dashed var(--line); margin-top: 2px; }
+
 /* ───────────── Dashboard ───────────── */
 .row-between { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

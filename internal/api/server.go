@@ -137,6 +137,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/smarthome/matter/check", a(s.matterCheck))
 	mux.Handle("POST /api/smarthome/matter/pair", a(s.matterPair))
 
+	mux.Handle("GET /api/dns/check", v(s.dnsCheck))
 	mux.Handle("GET /api/dns/{server}/zones", v(s.dnsZones))
 	mux.Handle("GET /api/dns/{server}/zones/{zone}/records", v(s.dnsRecords))
 	mux.Handle("POST /api/dns/{server}/zones/{zone}/changes", o(s.dnsChanges))

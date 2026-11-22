@@ -358,6 +358,17 @@ func (s *Server) dnsServer(r *http.Request) (dns.Provider, dns.Server, map[strin
 	return p, dns.Server{ID: t.ID, Name: t.Name, Kind: t.Kind, Address: t.Address, Options: t.Options}, creds, nil
 }
 
+// dnsCheck reports whether the router hands out the internal DNS server and that server
+// forwards internet queries to the ISP (see internal/dnscheck).
+func (s *Server) dnsCheck(w http.ResponseWriter, r *http.Request) {
+	rep, err := core.DNSChain(r.Context(), s.Store.DB, s.Targets)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, rep)
+}
+
 func (s *Server) dnsZones(w http.ResponseWriter, r *http.Request) {
 	p, srv, creds, err := s.dnsServer(r)
 	if err != nil {

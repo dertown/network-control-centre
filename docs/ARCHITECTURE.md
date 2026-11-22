@@ -24,7 +24,9 @@ database (plus the local vault, which lives in the same database, encrypted).
 2. **The poller** (`internal/core/poller.go`) polls every enabled connection at once, every
    `poll` interval (30 s by default). Each category has its own collector: device snapshots
    (`collect`), VMs (`vms.go`), storage (`storage.go`), smart home (`smarthome.go`), and a
-   reachability check for DNS. After each poll it records `last_poll`/`last_error` on the
+   reachability check for DNS, which also reads the resolver's addresses and forwarders into
+   `dns_resolver_status` for the router DNS check (`dnschain.go`; the rules are in
+   `internal/dnscheck`, served at `GET /api/dns/check`). After each poll it records `last_poll`/`last_error` on the
    connection and publishes one event on the `Hub`.
 3. **Drivers and providers** do the vendor-specific work. Each package registers itself from
    `init()` and is imported for side effects in `cmd/ncc/main.go`:

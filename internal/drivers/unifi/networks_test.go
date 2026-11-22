@@ -149,7 +149,7 @@ func TestZonesInferredWithoutZoneFirewall(t *testing.T) {
 }
 
 func TestPortVLANModes(t *testing.T) {
-	ix := buildNetIndex("home", mockSiteConfig(t, false))
+	ix := buildNetIndex("home", mockSiteConfig(t, false), nil)
 	cases := []struct {
 		name   string
 		p      rawPort
@@ -171,7 +171,53 @@ func TestPortVLANModes(t *testing.T) {
 		}
 	}
 	// no network config at all: ports carry no VLAN detail
-	if _, n, tg := buildNetIndex("home", nil).port(rawPort{}, nil); n != "" || tg != nil {
+	if _, n, tg := buildNetIndex("home", nil, nil).port(rawPort{}, nil); n != "" || tg != nil {
 		t.Errorf("without config: %q %v", n, tg)
+	}
+}
+
+func TestNetworkDNS(t *testing.T) {
+	devs := load[rawDevice](t, "stat_device.json")
+	snap := Build("home", devs, nil, mockSiteConfig(t, true), time.Now())
+	got := map[string]*inv.NetworkDNS{}
+	for _, n := range snap.Networks {
+		got[n.Name] = n.DNS
+	}
+	if d := got["Default"]; d == nil || !d.DHCP || d.Gateway != "192.168.1.1" || !reflect.DeepEqual(d.Servers, []string{"192.168.1.10"}) {
+		t.Fatalf("Default: %+v", d)
+	}
+	// DHCP DNS on auto: clients get the gateway itself
+	if d := got["IoT"]; d == nil || !d.DHCP || d.Gateway != "192.168.30.1" || len(d.Servers) != 0 {
+		t.Fatalf("IoT: %+v", d)
+	}
+	if d := got["DMZ"]; d == nil || !reflect.DeepEqual(d.Servers, []string{"192.168.1.10", "8.8.8.8"}) {
+		t.Fatalf("DMZ: %+v", d)
+	}
+	// WAN DNS on auto: what the gateway reports it got from the provider
+	if d := got["Internet 1"]; d == nil || !d.UpstreamAuto || !reflect.DeepEqual(d.Upstream, []string{"203.0.113.53", "203.0.113.54"}) {
+		t.Fatalf("WAN: %+v", d)
+	}
+}
+
+func TestNetworkDNSManualWAN(t *testing.T) {
+	gw := []string{"203.0.113.53"}
+	// older firmware: no preference field, manual when wan_dns1 is set
+	for _, r := range []rawNetwork{
+		{Purpose: "wan", WANDNSPreference: "manual", WANDNS1: "9.9.9.9", WANDNS2: "149.112.112.112"},
+		{Purpose: "wan", WANDNS1: "9.9.9.9", WANDNS2: "149.112.112.112"},
+	} {
+		if d := networkDNS(r, gw); d.UpstreamAuto || !reflect.DeepEqual(d.Upstream, []string{"9.9.9.9", "149.112.112.112"}) {
+			t.Fatalf("manual WAN %+v: %+v", r, d)
+		}
+	}
+	if d := networkDNS(rawNetwork{Purpose: "wan"}, gw); !d.UpstreamAuto || !reflect.DeepEqual(d.Upstream, gw) {
+		t.Fatalf("auto WAN: %+v", d)
+	}
+	if d := networkDNS(rawNetwork{Purpose: "vlan-only"}, gw); d != nil {
+		t.Fatalf("vlan-only networks have no router DNS: %+v", d)
+	}
+	// gateways that report their nameservers on the uplink instead of wan1
+	if got := gatewayDNS([]rawDevice{{Type: "ugw", Uplink: rawUplink{Nameservers: []string{"203.0.113.9"}}}}); !reflect.DeepEqual(got, []string{"203.0.113.9"}) {
+		t.Fatalf("uplink nameservers: %v", got)
 	}
 }

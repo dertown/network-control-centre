@@ -186,6 +186,13 @@ var migrations = []string{
 		updated_at TIMESTAMP,
 		updated_by TEXT NOT NULL DEFAULT ''
 	)`,
+	// dns_resolver_status holds what each DNS server connection last reported about the
+	// resolver clients use: its addresses and where it forwards internet queries.
+	`CREATE TABLE IF NOT EXISTS dns_resolver_status (
+		target_id INTEGER PRIMARY KEY REFERENCES targets(id) ON DELETE CASCADE,
+		checked_at TIMESTAMP NOT NULL,
+		data TEXT NOT NULL
+	)`,
 	`CREATE TABLE IF NOT EXISTS iot_settings (
 		key TEXT PRIMARY KEY,
 		value TEXT NOT NULL

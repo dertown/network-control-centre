@@ -1,5 +1,5 @@
 {"meta":{"rc":"ok"},"data":[
- {"mac":"AA:BB:CC:00:00:01","name":"Dream Router 7","model":"UDR7","type":"udm","ip":"192.168.1.1","version":"4.3.6","serial":"AABBCC000001","state":1,"adopted":true,"uptime":86400,
+ {"mac":"AA:BB:CC:00:00:01","name":"Dream Router 7","model":"UDR7","type":"udm","ip":"192.168.1.1","version":"4.3.6","serial":"AABBCC000001","state":1,"adopted":true,"uptime":86400,"wan1":{"ip":"198.51.100.24","dns":["203.0.113.53","203.0.113.54"]},
   "port_table":[{"port_idx":1,"name":"Port 1","up":true,"speed":1000},{"port_idx":2,"name":"Port 2","up":true,"speed":1000},{"port_idx":3,"name":"Port 3","up":true,"speed":1000,"poe_enable":true,"poe_power":"5.20"},{"port_idx":4,"name":"Port 4","up":true,"speed":1000},{"port_idx":5,"name":"WAN","up":true,"speed":2500,"is_uplink":true}],
   "port_overrides":[{"port_idx":1,"portconf_id":"pc_trunk"}],
   "lldp_table":[{"chassis_id":"10:20:30:40:50:60","port_id":"g1","port_descr":"gigabitEthernet 1","system_name":"office-sw","chassis_descr":"NETGEAR GS308E ProSAFE Plus Switch","local_port_idx":4,"is_wired":true}]},

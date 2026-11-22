@@ -82,7 +82,30 @@ type Network struct {
 	Isolated       bool     `json:"isolated,omitempty"`
 	InternetAccess bool     `json:"internet_access"`
 	SSIDs          []string `json:"ssids,omitempty"`
-	Target         string   `json:"target"`
+	// DNS is the DNS the router hands out on this network (LANs) or uses itself (WANs);
+	// nil when the driver cannot tell.
+	DNS    *NetworkDNS `json:"dns,omitempty"`
+	Target string      `json:"target"`
+}
+
+// NetworkDNS is the DNS setup of one router network.
+type NetworkDNS struct {
+	// LAN networks.
+	// DHCP is set when the router hands out addresses on the network.
+	DHCP bool `json:"dhcp"`
+	// Gateway is the router's own address on the network (what clients get as DNS when
+	// Servers is empty).
+	Gateway string `json:"gateway,omitempty"`
+	// Servers are the DNS servers DHCP hands out, in order. Empty means the router hands
+	// out itself, and answers with its own resolver (which asks the WAN's Upstream).
+	Servers []string `json:"servers,omitempty"`
+
+	// WAN networks.
+	// Upstream are the DNS servers the router itself asks on this WAN.
+	Upstream []string `json:"upstream,omitempty"`
+	// UpstreamAuto is set when Upstream came from the internet provider (DHCP or PPPoE on
+	// the WAN) rather than being typed in by hand.
+	UpstreamAuto bool `json:"upstream_auto,omitempty"`
 }
 
 // Link connects two nodes (devices or clients).

@@ -72,6 +72,28 @@ func Check(ctx context.Context, p Provider, s Server, creds map[string]string) e
 	return err
 }
 
+// Forwarding is how a resolver answers names it is not authoritative for (the internet).
+type Forwarding struct {
+	// Source says where NCC read this, e.g. "PowerDNS Recursor at http://ns1:8082".
+	Source string `json:"source"`
+	// Servers are the upstream resolvers internet queries ("." and below) are forwarded to,
+	// without ports. Empty means the resolver does full recursion from the root servers itself.
+	Servers []string `json:"servers"`
+	// RecursionDesired is set when forwarded queries ask the upstream to recurse, which a
+	// provider's resolver needs (PowerDNS forward-zones-recurse rather than forward-zones).
+	RecursionDesired bool `json:"recursion_desired"`
+}
+
+// ErrNoResolver is returned by Forwarders when the connection has no resolver NCC can read
+// (e.g. an authoritative-only server with no recursor configured).
+var ErrNoResolver = errors.New("no resolver to read")
+
+// Forwarder is implemented by providers that can read the upstream resolvers their server
+// forwards internet queries to.
+type Forwarder interface {
+	Forwarders(ctx context.Context, s Server, creds map[string]string) (*Forwarding, error)
+}
+
 var (
 	mu        sync.RWMutex
 	providers = map[string]Provider{}

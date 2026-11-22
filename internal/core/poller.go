@@ -199,7 +199,11 @@ func (p *Poller) checkDNS(ctx context.Context, t *Target) error {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	return dns.Check(cctx, prov, dns.Server{ID: t.ID, Name: t.Name, Kind: t.Kind, Address: t.Address, Options: t.Options}, creds)
+	err = dns.Check(cctx, prov, dns.Server{ID: t.ID, Name: t.Name, Kind: t.Kind, Address: t.Address, Options: t.Options}, creds)
+	// the resolver side (addresses, forwarders) for the DNS chain check; its failures are
+	// reported by that check, not as a failing connection
+	p.readResolver(ctx, t, prov, creds)
+	return err
 }
 
 func (p *Poller) collect(ctx context.Context, t *Target) (*inventory.Snapshot, error) {

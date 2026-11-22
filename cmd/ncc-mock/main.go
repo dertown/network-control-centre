@@ -5,6 +5,7 @@
 //
 // UniFi console:  https://localhost:9443   user "ncc", password "demo-password" (or API key "demo-key")
 // PowerDNS API:   http://localhost:9081    API key "demo-pdns-key"
+// Recursor API:   http://localhost:9082    API key "demo-pdns-key"
 // Proxmox VE:     https://localhost:9006   token "ncc@pve!monitor" / "demo-token-secret" (or root@pam / demo-password)
 // VMware vCenter: https://localhost:9007   user "ncc", password "demo-password"
 // QNAP NAS:       https://localhost:9050   user "admin", password "demo-password"
@@ -66,6 +67,10 @@ func main() {
 	go func() {
 		log.Printf("mock PowerDNS API on http://localhost:9081 (api key demo-pdns-key)")
 		log.Fatal(http.ListenAndServe(":9081", mocklab.NewPowerDNS("demo-pdns-key")))
+	}()
+	go func() {
+		log.Printf("mock PowerDNS Recursor API on http://localhost:9082 (api key demo-pdns-key)")
+		log.Fatal(http.ListenAndServe(":9082", mocklab.NewRecursor("demo-pdns-key")))
 	}()
 	pve := httptest.NewUnstartedServer(mocklab.Proxmox("demo-token-secret", "demo-password"))
 	if pve.Listener, err = netListen(":9006"); err != nil {

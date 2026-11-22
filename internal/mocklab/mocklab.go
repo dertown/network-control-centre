@@ -430,3 +430,46 @@ func (p *PowerDNS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
+
+// Recursor is a pretend PowerDNS Recursor API: the server object and its zones, including
+// the "." forward zone that sends internet queries upstream.
+type Recursor struct {
+	APIKey string
+	// Forwarders are the upstream servers of the "." zone ("ip:port"); none means the
+	// recursor resolves from the root servers itself.
+	Forwarders []string
+	// NoRecurse makes "." a forward-zones entry (no recursion desired) instead of
+	// forward-zones-recurse.
+	NoRecurse bool
+}
+
+// NewRecursor returns a recursor that forwards internet queries to the mock ISP's DNS
+// servers, 203.0.113.53 and 203.0.113.54 (what the mock Dream Router reports on its WAN).
+func NewRecursor(apiKey string) *Recursor {
+	return &Recursor{APIKey: apiKey, Forwarders: []string{"203.0.113.53:53", "203.0.113.54:53"}}
+}
+
+// ServeHTTP implements the subset of the Recursor API NCC uses.
+func (rc *Recursor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Header.Get("X-API-Key") != rc.APIKey {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"Unauthorized"}`))
+		return
+	}
+	switch r.URL.Path {
+	case "/api/v1/servers/localhost":
+		_, _ = w.Write([]byte(`{"type":"Server","id":"localhost","daemon_type":"recursor","version":"5.1.0-mock"}`))
+	case "/api/v1/servers/localhost/zones":
+		zones := []map[string]any{
+			{"id": "home.lan.", "name": "home.lan.", "kind": "Forwarded", "servers": []string{"192.168.1.10:5300"}, "recursion_desired": false},
+		}
+		if len(rc.Forwarders) > 0 {
+			zones = append(zones, map[string]any{"id": ".", "name": ".", "kind": "Forwarded", "servers": rc.Forwarders, "recursion_desired": !rc.NoRecurse})
+		}
+		_ = json.NewEncoder(w).Encode(zones)
+	default:
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"Not Found"}`))
+	}
+}
