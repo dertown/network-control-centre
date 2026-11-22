@@ -26,7 +26,7 @@ import (
 // networks, the networks each link carries, and the network each client and device is in.
 func Build(target string, devs []rawDevice, clients []rawClient, cfg *siteConfig, now time.Time) *inv.Snapshot {
 	snap := &inv.Snapshot{Target: target, TakenAt: now}
-	ix := buildNetIndex(target, cfg)
+	ix := buildNetIndex(target, cfg, gatewayDNS(devs))
 	snap.Networks = ix.nets
 	byMAC := map[string]*inv.Device{}
 	order := []string{}
@@ -401,4 +401,21 @@ func collectIntegration(ctx context.Context, c *client, target string) (*inv.Sna
 		})
 	}
 	return snap, nil
+}
+
+// gatewayDNS is the DNS servers the site's gateway says it uses upstream: what the
+// internet provider handed out when the WAN's DNS is on auto.
+func gatewayDNS(devs []rawDevice) []string {
+	for _, d := range devs {
+		if kindFor(d.Type) != inv.KindGateway {
+			continue
+		}
+		if d.WAN1 != nil && len(d.WAN1.DNS) > 0 {
+			return d.WAN1.DNS
+		}
+		if len(d.Uplink.Nameservers) > 0 {
+			return d.Uplink.Nameservers
+		}
+	}
+	return nil
 }

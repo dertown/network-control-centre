@@ -55,6 +55,16 @@ export interface Target {
   id: number; kind: string; category: "device" | "dns" | "hypervisor" | "storage" | "smarthome"; name: string; address: string;
   options: Record<string, string>; secret_path: string; enabled: boolean; last_poll?: string; last_error: string;
 }
+/** One finding of the DNS chain check (router hands out the internal DNS server, which forwards to the ISP). */
+export interface DNSCheck {
+  id: string; kind: "dhcp" | "forwarders" | "setup"; status: "pass" | "skip" | "unknown" | "warn" | "fail";
+  subject: string; title: string; expected?: string; actual?: string; detail?: string; fix?: string; fix_url?: string;
+}
+export interface DNSReport {
+  /** Worst check's status; "" when there is no DNS server to check. */
+  status: "" | DNSCheck["status"]; summary: string; resolvers: string[]; isp: string[]; isp_source?: "router" | "setting";
+  checks: DNSCheck[];
+}
 export interface NodePort { name: string; up: boolean; uplink?: boolean; profile?: string; native?: string; tagged?: string[] }
 export interface GNode {
   id: string; label: string; kind: string; make?: string; model?: string; ip?: string; online: boolean; discovery?: string;

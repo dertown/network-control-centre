@@ -171,7 +171,7 @@ export default function App() {
           {page === "firewall" && <Firewall tick={tick} />}
           {page === "vlans" && <VLANs tick={tick} user={user} />}
           {page === "iot" && <IoT tick={tick} user={user} />}
-          {page === "dns" && <DNS user={user} />}
+          {page === "dns" && <DNS user={user} tick={tick} />}
           {page === "vault" && <Vault user={user} vault={vault} onVault={setVault} />}
           {page === "deploy" && <CertDeploy user={user} tick={tick} />}
           {page === "settings" && <Settings user={user} tick={tick} />}

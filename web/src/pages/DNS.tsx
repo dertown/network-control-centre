@@ -1,7 +1,9 @@
-// DNS page: browse a PowerDNS server's zones and records and add, change or delete records,
-// always through a preview of the exact changes (including the automatic PTR records).
+// DNS page: the router DNS check (clients get the internal DNS server, which forwards internet
+// queries to the ISP), then browse a PowerDNS server's zones and records and add, change or
+// delete records, always through a preview of the exact changes (including the automatic PTR
+// records).
 import { useEffect, useMemo, useState } from "react";
-import { api, Change, RRSet, Target, User, Zone, ZonePlan } from "../api";
+import { api, Change, DNSCheck, DNSReport, RRSet, Target, User, Zone, ZonePlan } from "../api";
 
 const TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "SRV", "PTR", "NS", "CAA"];
 
@@ -16,7 +18,83 @@ function relative(name: string, zone: string) {
   return name.endsWith("." + zone) ? name.slice(0, -(zone.length + 1)) : name;
 }
 
-export function DNS({ user }: { user: User }) {
+const statusTone: Record<DNSCheck["status"], string> = { pass: "good", skip: "", unknown: "", warn: "warn", fail: "bad" };
+const statusLabel: Record<DNSCheck["status"], string> = { pass: "Pass", skip: "Not checked", unknown: "Can't tell", warn: "Warning", fail: "Fail" };
+
+/**
+ * DNSChainCard is the router DNS check: each router network should hand out the internal DNS
+ * server, and that server should forward internet queries to the ISP's DNS servers. Problems
+ * come first; passes and skipped networks are folded away under "Show all".
+ */
+function DNSChainCard({ tick, servers, canPoll }: { tick: number; servers: Target[]; canPoll: boolean }) {
+  const [rep, setRep] = useState<DNSReport | null>(null);
+  const [all, setAll] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const load = () => api<DNSReport>("GET", "/api/dns/check").then(setRep).catch(() => setRep(null));
+  useEffect(() => { load(); }, [tick]);
+  if (!rep || !rep.status) return null;
+
+  const order = { fail: 0, warn: 1, unknown: 2, pass: 3, skip: 4 };
+  const checks = [...rep.checks].sort((a, b) => order[a.status] - order[b.status]);
+  const problems = checks.filter((c) => c.status !== "pass" && c.status !== "skip");
+  const shown = all ? checks : problems;
+  const recheck = async () => {
+    setBusy(true);
+    await Promise.all(servers.map((s) => api("POST", `/api/targets/${s.id}/poll`).catch(() => undefined)));
+    await load();
+    setBusy(false);
+  };
+
+  return (
+    <section className="card dns-chain">
+      <div className="card-head">
+        <h2>Router DNS check <span className={`pill ${statusTone[rep.status]}`}>{statusLabel[rep.status]}</span></h2>
+        {canPoll && <button onClick={recheck} disabled={busy}>{busy ? "Checking…" : "Check now"}</button>}
+      </div>
+      <p className="muted small dns-chain-path">
+        Clients → <strong>{rep.resolvers.join(", ") || "internal DNS server"}</strong> → ISP{" "}
+        <strong>{rep.isp.join(", ") || "unknown"}</strong>
+        {rep.isp_source === "router" && " (from the router's WAN)"}
+        {rep.isp_source === "setting" && " (from Settings)"}
+      </p>
+      <p className="lede">{rep.summary}</p>
+      {shown.length > 0 && (
+        <ul className="plain dns-checks">
+          {shown.map((c) => (
+            <li key={c.id} className={`dns-check ${statusTone[c.status]}`}>
+              <div className="row-between">
+                <strong>{c.title}</strong>
+                <span className={`pill ${statusTone[c.status]}`}>{statusLabel[c.status]}</span>
+              </div>
+              <div className="muted small">{c.subject}</div>
+              {(c.actual || c.expected) && (
+                <dl className="dns-compare small">
+                  {c.actual && <><dt>Configured</dt><dd className="mono">{c.actual}</dd></>}
+                  {c.expected && <><dt>Expected</dt><dd className="mono">{c.expected}</dd></>}
+                </dl>
+              )}
+              {c.detail && <div className="small">{c.detail}</div>}
+              {c.fix && (
+                <div className="small dns-fix">
+                  <strong>Fix: </strong>{c.fix}
+                  {c.fix_url && <> <a href={c.fix_url} target={c.fix_url.startsWith("#") ? undefined : "_blank"} rel="noreferrer">
+                    {c.fix_url.startsWith("#") ? "Open Settings" : "Open the router"}</a></>}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {checks.length > problems.length && (
+        <button className="link" onClick={() => setAll(!all)}>
+          {all ? "Show only problems" : `Show all ${checks.length} checks (${checks.length - problems.length} passed or not checked)`}
+        </button>
+      )}
+    </section>
+  );
+}
+
+export function DNS({ user, tick = 0 }: { user: User; tick?: number }) {
   const canWrite = user.role !== "viewer";
   const [servers, setServers] = useState<Target[]>([]);
   const [server, setServer] = useState<number | null>(null);
@@ -101,6 +179,7 @@ export function DNS({ user }: { user: User }) {
   return (
     <>
       <h1>DNS</h1>
+      <DNSChainCard tick={tick} servers={servers} canPoll={canWrite} />
       <div className="toolbar">
         <select value={server ?? ""} onChange={(e) => setServer(Number(e.target.value))}>
           {servers.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.kind})</option>)}

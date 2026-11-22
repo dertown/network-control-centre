@@ -12,7 +12,7 @@ const snmpBlank = { snmp: "off", snmp_version: "2c", snmp_community: "", snmp_us
 
 const blank = {
   unifi: { name: "dream-router", address: "https://192.168.1.1", site: "default", auth: "password", username: "", password: "", api_key: "", tls: "pin" },
-  powerdns: { name: "powerdns", address: "http://192.168.1.10:8081", server_id: "localhost", api_key: "", tls: "verify" },
+  powerdns: { name: "powerdns", address: "http://192.168.1.10:8081", server_id: "localhost", api_key: "", tls: "verify", recursor_url: "", recursor_api_key: "", resolver_ips: "", isp_dns: "" },
   proxmox: { name: "proxmox", address: "https://192.168.1.10:8006", auth: "token", token_id: "ncc@pve!monitor", token_secret: "", username: "root@pam", password: "", tls: "pin" },
   vmware: { name: "vcenter", address: "https://vcenter.lan", username: "ncc@vsphere.local", password: "", tls: "pin" },
   qnap: { name: "qnap", address: "https://192.168.1.50", username: "", password: "", tls: "pin", ...snmpBlank },
@@ -194,7 +194,8 @@ export function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) 
         : kind === "powerdns"
           ? {
               kind, category: "dns", name: f.name, address: f.address,
-              options: { server_id: f.server_id, tls: f.tls }, credentials: { api_key: f.api_key },
+              options: { server_id: f.server_id, tls: f.tls, ...resolverOptions(f) },
+              credentials: { api_key: f.api_key, ...(f.recursor_api_key.trim() ? { recursor_api_key: f.recursor_api_key.trim() } : {}) },
             }
           : kind === "proxmox"
             ? {
@@ -321,6 +322,7 @@ export function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) 
           <label>Certificate (HTTPS only)<select value={f.tls} onChange={set("tls")}><option value="verify">Verify with trusted CAs</option><option value="pin">Pin on first use</option></select></label>
         </div>
       )}
+      {kind === "powerdns" && <ResolverFields f={f} set={set} withKey />}
       {kind === "proxmox" && (
         <>
           <div className="row">
@@ -356,12 +358,45 @@ export function AddTarget({ kind, onDone }: { kind: Kind; onDone: () => void }) 
   );
 }
 
+// The router DNS check (DNS page): which resolver clients should get and where it should
+// forward. All optional: the resolver's address defaults to the Recursor's (or the server's)
+// address and the ISP's servers to what the router learned on its WAN.
+const resolverKeys = ["recursor_url", "resolver_ips", "isp_dns"] as const;
+
+function resolverOptions(f: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of resolverKeys) if (f[k]?.trim()) out[k] = f[k].trim();
+  return out;
+}
+
+function ResolverFields({ f, set, withKey }: {
+  f: Record<string, string>; set: (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; withKey?: boolean;
+}) {
+  return (
+    <>
+      <p className="muted small">
+        <strong>Router DNS check</strong> (optional). The Authoritative server never forwards; to check that internet queries go to your
+        ISP, give the API of the PowerDNS Recursor your clients use (<code>webserver=yes</code>, <code>api-key</code> in recursor.conf).
+      </p>
+      <div className="row">
+        <label>Recursor API URL<input value={f.recursor_url} onChange={set("recursor_url")} placeholder="http://192.168.1.10:8082" /></label>
+        {withKey && <label>Recursor API key (if different)<input type="password" value={f.recursor_api_key} onChange={set("recursor_api_key")} autoComplete="off" /></label>}
+      </div>
+      <div className="row">
+        <label>Address clients use<input value={f.resolver_ips} onChange={set("resolver_ips")} placeholder="the Recursor's address" /></label>
+        <label>ISP DNS servers<input value={f.isp_dns} onChange={set("isp_dns")} placeholder="learned from the router's WAN" /></label>
+      </div>
+    </>
+  );
+}
+
 // EditTarget changes a saved connection's address, certificate setting and, optionally, its login.
 export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
   const kind = t.kind as Kind;
   const [f, setF] = useState<Record<string, string>>({
     address: t.address, tls: t.options.tls || (kind === "powerdns" ? "verify" : "pin"), site: t.options.site ?? "default",
     server_id: t.options.server_id ?? "localhost", auth: kind === "proxmox" ? "token" : "password",
+    recursor_url: t.options.recursor_url ?? "", resolver_ips: t.options.resolver_ips ?? "", isp_dns: t.options.isp_dns ?? "", recursor_api_key: "",
     username: "", password: "", api_key: "", token_id: "", token_secret: "", domain: "", token: "",
     ...snmpBlank, snmp: kind === "snmp" || t.options.snmp === "on" ? "on" : "off",
   });
@@ -376,7 +411,7 @@ export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
   const secret = (): Record<string, string> | null => {
     switch (kind) {
       case "unifi": return f.auth === "apikey" ? { api_key: f.api_key } : { username: f.username, password: f.password };
-      case "powerdns": return { api_key: f.api_key };
+      case "powerdns": return { api_key: f.api_key, ...(f.recursor_api_key.trim() ? { recursor_api_key: f.recursor_api_key.trim() } : {}) };
       case "proxmox": return f.auth === "token" ? { token_id: f.token_id.trim(), token_secret: f.token_secret.trim() } : { username: f.username, password: f.password };
       case "vmware": return { username: f.username, password: f.password };
       case "nfs": return null;
@@ -392,7 +427,11 @@ export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
     const options: Record<string, string> = hasTLS ? { ...t.options, tls: f.tls } : { ...t.options };
     if (kind === "qnap" && creds) { if (f.snmp === "on") options.snmp = "on"; else delete options.snmp; }
     if (kind === "unifi") options.site = f.site;
-    if (kind === "powerdns") options.server_id = f.server_id;
+    if (kind === "powerdns") {
+      options.server_id = f.server_id;
+      for (const k of resolverKeys) delete options[k];
+      Object.assign(options, resolverOptions(f));
+    }
     if (repin || f.tls !== (t.options.tls || "") || f.address !== t.address) delete options.tls_fingerprint;
     const s = creds ? secret() : null;
     if (s && Object.entries(s).some(([k, v]) => !v && k !== "domain")) {
@@ -424,6 +463,7 @@ export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
         <label className="check block"><input type="checkbox" checked={repin} onChange={(e) => setRepin(e.target.checked)} />
           Forget the pinned certificate ({t.options.tls_fingerprint.slice(0, 16)}…) and pin the one the server shows next. Use this after replacing its certificate.</label>
       )}
+      {kind === "powerdns" && <ResolverFields f={f} set={set} />}
       {kind !== "nfs" && <label className="check block"><input type="checkbox" checked={creds} onChange={(e) => setCreds(e.target.checked)} /> Change login (the saved one stays in the vault until you save)</label>}
       {creds && isStorage && (
         <>
@@ -455,7 +495,12 @@ export function EditTarget({ t, onDone }: { t: Target; onDone: () => void }) {
             </div>
           ) : kind === "homeassistant" ? (
             <label>Long-lived access token<input type="password" value={f.token} onChange={set("token")} autoComplete="off" /></label>
-          ) : kind === "powerdns" || (kind === "unifi" && f.auth === "apikey") ? (
+          ) : kind === "powerdns" ? (
+            <div className="row">
+              <label>API key<input type="password" value={f.api_key} onChange={set("api_key")} autoComplete="off" /></label>
+              <label>Recursor API key (if different)<input type="password" value={f.recursor_api_key} onChange={set("recursor_api_key")} autoComplete="off" /></label>
+            </div>
+          ) : kind === "unifi" && f.auth === "apikey" ? (
             <label>API key<input type="password" value={f.api_key} onChange={set("api_key")} autoComplete="off" /></label>
           ) : (
             <div className="row">

@@ -52,6 +52,52 @@ type rawNetwork struct {
 	Isolation      bool    `json:"network_isolation_enabled"`
 	InternetAccess *bool   `json:"internet_access_enabled"`
 	Enabled        *bool   `json:"enabled"`
+
+	// DHCP and DNS (LAN networks). With dhcpd_dns_enabled off, DHCP hands out the
+	// gateway itself as the DNS server.
+	DHCPEnabled    bool   `json:"dhcpd_enabled"`
+	DHCPDNSEnabled bool   `json:"dhcpd_dns_enabled"`
+	DHCPDNS1       string `json:"dhcpd_dns_1"`
+	DHCPDNS2       string `json:"dhcpd_dns_2"`
+	DHCPDNS3       string `json:"dhcpd_dns_3"`
+	DHCPDNS4       string `json:"dhcpd_dns_4"`
+	// DNS the gateway itself uses on a WAN: "auto" (from the provider) or "manual".
+	// Older firmware has no preference field and is manual when wan_dns1 is set.
+	WANDNSPreference string `json:"wan_dns_preference"`
+	WANDNS1          string `json:"wan_dns1"`
+	WANDNS2          string `json:"wan_dns2"`
+}
+
+// networkDNS reads the DNS setup of a network from its configuration. gatewayDNS is what
+// the gateway reports it is using upstream right now (the provider's servers when auto).
+func networkDNS(r rawNetwork, gatewayDNS []string) *inv.NetworkDNS {
+	nonEmpty := func(v ...string) []string {
+		var out []string
+		for _, x := range v {
+			if x = strings.TrimSpace(x); x != "" {
+				out = append(out, x)
+			}
+		}
+		return out
+	}
+	if r.Purpose == "wan" {
+		manual := r.WANDNSPreference == "manual" || (r.WANDNSPreference == "" && strings.TrimSpace(r.WANDNS1) != "")
+		if manual {
+			return &inv.NetworkDNS{Upstream: nonEmpty(r.WANDNS1, r.WANDNS2)}
+		}
+		return &inv.NetworkDNS{Upstream: gatewayDNS, UpstreamAuto: true}
+	}
+	if strings.Contains(r.Purpose, "vpn") || r.Purpose == "vlan-only" {
+		return nil
+	}
+	d := &inv.NetworkDNS{DHCP: r.DHCPEnabled}
+	if p, err := netip.ParsePrefix(strings.TrimSpace(r.IPSubnet)); err == nil {
+		d.Gateway = p.Addr().String()
+	}
+	if r.DHCPDNSEnabled {
+		d.Servers = nonEmpty(r.DHCPDNS1, r.DHCPDNS2, r.DHCPDNS3, r.DHCPDNS4)
+	}
+	return d
 }
 
 type rawPortConf struct {
@@ -160,7 +206,7 @@ type netIndex struct {
 	switched []string
 }
 
-func buildNetIndex(target string, cfg *siteConfig) *netIndex {
+func buildNetIndex(target string, cfg *siteConfig, gatewayDNS []string) *netIndex {
 	ix := &netIndex{byID: map[string]*inv.Network{}, byName: map[string]*inv.Network{}, byVLAN: map[int]*inv.Network{},
 		profiles: map[string]rawPortConf{}, ssidNet: map[string]string{}}
 	if cfg == nil {
@@ -190,6 +236,7 @@ func buildNetIndex(target string, cfg *siteConfig) *netIndex {
 		if !ok && r.FirewallZoneID != "" {
 			z, ok = zoneByID[r.FirewallZoneID]
 		}
+		n.DNS = networkDNS(r, gatewayDNS)
 		if ok {
 			n.Zone, n.ZoneName, n.ZoneSource = z.ZoneKey, z.Name, "firewall"
 			if n.Zone == "" {

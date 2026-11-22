@@ -174,6 +174,30 @@ Then **Settings → Add PowerDNS server** with `http://<pdns host>:8081` and the
 automatic PTR records, create the reverse zone (for example `1.168.192.in-addr.arpa.`) on the
 same server.
 
+### Router DNS check
+
+The **DNS** page (and the Dashboard's *Needs attention* list) checks the DNS chain:
+
+```
+clients ──DHCP DNS──► internal DNS server ──forwarders──► your ISP's DNS servers
+```
+
+- **Every router network hands out the internal DNS server.** NCC reads each network's DHCP DNS
+  setting from the UniFi console. A network on *Auto* hands out the router itself, which sends
+  queries straight to the ISP and bypasses the internal server (fail); handing out a public
+  server as a backup (e.g. `8.8.8.8`) is a warning. Guest networks and networks without DHCP on
+  the router are not checked.
+- **The internal DNS server forwards internet queries to the ISP.** The PowerDNS Authoritative
+  server never forwards, so NCC reads the forward zone for `.` from the **PowerDNS Recursor**
+  your clients use. Turn on its API in `recursor.conf` (`webserver=yes`, `api-key=…`) and fill in
+  **Recursor API URL** (e.g. `http://192.168.1.10:8082`) on the PowerDNS connection in Settings.
+  The Recursor should have `forward-zones-recurse=.=<ISP DNS 1>;<ISP DNS 2>`.
+
+The ISP's DNS servers are what the router learned on its WAN (WAN DNS on *Auto*). If you set the
+router's WAN DNS by hand, type the ISP's servers into **ISP DNS servers** on the connection. The
+address clients should get defaults to the Recursor's address; set **Address clients use** when
+that differs (or when NCC reaches it on `localhost`).
+
 ### Traffic: top clients, traffic types and sites
 
 The **Traffic** page ranks clients by how much data they moved (last hour, 24 hours, 7 days, or
@@ -271,7 +295,8 @@ To fill the Traffic page's site lists too, uncomment `dns_log` in the config and
 pretend network.
 
 Add a UniFi console at `https://localhost:9443` (user `ncc`, password `demo-password`) and a
-PowerDNS server at `http://localhost:9081` (API key `demo-pdns-key`). On the **Virtual machines**
+PowerDNS server at `http://localhost:9081` (API key `demo-pdns-key`, Recursor API URL
+`http://localhost:9082`, address clients use `192.168.1.10`). On the **Virtual machines**
 page, add Proxmox VE at `https://localhost:9006` (token `ncc@pve!monitor`, secret
 `demo-token-secret`) and VMware at `https://localhost:9007` (user `ncc`, password `demo-password`).
 

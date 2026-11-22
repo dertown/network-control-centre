@@ -258,6 +258,13 @@ type rawUplink struct {
 	PortIdx          int    `json:"port_idx"`
 	Type             string `json:"type"` // wire | wireless
 	Speed            int    `json:"speed"`
+	// Nameservers are the DNS servers a gateway uses upstream (gateways only).
+	Nameservers []string `json:"nameservers"`
+}
+
+// rawWAN is a gateway's WAN status (wan1, wan2).
+type rawWAN struct {
+	DNS []string `json:"dns"` // DNS servers in use on this WAN
 }
 
 type rawLLDP struct {
@@ -295,6 +302,7 @@ type rawDevice struct {
 	LLDPTable []rawLLDP `json:"lldp_table"`
 
 	PortOverrides []rawPortOverride `json:"port_overrides"`
+	WAN1          *rawWAN           `json:"wan1"`
 }
 
 type rawClient struct {
