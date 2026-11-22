@@ -748,3 +748,27 @@ func (d Driver) Reconnect(ctx context.Context, t drivers.Target, creds vault.Sec
 	})
 	return results, err
 }
+
+// SetNetworkDomain implements drivers.NetworkDomainSetter. UniFi wants the whole network
+// object back on a PUT, so the current one is read, its domain_name changed and sent back.
+func (d Driver) SetNetworkDomain(ctx context.Context, t drivers.Target, creds vault.Secret, networkID, domain string) error {
+	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
+	return d.writeSession(ctx, t, creds, func(c *client) error {
+		nets, err := getList[map[string]any](ctx, c, "rest/networkconf")
+		if err != nil {
+			return err
+		}
+		for _, n := range nets {
+			if id, _ := n["_id"].(string); id != networkID {
+				continue
+			}
+			if p, _ := n["purpose"].(string); p == "wan" || strings.Contains(p, "vpn") {
+				return fmt.Errorf("unifi: %v is a %s network, which has no DHCP domain", n["name"], p)
+			}
+			n["domain_name"] = domain
+			_, err := write[rawNetwork](ctx, c, http.MethodPut, "rest/networkconf/"+url.PathEscape(networkID), n)
+			return err
+		}
+		return fmt.Errorf("unifi: %s", friendlyMsg("api.err.NetworkNotFound"))
+	})
+}

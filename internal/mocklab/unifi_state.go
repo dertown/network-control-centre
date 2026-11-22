@@ -148,6 +148,29 @@ func (s *uState) createNetwork(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(envelope([]any{in}))
 }
 
+// updateNetwork is a PUT of a whole network object, as UniFi expects.
+func (s *uState) updateNetwork(w http.ResponseWriter, r *http.Request) {
+	var in map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		apiErr(w, 400, "api.err.InvalidPayload")
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := s.network(r.PathValue("id"))
+	if n == nil {
+		apiErr(w, 400, "api.err.NetworkNotFound")
+		return
+	}
+	s.writes = append(s.writes, "PUT rest/networkconf/"+r.PathValue("id")+" domain_name="+str(in["domain_name"]))
+	for k, v := range in {
+		if k != "_id" {
+			n[k] = v
+		}
+	}
+	_, _ = w.Write(envelope([]any{n}))
+}
+
 func (s *uState) updateDevice(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		PortOverrides []map[string]any `json:"port_overrides"`

@@ -1,11 +1,14 @@
 package api_test
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dertown/network-control-centre/internal/assistant"
+	"github.com/dertown/network-control-centre/internal/dnszones"
+	"github.com/dertown/network-control-centre/internal/mocklab"
 	"github.com/dertown/network-control-centre/internal/drivers/unifi"
 )
 
@@ -125,5 +128,59 @@ func TestAssistant(t *testing.T) {
 		if !seen[want] {
 			t.Errorf("audit misses %s", want)
 		}
+	}
+}
+
+func TestAssistantDNSZones(t *testing.T) {
+	unifi.BounceDown = 50 * time.Millisecond
+	c, lab, routerID, done := vlanSetup(t, "ncc")
+	defer done()
+	pdns := httptest.NewServer(mocklab.NewPowerDNS("pdns-key"))
+	defer pdns.Close()
+	if code := c.do("POST", "/api/targets", map[string]any{
+		"kind": "powerdns", "category": "dns", "name": "pdns", "address": pdns.URL,
+		"credentials": map[string]string{"api_key": "pdns-key"},
+	}, nil); code != 201 {
+		t.Fatalf("create dns target: %d", code)
+	}
+
+	// with a DNS server that can make zones, the plan gives IoT its own zone and hands it out
+	var plan assistant.Plan
+	if code := c.do("POST", "/api/assistant/plans", map[string]string{}, &plan); code != 201 {
+		t.Fatalf("plan: %d", code)
+	}
+	var kinds []string
+	for _, s := range plan.Steps {
+		kinds = append(kinds, s.Kind)
+		if (s.Kind == assistant.StepCreateZone || s.Kind == assistant.StepAssignZone) && s.Problem != "" {
+			t.Fatalf("%s: %s", s.Title, s.Problem)
+		}
+	}
+	if strings.Join(kinds, ",") != "move_clients,move_clients,create_zone,assign_zone" || plan.Steps[2].Zone != "iot.home.lan." {
+		t.Fatalf("steps: %v %+v", kinds, plan.Steps)
+	}
+
+	if code := c.do("POST", "/api/assistant/plans/"+plan.ID+"/deploy", map[string]any{"steps": []string{"s3", "s4"}, "confirm": true}, nil); code != 202 {
+		t.Fatalf("deploy: %d", code)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		c.do("GET", "/api/assistant/plans/"+plan.ID, nil, &plan)
+		if plan.Status != assistant.PlanDeploying || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if plan.Status != assistant.PlanDeployed {
+		t.Fatalf("deployed: %s %+v %+v", plan.Status, plan.Steps[2].Result, plan.Steps[3].Result)
+	}
+	if w := strings.Join(lab.Writes(), "\n"); !strings.Contains(w, "net_iot domain_name=iot.home.lan") {
+		t.Fatalf("router writes: %s", w)
+	}
+	pollUntil(c, routerID)
+	var rep dnszones.Report
+	c.do("GET", "/api/dns/zonemap", nil, &rep)
+	if r := zoneRow(rep, "IoT"); r.Zone != "iot.home.lan." || !r.ZoneFound || r.DHCPDomain != "iot.home.lan" {
+		t.Fatalf("IoT after: %+v", r)
 	}
 }

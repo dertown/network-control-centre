@@ -197,6 +197,19 @@ var migrations = []string{
 		key TEXT PRIMARY KEY,
 		value TEXT NOT NULL
 	)`,
+	// dns_zone_vlans says which DNS zone each router network (VLAN) uses.
+	`CREATE TABLE IF NOT EXISTS dns_zone_vlans (
+		id INTEGER PRIMARY KEY,
+		server_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+		zone TEXT NOT NULL,
+		router_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+		network_id TEXT NOT NULL,
+		network TEXT NOT NULL DEFAULT '',
+		vlan INTEGER NOT NULL DEFAULT 0,
+		updated_by TEXT NOT NULL DEFAULT '',
+		updated_at TIMESTAMP NOT NULL,
+		UNIQUE (router_id, network_id)
+	)`,
 }
 
 // Open opens (and migrates) the database in dataDir.

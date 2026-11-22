@@ -242,3 +242,86 @@ func BestZone(name string, zones []Zone) string {
 	}
 	return best
 }
+
+// ZoneSpec describes a zone to create.
+type ZoneSpec struct {
+	Name string `json:"name"` // fully qualified, trailing dot
+	// Kind is the provider's zone kind; PowerDNS: Native (default), Master or Slave.
+	Kind string `json:"kind,omitempty"`
+	// Nameservers are the zone's NS host names. At least one is required.
+	Nameservers []string `json:"nameservers"`
+}
+
+// ZoneManager is implemented by providers that can create and delete zones.
+type ZoneManager interface {
+	CreateZone(ctx context.Context, s Server, creds map[string]string, spec ZoneSpec) error
+	DeleteZone(ctx context.Context, s Server, creds map[string]string, zone string) error
+}
+
+// ValidateZoneName checks a zone name such as "iot.corp.lan." and returns it fully qualified.
+func ValidateZoneName(name string) (string, error) {
+	fq := FQDN(name)
+	if fq == "." {
+		return "", errors.New("a zone name is required")
+	}
+	if len(fq) > 254 {
+		return "", errors.New("the zone name is longer than 253 characters")
+	}
+	labels := strings.Split(strings.TrimSuffix(fq, "."), ".")
+	if len(labels) < 2 && !strings.HasSuffix(fq, ".arpa.") {
+		return "", fmt.Errorf("%s is a top-level name; use a domain such as %scorp.lan.", fq, fq)
+	}
+	for _, l := range labels {
+		if l == "" || len(l) > 63 {
+			return "", fmt.Errorf("%q is not a valid zone name (empty or over-long label)", name)
+		}
+		for i, r := range l {
+			ok := r == '-' || r == '_' || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+			if !ok || (r == '-' && (i == 0 || i == len(l)-1)) {
+				return "", fmt.Errorf("%q is not a valid zone name: label %q may only hold letters, digits and inner hyphens", name, l)
+			}
+		}
+	}
+	return fq, nil
+}
+
+// ParentZone returns the longest zone in zones that strictly contains zone, or "".
+func ParentZone(zone string, zones []Zone) string {
+	zone = FQDN(zone)
+	best := ""
+	for _, z := range zones {
+		n := FQDN(z.Name)
+		if n != zone && InZone(zone, n) && len(n) > len(best) {
+			best = n
+		}
+	}
+	return best
+}
+
+// ReverseZone returns the reverse-lookup zone for a subnet: the in-addr.arpa zone at the
+// nearest whole-octet boundary (a /22 gets the /16 zone, a /26 the /24 zone), or for IPv6
+// the ip6.arpa zone at the nearest nibble.
+func ReverseZone(p netip.Prefix) string {
+	p = p.Masked()
+	a := p.Addr()
+	if a.Is4() {
+		bits := p.Bits() / 8 * 8
+		if p.Bits() > 24 {
+			bits = 24
+		}
+		if bits == 0 {
+			return "in-addr.arpa."
+		}
+		b := a.As4()
+		parts := make([]string, 0, 3)
+		for i := bits/8 - 1; i >= 0; i-- {
+			parts = append(parts, fmt.Sprint(b[i]))
+		}
+		return strings.Join(parts, ".") + ".in-addr.arpa."
+	}
+	nibbles := p.Bits() / 4
+	full, _ := PTRName(a.String()) // 32 nibbles, least significant first
+	labels := strings.Split(strings.TrimSuffix(full, "ip6.arpa."), ".")
+	labels = labels[:32]
+	return strings.Join(append(labels[32-nibbles:], "ip6.arpa."), ".")
+}

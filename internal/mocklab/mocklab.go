@@ -289,6 +289,7 @@ func unifiWithState(loops, office bool) (http.Handler, *uState) {
 	mux.HandleFunc("POST /proxy/network/api/s/default/stat/sitedpi", serve([]byte(`{"meta":{"rc":"ok"},"data":[]}`)))
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/networkconf", dyn(func(s *uState) []map[string]any { return s.networks }))
 	mux.HandleFunc("POST /proxy/network/api/s/default/rest/networkconf", canWrite(st.createNetwork))
+	mux.HandleFunc("PUT /proxy/network/api/s/default/rest/networkconf/{id}", canWrite(st.updateNetwork))
 	mux.HandleFunc("PUT /proxy/network/api/s/default/rest/device/{id}", canWrite(st.updateDevice))
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/user/{mac}", func(w http.ResponseWriter, r *http.Request) {
 		if !ok(r) {
@@ -384,6 +385,43 @@ func (p *PowerDNS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(out)
 		return
 	}
+	if r.URL.Path == base && r.Method == http.MethodPost {
+		var in struct {
+			Name        string   `json:"name"`
+			Kind        string   `json:"kind"`
+			Nameservers []string `json:"nameservers"`
+		}
+		raw, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(raw, &in); err != nil || !strings.HasSuffix(in.Name, ".") {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"error":"bad zone"}`))
+			return
+		}
+		if _, dup := p.zones[in.Name]; dup {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"Domain '` + in.Name + `' already exists"}`))
+			return
+		}
+		ns := in.Nameservers
+		first := "ns1." + in.Name
+		if len(ns) > 0 {
+			first = ns[0]
+		}
+		z := map[string]rrset{in.Name + "|SOA": {Name: in.Name, Type: "SOA", TTL: 3600,
+			Records: []record{{Content: first + " hostmaster." + in.Name + " 1 10800 3600 604800 3600"}}}}
+		if len(ns) > 0 {
+			rs := rrset{Name: in.Name, Type: "NS", TTL: 3600}
+			for _, n := range ns {
+				rs.Records = append(rs.Records, record{Content: n})
+			}
+			z[in.Name+"|NS"] = rs
+		}
+		p.zones[in.Name] = z
+		p.Patches[in.Name] = append(p.Patches[in.Name], raw)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"` + in.Name + `","name":"` + in.Name + `"}`))
+		return
+	}
 	zone := strings.TrimPrefix(r.URL.Path, base+"/")
 	z, ok := p.zones[zone]
 	if !ok || zone == r.URL.Path {
@@ -425,6 +463,9 @@ func (p *PowerDNS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			z[key] = rs
 		}
 		p.Patches[zone] = append(p.Patches[zone], raw)
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodDelete:
+		delete(p.zones, zone)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)

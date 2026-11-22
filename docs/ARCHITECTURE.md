@@ -85,7 +85,8 @@ clients, the IoT inventory, port forwards, DNS zones), makes a rule-based plan (
 improve it (`Prompt`, `ParseAnswer`). `Check` turns any answer into `Step`s, validating each against the picture
 with `core.ValidateNetwork` and `core.PlanMove`, so the model can only propose changes NCC would make itself.
 Plans are stored in `ai_plans`; `Deploy` applies the picked steps through an `Env` the API implements with the
-same driver calls and audit records as the VLANs page.
+same driver calls and audit records as the VLANs page; zone steps go through `dnszones.BuildPlan`/`Apply`,
+like the DNS page's Zones & VLANs tab.
 
 Models are reached without API keys by running the vendors' CLIs (`providers.go`). Each run gets a private
 temporary home with only PATH and proxy settings from NCC's environment; the tool's sign-in (a token, or its
@@ -136,7 +137,10 @@ Conventions:
 ## Tests and the pretend network
 
 `go test ./...` runs unit tests for every package plus API tests against an in-memory
-database. `internal/mocklab` emulates a UniFi console, PowerDNS, Proxmox VE, vCenter, QNAP,
+database. `internal/dnszones` ties DNS zones to router networks: the assignments (`dns_zone_vlans`),
+the check (`Evaluate`) and the planner (`BuildPlan`/`Apply`, over an `Env` the API server implements),
+which creates zones through the optional `dns.ZoneManager` and sets DHCP domains through the optional
+`drivers.NetworkDomainSetter`. `internal/mocklab` emulates a UniFi console, PowerDNS, Proxmox VE, vCenter, QNAP,
 Synology and Home Assistant from recorded data; the tests use it, and `cmd/ncc-mock` serves it
 on local ports so you can try the whole UI without a real network (see the README).
 

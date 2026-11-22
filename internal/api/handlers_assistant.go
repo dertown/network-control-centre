@@ -12,24 +12,13 @@ import (
 	"github.com/dertown/network-control-centre/internal/assistant"
 	"github.com/dertown/network-control-centre/internal/core"
 	"github.com/dertown/network-control-centre/internal/dns"
+	"github.com/dertown/network-control-centre/internal/dnszones"
 	"github.com/dertown/network-control-centre/internal/drivers"
 	"github.com/dertown/network-control-centre/internal/vault"
 )
 
 // AI assistant: providers (signed in with the person's own subscriptions), plans made from the
 // whole network, and deploying the steps a person picked.
-
-// networkDomainSetter is implemented by drivers that can set the DNS domain a network hands
-// out (UniFi's DHCP domain name). It matches drivers.NetworkDomainSetter from the DNS zones work.
-type networkDomainSetter interface {
-	SetNetworkDomain(ctx context.Context, t drivers.Target, creds vault.Secret, networkID, domain string) error
-}
-
-// zoneCreator creates DNS zones. Until the DNS zones feature lands no provider implements it,
-// so plans show zone steps as not yet possible; see canCreateZones.
-type zoneCreator interface {
-	CreateZoneByName(ctx context.Context, s dns.Server, creds map[string]string, zone string) error
-}
 
 type assistantState struct {
 	once      sync.Once
@@ -278,7 +267,7 @@ func (s *Server) picture(ctx context.Context) (*assistant.Picture, error) {
 		ri := assistant.RouterInput{ID: t.ID, Name: t.Name}
 		if d, err := drivers.Get(t.Kind); err == nil {
 			_, ri.CanChange = d.(drivers.NetworkWriter)
-			_, ri.CanSetDomain = d.(networkDomainSetter)
+			_, ri.CanSetDomain = d.(drivers.NetworkDomainSetter)
 		}
 		for i := range snaps {
 			if snaps[i].Target == t.Name {
@@ -309,7 +298,7 @@ func (s *Server) picture(ctx context.Context) (*assistant.Picture, error) {
 		ds := assistant.DNSServer{ID: t.ID, Name: t.Name, Kind: t.Kind, Zones: []string{}}
 		p, err := dns.Get(t.Kind)
 		if err == nil {
-			_, ds.CanCreateZones = p.(zoneCreator)
+			_, ds.CanCreateZones = p.(dns.ZoneManager)
 			var creds vault.Secret
 			if creds, err = s.Vault.Get(ctx, t.SecretPath); err == nil {
 				zctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -663,50 +652,78 @@ func (e *aiEnv) MoveClients(ctx context.Context, routerID int64, networkID strin
 	return msg, nil
 }
 
-func (e *aiEnv) CreateZone(ctx context.Context, serverID int64, zone string) error {
-	t, err := e.s.Targets.Get(ctx, serverID)
+// zonePlan builds and applies a plan with the DNS page's zone planner (internal/dnszones), so
+// the assistant's zones get the same delegations, checks and audit records as zones made there.
+func (e *aiEnv) zonePlan(ctx context.Context, req dnszones.PlanRequest) error {
+	env := zonesEnv{e.s}
+	plan, err := dnszones.BuildPlan(ctx, env, req)
 	if err != nil {
 		return err
 	}
-	p, err := dns.Get(t.Kind)
-	if err != nil {
-		return err
+	if len(plan.Steps) == 0 {
+		return nil
 	}
-	zc, ok := p.(zoneCreator)
-	if !ok {
-		return errors.New("NCC cannot create zones on " + t.Name + " yet")
+	actx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	routers := map[int64]bool{}
+	_, err = dnszones.Apply(actx, env, e.s.Store.DB, e.actor, plan, func(res dnszones.StepResult) {
+		action := "dnszone." + res.Kind
+		if !res.OK {
+			action += ".failed"
+		}
+		target := "dns/" + res.Server + "/" + res.Zone
+		if res.Kind == dnszones.StepDHCPDomain {
+			target = "network/" + res.Router + "/" + res.Network
+			routers[res.RouterID] = true
+		}
+		_ = e.s.Audit.Record(ctx, e.actor, action, target, map[string]any{"step": res.Step, "error": res.Error, "via": "assistant"})
+	})
+	for id := range routers {
+		e.s.refreshTarget(id, 0)
 	}
-	creds, err := e.s.Vault.Get(ctx, t.SecretPath)
-	if err != nil {
-		return err
-	}
-	err = zc.CreateZoneByName(ctx, dns.Server{ID: t.ID, Name: t.Name, Kind: t.Kind, Address: t.Address, Options: t.Options}, creds, zone)
-	_ = e.s.Audit.Record(ctx, e.actor, "dns.zone.create", "dns/"+t.Name+"/"+zone, map[string]any{"result": errText(err), "via": "assistant"})
+	e.s.Hub.Publish("dns", map[string]any{"via": "assistant"})
 	return err
 }
 
+// CreateZone creates a zone, delegated from its parent zone when the server has one.
+func (e *aiEnv) CreateZone(ctx context.Context, serverID int64, zone string) error {
+	return e.zonePlan(ctx, dnszones.PlanRequest{ServerID: serverID,
+		Zones: []dnszones.NewZone{{Name: dns.FQDN(zone), ServerID: serverID, Delegate: true}}})
+}
+
+// AssignZone assigns a zone to a VLAN and makes the router hand it out as the network's DHCP
+// domain. The zone's DNS server is the one that holds it.
 func (e *aiEnv) AssignZone(ctx context.Context, routerID int64, networkID, zone string) error {
-	t, err := e.s.Targets.Get(ctx, routerID)
+	zone = dns.FQDN(zone)
+	servers, err := e.s.Targets.List(ctx, core.CategoryDNS)
 	if err != nil {
 		return err
 	}
-	d, err := drivers.Get(t.Kind)
-	if err != nil {
-		return err
+	var serverID int64
+	for _, t := range servers {
+		if !t.Enabled {
+			continue
+		}
+		p, srv, creds, err := zonesEnv{e.s}.DNSServer(ctx, t.ID)
+		if err != nil {
+			continue
+		}
+		zs, err := p.ListZones(ctx, srv, creds)
+		if err != nil {
+			continue
+		}
+		for _, z := range zs {
+			if dns.FQDN(z.Name) == zone {
+				serverID = t.ID
+			}
+		}
+		if serverID != 0 {
+			break
+		}
 	}
-	ds, ok := d.(networkDomainSetter)
-	if !ok {
-		return errors.New("NCC cannot set the DNS domain of a network on " + t.Name + " yet")
+	if serverID == 0 {
+		return errors.New("no DNS server has the zone " + strings.TrimSuffix(zone, "."))
 	}
-	creds, err := e.s.Vault.Get(ctx, t.SecretPath)
-	if err != nil {
-		return err
-	}
-	domain := strings.TrimSuffix(dns.FQDN(zone), ".")
-	err = ds.SetNetworkDomain(ctx, devTarget(t), creds, networkID, domain)
-	_ = e.s.Audit.Record(ctx, e.actor, "vlan.domain", "network/"+t.Name+"/"+networkID, map[string]any{"domain": domain, "result": errText(err), "via": "assistant"})
-	if err == nil {
-		e.s.refreshTarget(t.ID, 2*time.Second)
-	}
-	return err
+	return e.zonePlan(ctx, dnszones.PlanRequest{ServerID: serverID,
+		Assign: []dnszones.AssignSpec{{Zone: zone, ServerID: serverID, RouterID: routerID, NetworkID: networkID, SetDHCPDomain: true}}})
 }

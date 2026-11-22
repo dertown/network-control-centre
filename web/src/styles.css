@@ -818,3 +818,34 @@ label.check.field-check .field-help { flex-basis: 100%; }
 .ai-terminal { background: #0b1220; color: #d7e0ee; border-radius: var(--radius-sm); padding: 12px; min-height: 140px; max-height: 320px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; margin: 10px 0; }
 .ai-links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .ai-terminal + .row .grow { flex: 1; }
+/* ───────────── DNS zones and VLANs ───────────── */
+.zone-map h2 { display: flex; align-items: center; gap: 10px; }
+.zone-map .lede { margin: 0 0 10px; }
+.zone-table td { vertical-align: top; }
+.zone-table tr.zone-fail td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.zone-table tr.zone-warn td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+.zone-net { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.zone-issues { margin: 6px 0 0; display: grid; gap: 3px; max-width: 46ch; }
+.zone-issues li { line-height: 1.35; }
+.zone-orphans { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-sm); }
+.zone-tree li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.zone-tree li:last-child { border-bottom: 0; }
+.zone-form { display: grid; gap: 12px; }
+.zone-form .seg { justify-self: start; }
+.zone-form .suffix select { width: auto; flex: 0 1 auto; }
+.zone-steps { display: grid; gap: 6px; margin: 8px 0; padding: 0; }
+.zone-steps li { display: flex; gap: 8px; align-items: baseline; }
+.zone-steps .pill { min-width: 64px; justify-content: center; }
+@media (max-width: 640px) {
+  .zone-map .card-head { flex-wrap: wrap; }
+  .zone-table thead { display: none; }
+  .zone-table, .zone-table tbody, .zone-table tr, .zone-table td { display: block; width: 100%; }
+  .zone-table tr { padding: 10px 0 10px 10px; border-bottom: 1px solid var(--line); }
+  .zone-table td { border: 0; padding: 3px 0; }
+  .zone-table tr.zone-fail, .zone-table tr.zone-warn { box-shadow: inset 3px 0 0 var(--warn); }
+  .zone-table tr.zone-fail { box-shadow: inset 3px 0 0 var(--bad); }
+  .zone-table tr.zone-fail td:first-child, .zone-table tr.zone-warn td:first-child { box-shadow: none; }
+  .zone-table td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-family: var(--font, inherit); }
+  .zone-table td.actions { text-align: left; }
+  .zone-issues { max-width: none; }
+}

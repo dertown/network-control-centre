@@ -693,7 +693,7 @@ func Check(p *Picture, a Answer) ([]Step, []string) {
 				brokenZones[st.Zone] = true
 			}
 			if parent := parentZone(srv.Zones, st.Zone); parent != "" {
-				st.Warnings = append(st.Warnings, "It sits under "+strings.TrimSuffix(parent, ".")+": names in it resolve once "+strings.TrimSuffix(parent, ".")+" delegates to it.")
+				st.Warnings = append(st.Warnings, "It sits under "+strings.TrimSuffix(parent, ".")+": NCC adds the delegation (NS records) there so names in it resolve.")
 			}
 		default:
 			notes = append(notes, fmt.Sprintf("Step %d is of a kind NCC can't apply (%q); it was left out.", i+1, as.Kind))

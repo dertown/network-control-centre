@@ -99,6 +99,33 @@ export interface Zone { name: string; kind?: string; serial?: number }
 export interface RRSet { name: string; type: string; ttl: number; records: string[] }
 export interface Change { op: "REPLACE" | "DELETE"; rrset: RRSet }
 export interface ZonePlan { zone: string; changes: Change[] }
+
+// ---- DNS zones and VLANs (internal/dnszones) ----
+export type ZoneStatus = "pass" | "skip" | "unknown" | "warn" | "fail";
+export interface ZoneIssue { code: string; severity: ZoneStatus; message: string; fix?: string }
+/** One router network and the DNS zone its clients live in. */
+export interface ZoneRow {
+  router_id: number; router: string; can_set_domain: boolean; network_id: string; network: string; vlan: number;
+  subnet?: string; purpose?: string; firewall_zone?: string; dhcp: boolean; dhcp_domain?: string;
+  assignment_id?: number; zone?: string; server_id?: number; server?: string; zone_found: boolean;
+  reverse_zone?: string; reverse_found: boolean; suggested_zone?: string; status: ZoneStatus; issues: ZoneIssue[];
+}
+export interface ZoneAssignment { id: number; server_id: number; zone: string; router_id: number; network_id: string; network: string; vlan: number; updated_by: string; updated_at: string }
+export interface ZoneUse { server_id: number; server: string; zone: string; kind?: string; reverse: boolean; parent?: string; networks: string[] }
+export interface ZoneServer { id: number; name: string; kind: string; zones: Zone[]; error?: string; can_create: boolean }
+export interface ZoneMap {
+  status: "" | ZoneStatus; summary: string; domain?: string; rows: ZoneRow[]; orphans: ZoneAssignment[]; zones: ZoneUse[];
+  servers: ZoneServer[]; routers: { id: number; name: string; can_set_domain: boolean }[];
+}
+export interface NewZone { name: string; server_id?: number; nameservers?: string[]; delegate: boolean }
+export interface AssignSpec { zone: string; server_id?: number; router_id: number; network_id: string; set_dhcp_domain: boolean; reverse: boolean }
+export interface ZonePlanRequest { server_id: number; zones: NewZone[]; assign: AssignSpec[] }
+export interface ZoneStep {
+  kind: "create_zone" | "delegate" | "create_reverse" | "assign" | "dhcp_domain"; title: string; server_id?: number; server?: string;
+  zone?: string; nameservers?: string[]; change?: Change; router_id?: number; router?: string; network_id?: string; network?: string; vlan?: number; domain?: string;
+}
+export interface ZoneStepResult extends ZoneStep { ok: boolean; error?: string }
+export interface ZonePlanResponse { applied: boolean; plan: { steps: ZoneStep[]; warnings: string[] }; results?: ZoneStepResult[]; error?: string }
 export interface Cert {
   id: number; name: string; subject: string; issuer: string; sans: string[]; serial: string;
   not_before: string; not_after: string; fingerprint: string; has_key: boolean; days_left: number;
