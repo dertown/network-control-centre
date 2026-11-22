@@ -162,6 +162,34 @@ var migrations = []string{
 		taken_at TIMESTAMP NOT NULL,
 		data TEXT NOT NULL
 	)`,
+	// iot_devices is the IoT inventory: network clients NCC recognised as IoT devices (or
+	// people added), what the network last saw of each, and what people recorded about it.
+	`CREATE TABLE IF NOT EXISTS iot_devices (
+		mac TEXT PRIMARY KEY,
+		target_id INTEGER,
+		client TEXT NOT NULL DEFAULT '{}',
+		first_seen TIMESTAMP NOT NULL,
+		last_seen TIMESTAMP NOT NULL,
+		online INTEGER NOT NULL DEFAULT 0,
+		auto_type TEXT NOT NULL DEFAULT '',
+		type TEXT NOT NULL DEFAULT '',
+		label TEXT NOT NULL DEFAULT '',
+		owner TEXT NOT NULL DEFAULT '',
+		site TEXT NOT NULL DEFAULT '',
+		building TEXT NOT NULL DEFAULT '',
+		floor TEXT NOT NULL DEFAULT '',
+		room TEXT NOT NULL DEFAULT '',
+		notes TEXT NOT NULL DEFAULT '',
+		ignored INTEGER NOT NULL DEFAULT 0,
+		network_ok INTEGER NOT NULL DEFAULT 0,
+		network_ok_reason TEXT NOT NULL DEFAULT '',
+		updated_at TIMESTAMP,
+		updated_by TEXT NOT NULL DEFAULT ''
+	)`,
+	`CREATE TABLE IF NOT EXISTS iot_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`,
 }
 
 // Open opens (and migrates) the database in dataDir.

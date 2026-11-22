@@ -290,6 +290,7 @@ type haDevice struct {
 	DisabledBy      *string    `json:"disabled_by"`
 	EntryType       *string    `json:"entry_type"`
 	Identifiers     [][]string `json:"identifiers"`
+	Connections     [][]string `json:"connections"`
 	PrimaryConfigID string     `json:"primary_config_entry"`
 }
 
@@ -389,7 +390,7 @@ func build(inv *smarthome.Inventory, cfg haConfig, areas []haArea, devices []haD
 		}
 		inv.Devices = append(inv.Devices, smarthome.Device{
 			ID: d.ID, Name: firstOf(d.NameByUser, d.Name, d.Model, "Unnamed device"), Manufacturer: d.Manufacturer, Model: d.Model,
-			Firmware: d.SWVersion, Area: d.AreaID, Source: smarthome.SourceLabel(platform),
+			Firmware: d.SWVersion, MAC: connMAC(d.Connections), Area: d.AreaID, Source: smarthome.SourceLabel(platform),
 		})
 	}
 	for i := range inv.Devices {
@@ -564,4 +565,14 @@ func (Provider) PairMatter(ctx context.Context, t smarthome.Target, creds map[st
 		return fmt.Errorf("matter pairing failed: %s. Pairing codes only work for a few minutes; make a new one in the app and try again", strings.TrimPrefix(ce.Error(), "home assistant: "))
 	}
 	return err
+}
+
+// connMAC returns the network MAC from a device's connections, e.g. [["mac", "aa:bb:..."]].
+func connMAC(conns [][]string) string {
+	for _, c := range conns {
+		if len(c) == 2 && c[0] == "mac" {
+			return strings.ToLower(c[1])
+		}
+	}
+	return ""
 }

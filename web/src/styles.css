@@ -718,3 +718,33 @@ label.check.field-check .field-help { flex-basis: 100%; }
   .dash-tiles .tile-value small { font-size: 12px; }
   .dash-tiles .tile-icon { display: none; }
 }
+
+/* ───────────── IoT devices ───────────── */
+.iot-tabs { margin: 2px 0 14px; }
+.tile-btn { text-align: left; font: inherit; color: inherit; cursor: pointer; display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 16px 18px; }
+.tile-btn:disabled { cursor: default; opacity: 1; }
+.tile-btn.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.iot-bulk { position: sticky; top: 8px; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 14px; margin-bottom: 14px;
+  background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg, var(--shadow)); }
+.iot-bulk strong { margin-right: 6px; }
+.iot-group { margin-bottom: 18px; }
+.iot-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 16px 10px; }
+.iot-group-head h2 { margin: 0; display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
+.iot-table td.mono, .iot-table td:last-child, .iot-table .pill { white-space: nowrap; }
+.iot-table tr.sel td { background: var(--accent-soft); }
+.iot-name { display: flex; flex-direction: column; line-height: 1.25; }
+.iot-name .small { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.kind-chip.iot-camera, .kind-chip.iot-access { background: color-mix(in srgb, var(--c3) 14%, transparent); color: var(--c3); }
+.kind-chip.iot-building, .kind-chip.iot-power, .kind-chip.iot-sensor { background: color-mix(in srgb, var(--c2) 14%, transparent); color: var(--c2); }
+.kind-chip.iot-lighting, .kind-chip.iot-speaker, .kind-chip.iot-display { background: color-mix(in srgb, var(--c4) 14%, transparent); color: var(--c4); }
+.kind-chip.iot-other { background: var(--surface-2); color: var(--muted); }
+.iot-form { border: 0; padding: 0; margin: 0; min-width: 0; }
+.iot-form .row label { min-width: 150px; }
+.iot-exception { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; margin-bottom: 12px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--line); }
+.iot-kv { grid-template-columns: max-content 1fr max-content 1fr; }
+.iot-pick { max-height: 320px; overflow: auto; margin: 10px 0; }
+.iot-pick li.on { background: var(--accent-soft); }
+@media (max-width: 640px) {
+  .iot-kv { grid-template-columns: max-content 1fr; }
+  .iot-bulk { position: static; }
+}

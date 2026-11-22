@@ -46,6 +46,7 @@ type Device struct {
 	Manufacturer string `json:"manufacturer,omitempty"`
 	Model        string `json:"model,omitempty"`
 	Firmware     string `json:"firmware,omitempty"`
+	MAC          string `json:"mac,omitempty"`    // network MAC, when the hub knows it
 	Area         string `json:"area,omitempty"`   // area id
 	Source       string `json:"source,omitempty"` // ecosystem label: Matter, Google Nest, Philips Hue...
 	Online       bool   `json:"online"`           // at least one entity is not "unavailable"

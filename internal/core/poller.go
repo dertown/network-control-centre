@@ -12,6 +12,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/dns"
 	"github.com/dertown/network-control-centre/internal/drivers"
 	"github.com/dertown/network-control-centre/internal/inventory"
+	"github.com/dertown/network-control-centre/internal/iot"
 	"github.com/dertown/network-control-centre/internal/vault"
 )
 
@@ -226,7 +227,13 @@ func (p *Poller) collect(ctx context.Context, t *Target) (*inventory.Snapshot, e
 			p.Log.Warn("record traffic", "target", t.Name, "err", err)
 		}
 	}
-	return res.Snapshot, SaveSnapshot(ctx, p.DB, t.ID, res.Snapshot, p.Keep)
+	if err := SaveSnapshot(ctx, p.DB, t.ID, res.Snapshot, p.Keep); err != nil {
+		return nil, err
+	}
+	if err := iot.Record(ctx, p.DB, t.ID, res.Snapshot); err != nil && p.Log != nil {
+		p.Log.Warn("record IoT devices", "target", t.Name, "err", err)
+	}
+	return res.Snapshot, nil
 }
 
 // SaveSnapshot stores a snapshot and trims old ones.

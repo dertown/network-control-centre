@@ -94,7 +94,7 @@ type UniFiLab struct {
 
 // NewUniFi returns a pretend UniFi console whose changes can be inspected.
 func NewUniFi() *UniFiLab {
-	h, st := unifiWithState(false)
+	h, st := unifiWithState(false, false)
 	return &UniFiLab{Handler: h, state: st}
 }
 
@@ -158,16 +158,62 @@ func loopEvents() []byte {
 }
 
 func unifi(loops bool) http.Handler {
-	h, _ := unifiWithState(loops)
+	h, _ := unifiWithState(loops, false)
 	return h
 }
 
-func unifiWithState(loops bool) (http.Handler, *uState) {
+// UniFiOffice is UniFi with an office's IoT devices on it as well: IP cameras and an NVR,
+// a printer, desk and conference phones, a meeting-room system, signage, a door controller,
+// a UPS, a building controller and an air quality sensor. Some sit on the IoT network and
+// some on the main LAN.
+func UniFiOffice() http.Handler {
+	h, _ := unifiWithState(false, true)
+	return h
+}
+
+// OfficeClients are the extra clients of UniFiOffice, in stat/sta form.
+var OfficeClients = []map[string]any{
+	officeClient("00:40:8c:10:00:01", "cam-lobby-01", "Axis Communications AB", "192.168.30.31", "net_iot", 9, ""),
+	officeClient("00:40:8c:10:00:02", "cam-loading-dock", "Axis Communications AB", "192.168.30.32", "net_iot", 10, ""),
+	officeClient("00:09:18:10:00:03", "cam-carpark-02", "Hanwha Vision", "192.168.1.153", "net_default", 11, ""),
+	officeClient("44:19:b6:10:00:04", "nvr-01", "Hangzhou Hikvision Digital Technology", "192.168.30.10", "net_iot", 13, ""),
+	officeClient("a0:b3:cc:10:00:05", "hp-printer-2f", "HP Inc.", "192.168.1.155", "net_default", 14, ""),
+	officeClient("64:16:7f:10:00:06", "phone-reception", "Polycom", "192.168.1.156", "net_default", 15, ""),
+	officeClient("80:5e:c0:10:00:07", "yealink-boardroom", "Yealink Network Technology", "192.168.30.41", "net_iot", 16, ""),
+	officeClient("00:10:7f:10:00:08", "boardroom-cp4", "Crestron Electronics", "192.168.30.42", "net_iot", 3, ""),
+	officeClient("90:ac:3f:10:00:09", "lobby-signage", "BrightSign LLC", "192.168.30.51", "net_iot", 6, ""),
+	officeClient("00:06:8e:10:00:0a", "door-main-entrance", "HID Global", "192.168.30.61", "net_iot", 8, ""),
+	officeClient("00:c0:b7:10:00:0b", "ups-server-room", "American Power Conversion", "192.168.1.161", "net_default", 1, ""),
+	officeClient("00:1b:c5:10:00:0c", "bms-jace-01", "Tridium Inc", "192.168.30.71", "net_iot", 12, ""),
+	officeClient("e0:e5:cf:10:00:0d", "airq-3f-east", "Airthings ASA", "192.168.1.163", "net_default", 0, "aa:bb:cc:00:00:02"),
+}
+
+func officeClient(mac, host, oui, ip, network string, port int, ap string) map[string]any {
+	c := map[string]any{"mac": mac, "hostname": host, "oui": oui, "ip": ip, "network_id": network, "uptime": 86000,
+		"tx_bytes": 1048576, "rx_bytes": 524288}
+	if ap != "" {
+		c["is_wired"], c["ap_mac"], c["essid"] = false, ap, "Office"
+	} else {
+		c["is_wired"], c["sw_mac"], c["sw_port"] = true, "aa:bb:cc:00:00:04", port
+	}
+	return c
+}
+
+func unifiWithState(loops, office bool) (http.Handler, *uState) {
 	devices := StatDevice
 	if loops {
 		devices = LoopDevices()
 	}
 	st := newUState(devices)
+	if office {
+		for _, c := range OfficeClients {
+			cp := map[string]any{}
+			for k, v := range c {
+				cp[k] = v
+			}
+			st.clients = append(st.clients, cp)
+		}
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]any
