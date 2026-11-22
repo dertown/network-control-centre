@@ -5,15 +5,17 @@
 //   - one status tile per area (internet, devices, clients, VMs, storage, smart home,
 //     certificates, exposed ports); optional areas only appear once they are set up,
 //   - "Needs attention": every problem from every area in one list, worst first,
-//   - device availability and traffic/exposure details.
+//   - device availability, top talkers and ports open to the internet.
+//
+// Connection health is not listed here (Settings has the full list); a connection NCC
+// can't read shows up in "Needs attention" instead.
 //
 // Each fact is shown once: tiles summarise an area, the attention list names the problems,
 // and the lower cards give the detail that no other panel shows. Data loading and the
 // problem rules live in dashboardModel.ts.
 
 import { useState } from "react";
-import { Target } from "../api";
-import { ago, kindLabel } from "../live";
+import { kindLabel } from "../live";
 import { Icon, IconName, kindIcon } from "../icons";
 import { Meter, Sparkline } from "../charts";
 import { bytes, rate } from "./Traffic";
@@ -44,7 +46,6 @@ export function Dashboard({ tick }: { tick: number }) {
       <div className="grid-main">
         <div>
           <Availability d={d} />
-          <Connections targets={d.targets} />
         </div>
         <div>
           <TopTalkers d={d} />
@@ -323,34 +324,6 @@ function ExposedPorts({ d }: { d: DashData }) {
         })}
       </ul>
       {forwards.length > limit && <p className="muted small">and {forwards.length - limit} more on the Firewall page.</p>}
-    </section>
-  );
-}
-
-/** Connections: each system NCC reads from, and when it last answered. */
-function Connections({ targets }: { targets?: Target[] }) {
-  return (
-    <section className="card">
-      <div className="card-head">
-        <h2><Icon name="link" size={16} /> Connections</h2>
-        <a href="#/settings">Manage →</a>
-      </div>
-      {!targets?.length ? (
-        <p className="muted">Nothing connected yet. Add your router and DNS server in <a href="#/settings">Settings</a>.</p>
-      ) : (
-        <ul className="list">
-          {targets.map((t) => {
-            const [tone, word] = !t.enabled ? ["", "disabled"] : t.last_error ? ["bad", "error"] : !t.last_poll ? ["", "not checked yet"] : ["good", `read ${ago(t.last_poll)}`];
-            return (
-              <li key={t.id} title={t.last_error || t.address}>
-                <span className={`dot ${tone}`} />
-                <span className="grow-col small"><strong>{t.name}</strong> <span className="muted">{t.kind}</span></span>
-                <span className="small muted">{word}</span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
     </section>
   );
 }
