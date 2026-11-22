@@ -1,25 +1,25 @@
+// Storage page: NAS and file servers (QNAP, Synology, SMB, NFS, SNMP) with health, volumes,
+// disks, shares and snapshots, plus the management actions each kind supports.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   api, CapacityHistory, StorageDisk, StorageInventory, StorageShare, StorageSnapshot, StorageSource, StorageVolume, User,
 } from "../api";
-import { ago, uptime } from "../live";
+import { ago, bytes, pct, uptime } from "../format";
 import { Icon, IconName } from "../icons";
 import { Meter, Sparkline } from "../charts";
-import { bytes } from "./Traffic";
-import { AddTarget, StorageKind } from "./Settings";
+import { AlertList, PageHeader, PageLoading, SourceBanners, Tile } from "../ui";
+import { ConnectionPicker, RefreshButton, useConnectionAdder, useSourceData } from "../connections";
+import { StorageKind } from "./Settings";
 
-const kindLabel: Record<string, string> = { qnap: "QNAP", synology: "Synology", smb: "SMB server", nfs: "NFS server", snmp: "SNMP" };
 const healthTone: Record<string, "good" | "warn" | "bad" | ""> = { good: "good", warning: "warn", critical: "bad", unknown: "" };
 const healthWord: Record<string, string> = { good: "Healthy", warning: "Warning", critical: "Critical", unknown: "Unknown" };
 
-function pct(n: number) {
-  return `${Math.round(Math.max(0, Math.min(1, n)) * 100)}%`;
-}
-
+// fill grades how full a volume is: amber from 85%, red from 95% (same thresholds as the server's alerts).
 function fill(n: number): "good" | "warn" | "bad" {
   return n >= 0.95 ? "bad" : n >= 0.85 ? "warn" : "good";
 }
 
+// tempTone grades a temperature in °C; SSDs run hotter than hard disks before it matters.
 function tempTone(c: number | undefined, ssd?: boolean): "good" | "warn" | "bad" | "" {
   if (!c) return "";
   const [w, b] = ssd ? [65, 75] : [50, 60];
@@ -31,26 +31,11 @@ const addKinds: [StorageKind, string][] = [
 ];
 
 export function Storage({ tick, user }: { tick: number; user: User }) {
-  const [sources, setSources] = useState<StorageSource[] | null>(null);
-  const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [adding, setAdding] = useState<StorageKind | null>(null);
+  const { data: sources, err, busy, refetch, refresh } = useSourceData<{ sources: StorageSource[] }, StorageSource[]>(
+    "/api/storage", tick, (d) => d, (r) => r.sources);
   const [pick, setPick] = useState<number | null>(null);
   const isAdmin = user.role === "admin";
-
-  const refetch = () => api<{ sources: StorageSource[] }>("GET", "/api/storage").then((v) => { setSources(v.sources); setErr(""); }).catch((e) => setErr(e.message));
-  useEffect(() => { refetch(); }, [tick]);
-
-  const refresh = async () => {
-    if (!sources) return;
-    setBusy(true);
-    const fails: string[] = [];
-    await Promise.all(sources.filter((s) => s.enabled).map((s) =>
-      api("POST", `/api/targets/${s.id}/poll`).catch((e) => fails.push(`${s.name}: ${(e as Error).message}`))));
-    setErr(fails.join(" · "));
-    setBusy(false);
-    refetch();
-  };
+  const adder = useConnectionAdder(addKinds, user, refetch);
 
   const live = useMemo(() => (sources ?? []).filter((s) => s.enabled && s.inventory), [sources]);
   const invs = live.map((s) => s.inventory!);
@@ -65,13 +50,7 @@ export function Storage({ tick, user }: { tick: number; user: User }) {
   const snaps = invs.reduce((s, i) => s + i.snapshots.length, 0);
   const badDisks = disks.filter((d) => d.health === "critical" || d.health === "warning").length;
 
-  if (!sources) return <><h1>Storage</h1>{err ? <div className="error block">{err}</div> : <p className="muted">Loading…</p>}</>;
-
-  const addButtons = isAdmin && !adding && (
-    <div className="row">
-      {addKinds.map(([k, label], i) => <button key={k} className={i === 0 && sources.length === 0 ? "primary" : ""} onClick={() => setAdding(k)}>{label}</button>)}
-    </div>
-  );
+  if (!sources) return <PageLoading title="Storage" err={err} />;
 
   if (sources.length === 0) {
     return (
@@ -86,8 +65,7 @@ export function Storage({ tick, user }: { tick: number; user: User }) {
               SMB or NFS server shows its shares; anything else that speaks SNMP shows its disks and file systems. Logins are kept in the vault.
             </p>
           </div>
-          {isAdmin ? addButtons : <p className="muted small">Ask an admin to add your NAS.</p>}
-          {adding && <AddTarget kind={adding} onDone={() => { setAdding(null); refetch(); }} />}
+          {isAdmin ? <ConnectionPicker kinds={addKinds} onDone={refetch} primary /> : <p className="muted small">Ask an admin to add your NAS.</p>}
         </section>
       </>
     );
@@ -97,25 +75,18 @@ export function Storage({ tick, user }: { tick: number; user: User }) {
 
   return (
     <>
-      <div className="card-head" style={{ marginBottom: 4 }}>
-        <h1 style={{ margin: 0 }}>Storage</h1>
-        {user.role !== "viewer" && <button onClick={refresh} disabled={busy}>{busy ? "Refreshing…" : "Refresh now"}</button>}
-      </div>
+      <PageHeader title="Storage">
+        {adder.button}
+        <RefreshButton user={user} busy={busy} onClick={refresh} />
+      </PageHeader>
+      {adder.panel}
       <p className="muted lede">
         {live.length} device{live.length === 1 ? "" : "s"}{disks.length ? ` · ${disks.length} disks` : ""}
         {total > 0 && <> · {bytes(used)} of {bytes(total)} used</>}
         {live[0]?.taken_at && <> · updated {ago(live[0].taken_at)}</>}
       </p>
       {err && <div className="error block">{err}</div>}
-      {sources.filter((s) => s.enabled && s.last_error).map((s) => (
-        <div key={s.id} className="banner bad" role="alert">
-          <Icon name="alert" size={16} /><strong>{s.name}</strong><span>{s.last_error}</span>
-          {s.taken_at && <span className="muted small">Showing the read from {ago(s.taken_at)}.</span>}
-        </div>
-      ))}
-      {live.flatMap((s) => (s.inventory!.warnings ?? []).map((w) => (
-        <div key={s.id + w} className="banner warn"><Icon name="alert" size={16} /><strong>{s.name}</strong><span>{w}</span></div>
-      )))}
+      <SourceBanners sources={sources} warnings={(s) => (s.enabled ? s.inventory?.warnings : undefined)} />
 
       <div className="tiles">
         <Tile label="Health" icon={crit ? "alert" : "check"} tone={crit ? "bad" : alerts.length ? "warn" : "good"}
@@ -129,20 +100,7 @@ export function Storage({ tick, user }: { tick: number; user: User }) {
         <Tile label="Shares" icon="share" value={shares} sub={snaps ? `${snaps} snapshot${snaps === 1 ? "" : "s"}` : "no snapshots read"} />
       </div>
 
-      {alerts.length > 0 && (
-        <section className="card">
-          <h2><Icon name="alert" size={16} /> Alerts</h2>
-          <ul className="list st-alerts">
-            {alerts.map((a, i) => (
-              <li key={i}>
-                <span className={`dot ${a.level === "critical" ? "bad" : "warn"}`} />
-                <span className="grow-col"><strong>{a.subject}</strong> <span>{a.message}</span></span>
-                <span className="muted small">{a.source.name}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <AlertList title="Alerts" alerts={alerts} />
 
       {live.length > 1 && (
         <div className="toolbar">
@@ -155,22 +113,6 @@ export function Storage({ tick, user }: { tick: number; user: User }) {
 
       {shown.map((s) => <Device key={s.id} src={s} user={user} onChanged={refetch} />)}
 
-      {isAdmin && (
-        <section className="card" style={{ marginTop: 18 }}>
-          <div className="card-head"><h2><Icon name="link" size={16} /> Connections</h2><a href="#/settings">Manage in Settings →</a></div>
-          <ul className="list">
-            {sources.map((s) => (
-              <li key={s.id}>
-                <span className={`dot ${!s.enabled ? "" : s.last_error ? "bad" : s.taken_at ? "good" : "warn"}`} />
-                <span className="grow-col"><strong>{s.name}</strong> <span className="muted small">{kindLabel[s.kind]}{s.snmp ? " + SNMP" : ""}{s.inventory?.system.firmware ? ` · ${s.inventory.system.firmware}` : ""}</span></span>
-                <span className="mono small muted">{s.address}</span>
-              </li>
-            ))}
-          </ul>
-          {addButtons}
-          {adding && <AddTarget kind={adding} onDone={() => { setAdding(null); refetch(); }} />}
-        </section>
-      )}
     </>
   );
 }
@@ -525,19 +467,3 @@ function PowerConfirm({ src, action, onClose, onDone }: { src: StorageSource; ac
     </form>
   );
 }
-
-function Tile({ label, value, sub, tone, icon, iconTone, valueClass }: {
-  label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: "good" | "warn" | "bad"; icon: IconName; iconTone?: string; valueClass?: string;
-}) {
-  return (
-    <div className={`tile ${tone ?? ""}`}>
-      <div className="tile-top">
-        <span className="tile-label">{label}</span>
-        <span className={`tile-icon ${iconTone ?? tone ?? ""}`}><Icon name={icon} size={17} /></span>
-      </div>
-      <div className={`tile-value ${valueClass ?? ""}`}>{value}</div>
-      {sub && <div className="muted small">{sub}</div>}
-    </div>
-  );
-}
-

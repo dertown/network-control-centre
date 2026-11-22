@@ -1,3 +1,5 @@
+// Switching-loop helpers shared by the Topology map and the Dashboard: labels, severity
+// tones and the clickable list of loops.
 import { Loop } from "./api";
 import { ago } from "./live";
 import { Icon } from "./icons";

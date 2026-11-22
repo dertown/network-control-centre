@@ -1,7 +1,9 @@
+// Traffic page: per-client totals and live rates from UniFi, traffic types from its DPI, and
+// the sites each client looks up from DNS query logs.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, AppUsage, SiteCount, TrafficClient, TrafficView } from "../api";
-import { ago } from "../live";
-import { Icon, IconName } from "../icons";
+import { ago, bytes, rate } from "../format";
+import { Tile } from "../ui";
 
 const windows = [
   { id: "1h", label: "Last hour" },
@@ -10,21 +12,8 @@ const windows = [
   { id: "session", label: "Since each client connected" },
 ];
 
-export function bytes(n: number): string {
-  if (!n) return "0 B";
-  const u = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-  const v = n / 1024 ** i;
-  return `${v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(1)} ${u[i]}`;
-}
-
-export function rate(bytesPerSec: number): string {
-  const bits = bytesPerSec * 8;
-  if (bits < 1e3) return `${bits.toFixed(0)} bit/s`;
-  if (bits < 1e6) return `${(bits / 1e3).toFixed(0)} kbit/s`;
-  if (bits < 1e9) return `${(bits / 1e6).toFixed(1)} Mbit/s`;
-  return `${(bits / 1e9).toFixed(2)} Gbit/s`;
-}
+// bytes and rate moved to format.ts; re-exported for pages that still import them from here.
+export { bytes, rate } from "../format";
 
 function appLabel(a: AppUsage): string {
   return a.name || `${a.category} (app ${a.app})`;
@@ -114,10 +103,11 @@ export function Traffic({ tick }: { tick: number }) {
       )}
 
       <div className="tiles">
-        <div className="tile"><TileHead label="Downloading now" icon="download" tone="c3" /><div className="tile-value">{rate(liveDown)}</div><div className="muted small">all clients</div></div>
-        <div className="tile"><TileHead label="Uploading now" icon="upload" tone="c2" /><div className="tile-value">{rate(liveUp)}</div><div className="muted small">all clients</div></div>
-        <div className="tile"><TileHead label={`Top client, ${winLabel}`} icon="client" /><div className="tile-value small-value">{top && top.window_down + top.window_up > 0 ? top.name : "—"}</div><div className="muted small">{top ? bytes(top.window_down + top.window_up) : ""}</div></div>
-        <div className="tile good"><TileHead label="Clients online" icon="users" tone="good" /><div className="tile-value">{view.clients.filter((c) => c.online).length}</div></div>
+        <Tile label="Downloading now" icon="download" iconTone="c3" value={rate(liveDown)} sub="all clients" />
+        <Tile label="Uploading now" icon="upload" iconTone="c2" value={rate(liveUp)} sub="all clients" />
+        <Tile label={`Top client, ${winLabel}`} icon="client" valueClass="small-value"
+          value={top && top.window_down + top.window_up > 0 ? top.name : "—"} sub={top ? bytes(top.window_down + top.window_up) : ""} />
+        <Tile label="Clients online" icon="users" tone="good" value={view.clients.filter((c) => c.online).length} />
       </div>
 
       <div className="two">
@@ -270,8 +260,4 @@ function ClientDetail({ c }: { c: TrafficClient }) {
       </div>
     </div>
   );
-}
-
-function TileHead({ label, icon, tone }: { label: string; icon: IconName; tone?: string }) {
-  return <div className="tile-top"><span className="tile-label">{label}</span><span className={`tile-icon ${tone ?? ""}`}><Icon name={icon} size={17} /></span></div>;
 }

@@ -1,23 +1,33 @@
-import { Component, ErrorInfo, ReactNode, useCallback, useEffect, useState } from "react";
+// App is the shell around every page: sign-in and first-run setup, the side menu, the top
+// bar (theme switch, live indicator), the sealed-vault banner and hash-based routing
+// (#/topology, #/vms...). Pages get the live tick from useLive and refetch when it changes.
+import { Component, ErrorInfo, lazy, ReactNode, Suspense, useCallback, useEffect, useState } from "react";
 import { api, ApiError, setCSRF, User, VaultStatus } from "./api";
 import { Dashboard } from "./pages/Dashboard";
-import { Topology } from "./pages/Topology";
-import { Devices } from "./pages/Devices";
-import { VLANs } from "./pages/VLANs";
-import { VirtualMachines } from "./pages/VirtualMachines";
-import { Storage } from "./pages/Storage";
-import { SmartHome } from "./pages/SmartHome";
-import { DNS } from "./pages/DNS";
-import { Traffic } from "./pages/Traffic";
-import { Firewall } from "./pages/Firewall";
-import { Vault } from "./pages/Vault";
-import { CertDeploy } from "./pages/CertDeploy";
-import { Settings } from "./pages/Settings";
-import { Audit } from "./pages/Audit";
 import { Login, Setup } from "./pages/Auth";
 import { useLive } from "./live";
 import { Icon, IconName } from "./icons";
 
+// Every page but the Dashboard (the landing page) is loaded on first visit, so the first
+// load doesn't pay for Cytoscape (Topology) and the other pages' code up front.
+// (`any` because each page takes different props; App passes the right ones below.)
+const named = <K extends string>(load: () => Promise<Record<K, React.ComponentType<any>>>, name: K) =>
+  lazy(() => load().then((m) => ({ default: m[name] })));
+const Topology = named(() => import("./pages/Topology"), "Topology");
+const Devices = named(() => import("./pages/Devices"), "Devices");
+const VLANs = named(() => import("./pages/VLANs"), "VLANs");
+const VirtualMachines = named(() => import("./pages/VirtualMachines"), "VirtualMachines");
+const Storage = named(() => import("./pages/Storage"), "Storage");
+const SmartHome = named(() => import("./pages/SmartHome"), "SmartHome");
+const DNS = named(() => import("./pages/DNS"), "DNS");
+const Traffic = named(() => import("./pages/Traffic"), "Traffic");
+const Firewall = named(() => import("./pages/Firewall"), "Firewall");
+const Vault = named(() => import("./pages/Vault"), "Vault");
+const CertDeploy = named(() => import("./pages/CertDeploy"), "CertDeploy");
+const Settings = named(() => import("./pages/Settings"), "Settings");
+const Audit = named(() => import("./pages/Audit"), "Audit");
+
+// The side menu, in order. admin pages are hidden from other roles (the API enforces it too).
 const pages = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard", group: "Monitor" },
   { id: "topology", label: "Topology", icon: "topology", group: "Monitor" },
@@ -148,7 +158,7 @@ export default function App() {
             ))}
           </div>
         </header>
-        <main><PageBoundary key={page}>
+        <main><PageBoundary key={page}><Suspense fallback={<p className="muted">Loading…</p>}>
           {vault && (vault.sealed || !vault.initialized) && (
             <SealedBanner status={vault} isAdmin={user.role === "admin"} onUnsealed={setVault} />
           )}
@@ -166,7 +176,7 @@ export default function App() {
           {page === "deploy" && <CertDeploy user={user} tick={tick} />}
           {page === "settings" && <Settings user={user} tick={tick} />}
           {page === "audit" && <Audit />}
-        </PageBoundary></main>
+        </Suspense></PageBoundary></main>
       </div>
     </div>
   );

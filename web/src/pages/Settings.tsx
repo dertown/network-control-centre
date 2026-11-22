@@ -1,6 +1,9 @@
+// Settings page: the one place connections (UniFi, PowerDNS, hypervisors, storage, Home
+// Assistant) are listed, added, edited, polled, disabled and removed; plus password, two-factor
+// sign-in and user management. AddTarget is reused by pages that let admins add a connection.
 import { Fragment, useEffect, useState } from "react";
 import { api, Target, User } from "../api";
-import { ago } from "../live";
+import { ago } from "../format";
 
 export type Kind = "unifi" | "powerdns" | "proxmox" | "vmware" | "homeassistant" | StorageKind;
 export type StorageKind = "qnap" | "synology" | "smb" | "nfs" | "snmp";

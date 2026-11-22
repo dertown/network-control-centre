@@ -1,6 +1,11 @@
-// Thin typed client for the NCC API.
+// Thin typed client for the NCC API, and the TypeScript shapes of what it returns.
+// The interfaces mirror the Go structs' JSON (internal/inventory, internal/core, ...);
+// keep the two in step when a field is added.
+
+// csrf is the token from /api/me (or /api/login); every non-GET request must send it.
 let csrf = "";
 
+/** ApiError is a failed API call: the HTTP status and the server's error message. */
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -11,6 +16,10 @@ export function setCSRF(token: string) {
   csrf = token;
 }
 
+/**
+ * api calls the NCC API with the session cookie and CSRF token and returns the parsed JSON
+ * body typed as T. A non-2xx answer throws ApiError with the server's "error" message.
+ */
 export async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";

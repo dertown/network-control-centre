@@ -1,51 +1,38 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+// Virtual machines page: every VM and container on the Proxmox VE and VMware connections,
+// with host load, power actions (operators) and settings and delete (admins).
+import { Fragment, useMemo, useState } from "react";
 import { api, User, VM, VMHost, VMView } from "../api";
-import { ago, uptime } from "../live";
+import { ago, bytes, pct, uptime } from "../format";
 import { Icon, IconName } from "../icons";
 import { Meter } from "../charts";
-import { bytes } from "./Traffic";
-import { AddTarget, Kind } from "./Settings";
+import { PageHeader, PageLoading, SourceBanners, Tile } from "../ui";
+import { ConnectionPicker, RefreshButton, useConnectionAdder, useSourceData } from "../connections";
+import { Kind } from "./Settings";
 
 const platformLabel: Record<string, string> = { proxmox: "Proxmox VE", vmware: "VMware" };
 const typeLabel: Record<string, string> = { qemu: "VM", lxc: "Container", vm: "VM" };
 const stateTone: Record<string, string> = { running: "good", suspended: "warn", stopped: "", unknown: "warn" };
 
-function pct(n: number) {
-  return `${Math.round(Math.max(0, Math.min(1, n)) * 100)}%`;
-}
+const addKinds: [Kind, string][] = [["proxmox", "Add Proxmox VE"], ["vmware", "Add VMware vCenter or ESXi"]];
 
+// load grades a CPU or memory fraction: amber from 75%, red from 90%.
 function load(n: number): "good" | "warn" | "bad" {
   return n >= 0.9 ? "bad" : n >= 0.75 ? "warn" : "good";
 }
 
 export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
-  const [view, setView] = useState<VMView | null>(null);
-  const [err, setErr] = useState("");
+  const { data: view, err, busy, refetch, refresh } = useSourceData<VMView>("/api/vms", tick, (v) => v.sources);
   const [q, setQ] = useState("");
   const [state, setState] = useState("");
   const [host, setHost] = useState("");
   const [templates, setTemplates] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
-  const [adding, setAdding] = useState<Kind | null>(null);
-  const [busy, setBusy] = useState(false);
   const isAdmin = user.role === "admin";
   const canPower = user.role !== "viewer";
   const [pending, setPending] = useState<Record<string, string>>({});
   const [note, setNote] = useState<{ id: string; ok: boolean; text: string } | null>(null);
 
-  const refetch = () => api<VMView>("GET", "/api/vms").then((v) => { setView(v); setErr(""); }).catch((e) => setErr(e.message));
-  useEffect(() => { refetch(); }, [tick]);
-
-  const refresh = async () => {
-    if (!view) return;
-    setBusy(true);
-    const fails: string[] = [];
-    await Promise.all(view.sources.filter((s) => s.enabled).map((s) =>
-      api("POST", `/api/targets/${s.id}/poll`).catch((e) => fails.push(`${s.name}: ${(e as Error).message}`))));
-    setErr(fails.join(" · "));
-    setBusy(false);
-    refetch();
-  };
+  const adder = useConnectionAdder(addKinds, user, refetch);
 
   const power = async (v: VM, action: Action) => {
     const ask: Partial<Record<Action, string>> = {
@@ -87,17 +74,9 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
   const memAlloc = running.reduce((s, v) => s + v.mem_bytes, 0);
   const memHost = hosts.reduce((s, h) => s + h.mem_bytes, 0);
   const hostsOnline = hosts.filter((h) => h.online).length;
-  const failing = sources.filter((s) => s.enabled && s.last_error);
   const multiSource = new Set(hosts.map((h) => h.target)).size > 1;
 
-  if (!view) return <><h1>Virtual machines</h1>{err ? <div className="error block">{err}</div> : <p className="muted">Loading…</p>}</>;
-
-  const addButtons = isAdmin && !adding && (
-    <div className="row">
-      <button className={sources.length ? "" : "primary"} onClick={() => setAdding("proxmox")}>Add Proxmox VE</button>
-      <button onClick={() => setAdding("vmware")}>Add VMware vCenter or ESXi</button>
-    </div>
-  );
+  if (!view) return <PageLoading title="Virtual machines" err={err} />;
 
   if (sources.length === 0) {
     return (
@@ -112,8 +91,7 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
               login is kept in the vault like your other credentials.
             </p>
           </div>
-          {isAdmin ? addButtons : <p className="muted small">Ask an admin to add a Proxmox VE or VMware connection.</p>}
-          {adding && <AddTarget kind={adding} onDone={() => { setAdding(null); refetch(); }} />}
+          {isAdmin ? <ConnectionPicker kinds={addKinds} onDone={refetch} primary /> : <p className="muted small">Ask an admin to add a Proxmox VE or VMware connection.</p>}
         </section>
       </>
     );
@@ -121,25 +99,18 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
 
   return (
     <>
-      <div className="card-head" style={{ marginBottom: 4 }}>
-        <h1 style={{ margin: 0 }}>Virtual machines</h1>
-        {user.role !== "viewer" && <button onClick={refresh} disabled={busy}>{busy ? "Refreshing…" : "Refresh now"}</button>}
-      </div>
+      <PageHeader title="Virtual machines">
+        {adder.button}
+        <RefreshButton user={user} busy={busy} onClick={refresh} />
+      </PageHeader>
+      {adder.panel}
       <p className="muted lede">
         {running.length} of {real.length} machines running on {hosts.length} host{hosts.length === 1 ? "" : "s"}
         {" · "}from {sources.map((s) => s.name).join(", ")}
         {sources[0]?.taken_at && <> · updated {ago(sources[0].taken_at)}</>}
       </p>
       {err && <div className="error block">{err}</div>}
-      {failing.map((s) => (
-        <div key={s.id} className="banner bad" role="alert">
-          <Icon name="alert" size={16} /><strong>{s.name}</strong><span>{s.last_error}</span>
-          {s.taken_at && <span className="muted small">Showing the list from {ago(s.taken_at)}.</span>}
-        </div>
-      ))}
-      {sources.flatMap((s) => (s.warnings ?? []).map((w) => (
-        <div key={s.id + w} className="banner warn"><Icon name="alert" size={16} /><strong>{s.name}</strong><span>{w}</span></div>
-      )))}
+      <SourceBanners sources={sources} warnings={(s) => s.warnings} noun="list" />
 
       <div className="tiles">
         <Tile label="Running" icon="vm" tone={running.length ? "good" : undefined}
@@ -249,22 +220,6 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
         </table>
       </div>
 
-      {isAdmin && (
-        <section className="card" style={{ marginTop: 18 }}>
-          <div className="card-head"><h2><Icon name="link" size={16} /> Connections</h2><a href="#/settings">Manage in Settings →</a></div>
-          <ul className="list">
-            {sources.map((s) => (
-              <li key={s.id}>
-                <span className={`dot ${!s.enabled ? "" : s.last_error ? "bad" : s.taken_at ? "good" : "warn"}`} />
-                <span className="grow-col"><strong>{s.name}</strong> <span className="muted small">{platformLabel[s.kind]}{s.version ? ` · ${s.version}` : ""}</span></span>
-                <span className="mono small muted">{s.address}</span>
-              </li>
-            ))}
-          </ul>
-          {addButtons}
-          {adding && <AddTarget kind={adding} onDone={() => { setAdding(null); refetch(); }} />}
-        </section>
-      )}
     </>
   );
 }
@@ -403,20 +358,5 @@ function HostCard({ h, vms, showTarget, active, onPick }: { h: VMHost; vms: VM[]
       <div className="usage-top small" style={{ marginTop: 8 }}><span>Memory · {bytes(h.mem_bytes)}</span><span className="muted">{pct(mem)}</span></div>
       <Meter value={mem} tone={load(mem)} />
     </button>
-  );
-}
-
-function Tile({ label, value, sub, tone, icon, iconTone, valueClass }: {
-  label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: "good" | "warn" | "bad"; icon: IconName; iconTone?: string; valueClass?: string;
-}) {
-  return (
-    <div className={`tile ${tone ?? ""}`}>
-      <div className="tile-top">
-        <span className="tile-label">{label}</span>
-        <span className={`tile-icon ${iconTone ?? tone ?? ""}`}><Icon name={icon} size={17} /></span>
-      </div>
-      <div className={`tile-value ${valueClass ?? ""}`}>{value}</div>
-      {sub && <div className="muted small">{sub}</div>}
-    </div>
   );
 }

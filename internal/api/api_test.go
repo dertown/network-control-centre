@@ -245,7 +245,8 @@ func TestEndToEnd(t *testing.T) {
 	}, &badSID)
 	for _, id := range []int64{badKey.ID, badSID.ID} {
 		for i := 0; i < 20; i++ { // the background first check may still be running
-			if code := c.do("POST", "/api/targets/"+itoa(id)+"/poll", nil, nil); code == 502 {
+			var res map[string]string
+			if code := c.do("POST", "/api/targets/"+itoa(id)+"/poll", nil, &res); code == 502 && res["error"] != "poll already running" {
 				break
 			}
 			time.Sleep(50 * time.Millisecond)

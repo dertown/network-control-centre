@@ -1,3 +1,4 @@
+// Audit log page (admins): the newest 500 entries and whether the hash chain is intact.
 import { useEffect, useState } from "react";
 import { api, AuditEntry } from "../api";
 

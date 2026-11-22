@@ -1,8 +1,14 @@
+// Smart home page: lights, plugs, climate, locks, media, sensors and scenes from every Home
+// Assistant connection, grouped by room or type, with controls and Matter pairing.
 import { useEffect, useMemo, useState } from "react";
 import { api, MatterCheck, SmartDevice, SmartEntity, SmartInventory, SmartPlan, SmartSource, User } from "../api";
-import { ago } from "../live";
+import { ago } from "../format";
 import { Icon, IconName } from "../icons";
-import { AddTarget } from "./Settings";
+import { AlertList, PageHeader, PageLoading, SourceBanners, Tile } from "../ui";
+import { ConnectionPicker, RefreshButton, useConnectionAdder, useSourceData } from "../connections";
+import { Kind } from "./Settings";
+
+const addKinds: [Kind, string][] = [["homeassistant", "Connect Home Assistant"]];
 
 // Controls people use; sensors are shown as readings.
 const controlDomains = new Set(["light", "switch", "fan", "input_boolean", "humidifier", "media_player", "cover", "valve", "lock",
@@ -97,10 +103,8 @@ function normalise(s: SmartSource): SmartSource {
 }
 
 export function SmartHome({ tick, user }: { tick: number; user: User }) {
-  const [sources, setSources] = useState<SmartSource[] | null>(null);
-  const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [adding, setAdding] = useState(false);
+  const { data: sources, err, busy, refetch, refresh } = useSourceData<{ sources: SmartSource[] | null }, SmartSource[]>(
+    "/api/smarthome", tick, (d) => d, (r) => (r.sources ?? []).map(normalise));
   const [group, setGroup] = useState<"rooms" | "types">(() => {
     try { return localStorage.getItem("ncc-iot-group") === "types" ? "types" : "rooms"; } catch { return "rooms"; }
   });
@@ -108,23 +112,12 @@ export function SmartHome({ tick, user }: { tick: number; user: User }) {
   const [pairing, setPairing] = useState(false);
   const isAdmin = user.role === "admin";
 
-  const refetch = () => api<{ sources: SmartSource[] | null }>("GET", "/api/smarthome").then((v) => { setSources((v.sources ?? []).map(normalise)); setErr(""); }).catch((e) => setErr(e.message));
-  useEffect(() => { refetch(); }, [tick]);
+  const adder = useConnectionAdder(addKinds, user, refetch);
   useEffect(() => { try { localStorage.setItem("ncc-iot-group", group); } catch { /* storage blocked */ } }, [group]);
-
-  const refresh = async () => {
-    if (!sources) return;
-    setBusy(true);
-    const fails: string[] = [];
-    await Promise.all(sources.filter((s) => s.enabled).map((s) => api("POST", `/api/targets/${s.id}/poll`).catch((e) => fails.push(`${s.name}: ${(e as Error).message}`))));
-    setErr(fails.join(" · "));
-    setBusy(false);
-    refetch();
-  };
 
   const live = useMemo(() => (sources ?? []).filter((s) => s.enabled && s.inventory), [sources]);
 
-  if (!sources) return <><h1>Smart home</h1>{err ? <div className="error block">{err}</div> : <p className="muted">Loading…</p>}</>;
+  if (!sources) return <PageLoading title="Smart home" err={err} />;
 
   if (sources.length === 0) {
     return (
@@ -148,7 +141,7 @@ export function SmartHome({ tick, user }: { tick: number; user: User }) {
             </div>
           </div>
           {isAdmin
-            ? (adding ? <AddTarget kind="homeassistant" onDone={() => { setAdding(false); refetch(); }} /> : <button className="primary" onClick={() => setAdding(true)}>Connect Home Assistant</button>)
+            ? <ConnectionPicker kinds={addKinds} onDone={refetch} primary />
             : <p className="muted small">Ask an admin to connect Home Assistant.</p>}
         </section>
       </>
@@ -173,13 +166,12 @@ export function SmartHome({ tick, user }: { tick: number; user: User }) {
 
   return (
     <>
-      <div className="card-head" style={{ marginBottom: 4 }}>
-        <h1 style={{ margin: 0 }}>Smart home</h1>
-        <div className="row" style={{ margin: 0 }}>
-          {isAdmin && live.length > 0 && <button onClick={() => setPairing(true)}><Icon name="plus" size={15} />Add Matter device</button>}
-          {user.role !== "viewer" && <button onClick={refresh} disabled={busy}>{busy ? "Refreshing…" : "Refresh now"}</button>}
-        </div>
-      </div>
+      <PageHeader title="Smart home">
+        {isAdmin && live.length > 0 && <button onClick={() => setPairing(true)}><Icon name="plus" size={15} />Add Matter device</button>}
+        {adder.button}
+        <RefreshButton user={user} busy={busy} onClick={refresh} />
+      </PageHeader>
+      {adder.panel}
       <p className="muted lede">
         {devices.length} device{devices.length === 1 ? "" : "s"} in {new Set(invs.flatMap((i) => i.areas.map((a) => a.id))).size} rooms
         {srcs.length > 0 && <> · from {srcs.join(", ")}</>}
@@ -187,49 +179,28 @@ export function SmartHome({ tick, user }: { tick: number; user: User }) {
         {live[0]?.taken_at && <> · updated {ago(live[0].taken_at)}</>}
       </p>
       {err && <div className="error block">{err}</div>}
-      {sources.filter((s) => s.enabled && s.last_error).map((s) => (
-        <div key={s.id} className="banner bad" role="alert">
-          <Icon name="alert" size={16} /><strong>{s.name}</strong><span>{s.last_error}</span>
-          {s.taken_at && <span className="muted small">Showing the read from {ago(s.taken_at)}.</span>}
-        </div>
-      ))}
-      {live.flatMap((s) => (s.inventory!.warnings ?? []).map((w) => (
-        <div key={s.id + w} className="banner warn"><Icon name="alert" size={16} /><strong>{s.name}</strong><span>{w}</span></div>
-      )))}
+      <SourceBanners sources={sources} warnings={(s) => (s.enabled ? s.inventory?.warnings : undefined)} />
       {live.some((s) => !s.inventory!.hub.matter) && isAdmin && (
         <div className="banner warn"><Icon name="alert" size={16} /><span>Matter isn't set up in Home Assistant yet, so devices can't be shared from Google Home. In Home Assistant open <strong>Settings → Devices &amp; services → Add integration → Matter</strong>.</span></div>
       )}
 
       {live.length > 0 && (
         <div className="tiles">
-          <Tile label="Devices online" icon={online === devices.length ? "check" : "alert"} tone={online === devices.length ? "good" : "warn"}
+          <Tile subClass="sh-tile-sub" label="Devices online" icon={online === devices.length ? "check" : "alert"} tone={online === devices.length ? "good" : "warn"}
             value={<>{online}<small> / {devices.length}</small></>}
             sub={alerts.length ? `${alerts.length} need${alerts.length === 1 ? "s" : ""} attention${crit ? `, ${crit} urgent` : ""}` : "everything is answering"} />
-          <Tile label="Lights on" icon="bulb" iconTone="c4" value={<>{lightsOn}<small> of {lights.length}</small></>}
+          <Tile subClass="sh-tile-sub" label="Lights on" icon="bulb" iconTone="c4" value={<>{lightsOn}<small> of {lights.length}</small></>}
             sub={lightsOn ? lights.filter((e) => e.state === "on").map((e) => e.name).slice(0, 3).join(", ") : "all off"} />
-          <Tile label="Doors and locks" icon={insecure.length ? "unlock" : "lock"} tone={insecure.length ? "warn" : locks.length + garages.length ? "good" : undefined}
+          <Tile subClass="sh-tile-sub" label="Doors and locks" icon={insecure.length ? "unlock" : "lock"} tone={insecure.length ? "warn" : locks.length + garages.length ? "good" : undefined}
             valueClass="small-value" value={locks.length + garages.length === 0 ? "–" : insecure.length ? `${insecure.length} open` : "All secure"}
             sub={insecure.length ? insecure.map((e) => `${e.name} ${stateText(e).toLowerCase()}`).join(", ") : `${locks.length} lock${locks.length === 1 ? "" : "s"}, ${garages.length} garage`} />
-          <Tile label="Climate" icon="thermo" iconTone="c2" valueClass="small-value"
+          <Tile subClass="sh-tile-sub" label="Climate" icon="thermo" iconTone="c2" valueClass="small-value"
             value={climate?.current_temp !== undefined ? <>{climate.current_temp}{unit ?? "°"}{climate.target_temp !== undefined && <small> → {climate.target_temp}{unit ?? "°"}</small>}</> : "–"}
             sub={climate ? `${climate.name} · ${stateText(climate, unit).split(" · ").slice(1).join(" · ") || words[climate.state]}` : "no thermostat"} />
         </div>
       )}
 
-      {alerts.length > 0 && (
-        <section className="card">
-          <h2><Icon name="alert" size={16} /> Needs attention</h2>
-          <ul className="list st-alerts">
-            {alerts.map((a, i) => (
-              <li key={i}>
-                <span className={`dot ${a.level === "critical" ? "bad" : "warn"}`} />
-                <span className="grow-col"><strong>{a.subject}</strong> <span>{a.message}</span></span>
-                {live.length > 1 && <span className="muted small">{a.source.name}</span>}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <AlertList title="Needs attention" alerts={alerts} showSource={live.length > 1} />
 
       {live.length > 0 && (
         <div className="toolbar">
@@ -245,20 +216,6 @@ export function SmartHome({ tick, user }: { tick: number; user: User }) {
 
       <Ecosystems hubs={hubs} />
 
-      {isAdmin && (
-        <section className="card" style={{ marginTop: 18 }}>
-          <div className="card-head"><h2><Icon name="link" size={16} /> Connections</h2><a href="#/settings">Manage in Settings →</a></div>
-          <ul className="list">
-            {sources.map((s) => (
-              <li key={s.id}>
-                <span className={`dot ${!s.enabled ? "" : s.last_error ? "bad" : s.taken_at ? "good" : "warn"}`} />
-                <span className="grow-col"><strong>{s.name}</strong> <span className="muted small">Home Assistant{s.inventory ? ` ${s.inventory.hub.version} · ${s.inventory.hub.name}` : ""}</span></span>
-                <span className="mono small muted">{s.address}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       {pairing && <MatterPair sources={live} onClose={() => setPairing(false)} onPaired={refetch} />}
     </>
@@ -628,21 +585,6 @@ function MatterPair({ sources, onClose, onPaired }: { sources: SmartSource[]; on
           </>
         )}
       </div>
-    </div>
-  );
-}
-
-function Tile({ label, value, sub, tone, icon, iconTone, valueClass }: {
-  label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: "good" | "warn" | "bad"; icon: IconName; iconTone?: string; valueClass?: string;
-}) {
-  return (
-    <div className={`tile ${tone ?? ""}`}>
-      <div className="tile-top">
-        <span className="tile-label">{label}</span>
-        <span className={`tile-icon ${iconTone ?? tone ?? ""}`}><Icon name={icon} size={17} /></span>
-      </div>
-      <div className={`tile-value ${valueClass ?? ""}`}>{value}</div>
-      {sub && <div className="muted small sh-tile-sub">{sub}</div>}
     </div>
   );
 }

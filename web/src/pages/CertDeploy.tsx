@@ -1,8 +1,10 @@
+// Certificate deployment page: servers that receive certificates from the vault (SSH or
+// WinRM), a preview of every file, edit and command, background runs and their history.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, Cert, DeployKind, DeployPlan, DeployTarget, Deployment, ServedCert, User } from "../api";
-import { ago } from "../live";
+import { ago } from "../format";
 import { Icon } from "../icons";
-import { Modal } from "./VLANs";
+import { Modal } from "../ui";
 
 const statusTone: Record<string, string> = { ok: "good", running: "warn", failed: "bad" };
 const stepIcon: Record<string, string> = { write: "upload", edit: "edit", run: "play" };

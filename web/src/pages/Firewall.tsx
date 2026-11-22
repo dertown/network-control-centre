@@ -1,6 +1,9 @@
+// Firewall page (read-only): the router's firewall policies or legacy rule sets and its port
+// forwards, with zones, groups and clients named.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, Firewall as FirewallData, FirewallEndpoint, FirewallRule, PortForward } from "../api";
-import { Icon, IconName } from "../icons";
+import { Icon } from "../icons";
+import { Tile } from "../ui";
 
 const actionTone: Record<string, string> = { allow: "good", block: "bad", reject: "warn" };
 
@@ -72,11 +75,11 @@ export function Firewall({ tick }: { tick: number }) {
       )))}
 
       <div className="tiles">
-        <Stat label="Your rules enabled" icon="firewall" value={<>{custom.filter((r) => r.enabled).length}<small> / {custom.length}</small></>}
+        <Tile label="Your rules enabled" icon="firewall" value={<>{custom.filter((r) => r.enabled).length}<small> / {custom.length}</small></>}
           sub={builtinCount ? `plus ${builtinCount} built-in` : zones ? "zone-based firewall" : "rule sets"} />
-        <Stat label="Blocking rules on" icon="alert" tone={blocking ? "bad" : undefined} value={blocking}
+        <Tile label="Blocking rules on" icon="alert" tone={blocking ? "bad" : undefined} value={blocking}
           sub="block or reject" />
-        <Stat label="Port forwards on" icon="internet" tone={fwdOn ? "warn" : "good"} value={<>{fwdOn}<small> / {forwards.length}</small></>}
+        <Tile label="Port forwards on" icon="internet" tone={fwdOn ? "warn" : "good"} value={<>{fwdOn}<small> / {forwards.length}</small></>}
           sub={fwdOn ? "open to the internet" : "nothing open from outside"} />
       </div>
 
@@ -188,18 +191,5 @@ function ForwardRow({ f, many }: { f: PortForward; many: boolean }) {
       <td>{f.source === "Any" ? <span className="warn-text">Anyone</span> : f.source}</td>
       <td>{f.enabled ? <span className="pill good">on</span> : <span className="pill">off</span>}</td>
     </tr>
-  );
-}
-
-function Stat({ label, value, sub, tone, icon }: { label: string; value: React.ReactNode; sub?: string; tone?: "good" | "warn" | "bad"; icon: IconName }) {
-  return (
-    <div className={`tile ${tone ?? ""}`}>
-      <div className="tile-top">
-        <span className="tile-label">{label}</span>
-        <span className={`tile-icon ${tone ?? ""}`}><Icon name={icon} size={17} /></span>
-      </div>
-      <div className="tile-value">{value}</div>
-      {sub && <div className="muted small">{sub}</div>}
-    </div>
   );
 }
