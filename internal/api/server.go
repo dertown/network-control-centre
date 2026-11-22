@@ -142,6 +142,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/smarthome/matter/pair", a(s.matterPair))
 
 	mux.Handle("GET /api/dns/check", v(s.dnsCheck))
+	mux.Handle("POST /api/dns/recursor-fix/{id}/discover", a(s.fixDiscover))
+	mux.Handle("POST /api/dns/recursor-fix/{id}/use", a(s.fixUse))
+	mux.Handle("POST /api/dns/recursor-fix/{id}/plan", a(s.fixPlan))
+	mux.Handle("POST /api/dns/recursor-fix/{id}/apply", a(s.fixApply))
 	mux.Handle("GET /api/dns/zonemap", v(s.dnsZoneMap))
 	mux.Handle("POST /api/dns/zoneplan", a(s.dnsZonePlan))
 	mux.Handle("DELETE /api/dns/zonemap/{id}", a(s.dnsZoneUnassign))

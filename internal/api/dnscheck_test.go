@@ -1,7 +1,9 @@
 package api_test
 
 import (
+	"context"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/dertown/network-control-centre/internal/core"
@@ -12,6 +14,17 @@ import (
 func TestDNSChainCheck(t *testing.T) {
 	c, _, _, done := vlanSetup(t, "ncc")
 	defer done()
+	// the live lookups go to a pretend server: it resolves everything until told otherwise
+	refuseInternet := false
+	var asked []string
+	core.ProbeDNS = func(_ context.Context, server, name string, _ uint16) (string, error) {
+		asked = append(asked, server+" "+name)
+		if refuseInternet && name == dnscheck.InternetTestName {
+			return "REFUSED", nil
+		}
+		return "NOERROR", nil
+	}
+	defer func() { core.ProbeDNS = dnscheck.Query }()
 
 	// before any DNS server is added there is nothing to check
 	var rep dnscheck.Report
@@ -43,8 +56,8 @@ func TestDNSChainCheck(t *testing.T) {
 	// the internal server plus 8.8.8.8, Guest is left alone; the recursor forwards to the
 	// ISP servers the router learned on its WAN
 	want := map[string]string{
-		"udr7 · Default": dnscheck.Pass, "udr7 · IoT": dnscheck.Fail, "udr7 · DMZ": dnscheck.Warn,
-		"udr7 · Guest": dnscheck.Skip, "pdns": dnscheck.Pass,
+		"udr7 · Default": dnscheck.Pass, "udr7 · IoT": dnscheck.Fail, "udr7 · DMZ": dnscheck.Pass,
+		"udr7 · Guest": dnscheck.Skip, "pdns": dnscheck.Pass, "pdns · 192.168.1.10": dnscheck.Pass,
 	}
 	for subj, st := range want {
 		if status[subj] != st {
@@ -55,12 +68,34 @@ func TestDNSChainCheck(t *testing.T) {
 		t.Fatalf("report: %+v", rep)
 	}
 
+	if len(asked) == 0 || !strings.Contains(strings.Join(asked, "|"), "192.168.1.10 "+dnscheck.InternetTestName) {
+		t.Fatalf("live lookups: %v", asked)
+	}
+
+	// an authoritative-only server refuses internet names: a failure with the Fix button
+	refuseInternet = true
+	pollUntil(c, dnsT.ID)
+	c.do("GET", "/api/dns/check", nil, &rep)
+	found := false
+	for _, ch := range rep.Checks {
+		if ch.Subject == "pdns · 192.168.1.10" {
+			found = true
+			if ch.Status != dnscheck.Fail || !strings.Contains(ch.Title, "refuses internet names") || ch.Action != dnscheck.ActionRecursorAPI {
+				t.Fatalf("refused: %+v", ch)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no live check: %+v", rep.Checks)
+	}
+	refuseInternet = false
+
 	// the recursor starts sending internet queries to a public resolver instead
 	rec.Forwarders = []string{"1.1.1.1:53"}
 	pollUntil(c, dnsT.ID)
 	c.do("GET", "/api/dns/check", nil, &rep)
 	for _, ch := range rep.Checks {
-		if ch.Subject == "pdns" && (ch.Status != dnscheck.Fail || ch.Actual != "1.1.1.1") {
+		if ch.Subject == "pdns" && (ch.Status != dnscheck.Warn || ch.Actual != "1.1.1.1") {
 			t.Fatalf("public forwarder: %+v", ch)
 		}
 	}
@@ -72,7 +107,7 @@ func TestDNSChainCheck(t *testing.T) {
 	pollUntil(c, dnsT.ID)
 	c.do("GET", "/api/dns/check", nil, &rep)
 	for _, ch := range rep.Checks {
-		if ch.Subject == "pdns" && (ch.Status != dnscheck.Unknown || ch.FixURL != "#/settings") {
+		if ch.Subject == "pdns" && (ch.Status != dnscheck.Unknown || ch.FixURL != "#/settings" || ch.Action != dnscheck.ActionRecursorAPI || ch.Target != dnsT.ID) {
 			t.Fatalf("no recursor: %+v", ch)
 		}
 	}

@@ -850,3 +850,10 @@ label.check.field-check .field-help { flex-basis: 100%; }
   .zone-issues { max-width: none; }
 }
 .ai-terminal.ai-commands { min-height: 0; max-height: none; white-space: pre-wrap; word-break: break-all; }
+
+/* Router DNS check: status legend and the Recursor fix preview */
+.dns-legend { margin: -4px 0 10px; line-height: 1.9; }
+.dns-legend .pill { font-size: 11px; }
+.step-out.diff { color: var(--ink); }
+.step-out.diff .del { color: var(--bad); }
+.step-out.diff .add { color: var(--good); }

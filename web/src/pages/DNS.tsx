@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, Change, DNSCheck, DNSReport, RRSet, Target, User, Zone, ZonePlan } from "../api";
 import { DNSZones } from "./DNSZones";
+import { RecursorFix } from "./RecursorFix";
 
 const TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "SRV", "PTR", "NS", "CAA"];
 
@@ -27,8 +28,9 @@ const statusLabel: Record<DNSCheck["status"], string> = { pass: "Pass", skip: "N
  * server, and that server should forward internet queries to the ISP's DNS servers. Problems
  * come first; passes and skipped networks are folded away under "Show all".
  */
-function DNSChainCard({ tick, servers, canPoll }: { tick: number; servers: Target[]; canPoll: boolean }) {
+function DNSChainCard({ tick, servers, canPoll, canFix }: { tick: number; servers: Target[]; canPoll: boolean; canFix: boolean }) {
   const [rep, setRep] = useState<DNSReport | null>(null);
+  const [fixing, setFixing] = useState<DNSCheck | null>(null);
   const [all, setAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const load = () => api<DNSReport>("GET", "/api/dns/check").then(setRep).catch(() => setRep(null));
@@ -59,6 +61,10 @@ function DNSChainCard({ tick, servers, canPoll }: { tick: number; servers: Targe
         {rep.isp_source === "setting" && " (from Settings)"}
       </p>
       <p className="lede">{rep.summary}</p>
+      <p className="muted small dns-legend">
+        <span className="pill bad">Fail</span> something is broken for clients · <span className="pill warn">Warning</span> it works, but not as intended ·{" "}
+        <span className="pill">Can't tell</span> NCC can't read it yet. Only addresses are compared (ports are ignored), and public servers handed out after the internal one count as a fallback, not a problem.
+      </p>
       {shown.length > 0 && (
         <ul className="plain dns-checks">
           {shown.map((c) => (
@@ -80,6 +86,9 @@ function DNSChainCard({ tick, servers, canPoll }: { tick: number; servers: Targe
                   <strong>Fix: </strong>{c.fix}
                   {c.fix_url && <> <a href={c.fix_url} target={c.fix_url.startsWith("#") ? undefined : "_blank"} rel="noreferrer">
                     {c.fix_url.startsWith("#") ? "Open Settings" : "Open the router"}</a></>}
+                  {c.action === "recursor-api" && c.target && canFix && (
+                    <div><button className="primary small-btn" onClick={() => setFixing(c)}>Fix</button></div>
+                  )}
                 </div>
               )}
             </li>
@@ -90,6 +99,10 @@ function DNSChainCard({ tick, servers, canPoll }: { tick: number; servers: Targe
         <button className="link" onClick={() => setAll(!all)}>
           {all ? "Show only problems" : `Show all ${checks.length} checks (${checks.length - problems.length} passed or not checked)`}
         </button>
+      )}
+      {fixing && fixing.target && (
+        <RecursorFix target={fixing.target} name={servers.find((s) => s.id === fixing.target)?.name ?? fixing.subject}
+          onClose={(changed) => { setFixing(null); if (changed) load(); }} />
       )}
     </section>
   );
@@ -201,7 +214,7 @@ function Records({ user, tick }: { user: User; tick: number }) {
 
   return (
     <>
-      <DNSChainCard tick={tick} servers={servers} canPoll={canWrite} />
+      <DNSChainCard tick={tick} servers={servers} canPoll={canWrite} canFix={user.role === "admin"} />
       <div className="toolbar">
         <select value={server ?? ""} onChange={(e) => setServer(Number(e.target.value))}>
           {servers.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.kind})</option>)}

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -36,6 +37,7 @@ const (
 	KindDHCP       = "dhcp"       // a router network hands out the internal resolver
 	KindForwarders = "forwarders" // the internal resolver forwards to the ISP
 	KindSetup      = "setup"      // NCC is missing something it needs to check
+	KindLive       = "live"       // a real lookup sent to the internal DNS server
 )
 
 // Check is one finding.
@@ -52,7 +54,15 @@ type Check struct {
 	// Fix says where and how to fix it; FixURL opens the device's own admin page when known.
 	Fix    string `json:"fix,omitempty"`
 	FixURL string `json:"fix_url,omitempty"`
+	// Action names a fix NCC can carry out itself (after a preview), e.g. ActionRecursorAPI;
+	// Target is the connection it applies to.
+	Action string `json:"action,omitempty"`
+	Target int64  `json:"target,omitempty"`
 }
+
+// ActionRecursorAPI finds or turns on the PowerDNS Recursor's API so NCC can read its
+// forwarders (the "Fix" button on a "can't read the forwarders" check).
+const ActionRecursorAPI = "recursor-api"
 
 // Report is the whole check.
 type Report struct {
@@ -90,6 +100,8 @@ type Resolver struct {
 	NoResolver bool
 	// Error is why reading the forwarders failed.
 	Error string
+	// Live are real lookups sent to each of Addresses.
+	Live []Live
 }
 
 // Evaluate runs every check.
@@ -147,6 +159,7 @@ func Evaluate(routers []Router, servers []Resolver) Report {
 		r.Checks = append(r.Checks, routerChecks(rt, resolvers, &gateways)...)
 	}
 	for _, s := range servers {
+		r.Checks = append(r.Checks, liveChecks(s)...)
 		r.Checks = append(r.Checks, forwarderCheck(s, isp, r.ISPSource, manualWAN, resolvers, gateways))
 	}
 
@@ -176,6 +189,58 @@ func Evaluate(routers []Router, servers []Resolver) Report {
 	return r
 }
 
+// liveChecks reports the real lookups sent to one internal DNS server's addresses.
+func liveChecks(s Resolver) []Check {
+	var out []Check
+	for _, l := range s.Live {
+		c := Check{ID: fmt.Sprintf("live-%d-%s", s.ID, l.Server), Kind: KindLive, Subject: s.Name + " · " + l.Server,
+			Expected: "answers " + l.Internet}
+		if l.Internal != "" {
+			c.Expected += " and " + l.Internal
+		}
+		c.Actual = l.Internet + ": " + l.InternetResult
+		if l.Internal != "" {
+			c.Actual += "; " + l.Internal + ": " + l.InternalResult
+		}
+		internalOK := l.Internal == "" || l.InternalOK
+		switch {
+		case l.InternetOK && internalOK:
+			c.Status = Pass
+			c.Title = l.Server + " answers internet and internal names"
+			if l.Internal == "" {
+				c.Title = l.Server + " answers internet names"
+			}
+		case l.InternetResult == "no answer" || l.InternetResult == "port 53 closed":
+			c.Status = Fail
+			c.Title = l.Server + " doesn't answer DNS queries"
+			c.Detail = "NCC sent it a lookup and got " + l.InternetResult + ". Clients handed this server wait for it to time out before trying the next one."
+			c.Fix = "Check the DNS service is running on " + l.Server + " and that its firewall allows port 53 from your networks."
+		case !l.InternetOK && l.InternetResult == "REFUSED" && l.InternalOK:
+			c.Status = Fail
+			c.Title = l.Server + " refuses internet names: it is an authoritative server, not a resolver"
+			c.Detail = fmt.Sprintf("It answers %s, but refuses to look up %s. Clients that ask it first are refused, then try the next DNS server they were given (slower), and devices with no fallback can't reach the internet by name. Internal names only work through it while it is asked first.", l.Internal, l.Internet)
+			c.Fix = "Run a resolver on " + l.Server + ": PowerDNS Recursor on port 53, sending " + l.Internal + " to the authoritative server and everything else to your ISP. Press Fix to have NCC set it up (you see every change before it is made)."
+			c.Action, c.Target = ActionRecursorAPI, s.ID
+		case !l.InternetOK:
+			c.Status = Fail
+			c.Title = l.Server + " can't look up internet names"
+			c.Detail = fmt.Sprintf("Asking it for %s gave %s. Clients that use it can't reach the internet by name until they fall back to another server.", l.Internet, l.InternetResult)
+			c.Fix = "Check the resolver's forwarders and that it can reach the internet (outbound port 53)."
+			if l.InternetResult == "REFUSED" {
+				c.Fix = "The server refuses recursive lookups: allow your networks in its allow-from setting, or run a resolver on it. Press Fix to have NCC look."
+				c.Action, c.Target = ActionRecursorAPI, s.ID
+			}
+		default:
+			c.Status = Fail
+			c.Title = l.Server + " doesn't answer for " + l.Internal
+			c.Detail = fmt.Sprintf("Internet names work, but asking for %s gave %s, so internal names won't resolve for clients using it.", l.Internal, l.InternalResult)
+			c.Fix = "Make the resolver send " + l.Internal + " to the authoritative server (PowerDNS Recursor: forward-zones=" + l.Internal + "=<authoritative server>)."
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 // routerChecks checks that every LAN of one router hands out the internal resolver.
 func routerChecks(rt Router, resolvers set, gateways *set) []Check {
 	var out []Check
@@ -195,7 +260,7 @@ func routerChecks(rt Router, resolvers set, gateways *set) []Check {
 			gateways.add(n.DNS.Gateway)
 		}
 		c := Check{ID: "dhcp-" + rt.Name + "-" + n.ID, Kind: KindDHCP, Subject: rt.Name + " · " + n.Name,
-			Expected: strings.Join(resolvers.list(), ", ")}
+			Expected: expectedHanded(resolvers)}
 		handed := n.DNS.Servers
 		switch {
 		case n.Zone == "hotspot" || n.Purpose == "guest":
@@ -216,24 +281,32 @@ func routerChecks(rt Router, resolvers set, gateways *set) []Check {
 			c.Actual = describeHanded(n.DNS, upstream)
 			c.Detail = "DHCP hands out the router itself, which sends every query straight to its WAN DNS. Internal names won't resolve on this network."
 		default:
+			// Compare addresses only: "192.168.1.70", "192.168.1.70:53" and "192.168.1.70#53"
+			// are the same server. Order matters: clients ask the first server and only move to
+			// the next ones when it doesn't answer.
 			var internal, other []string
 			for _, h := range handed {
 				if resolvers.has(h) {
-					internal = append(internal, h)
+					internal = append(internal, norm(h))
 				} else {
-					other = append(other, h)
+					other = append(other, norm(h))
 				}
 			}
-			c.Actual = strings.Join(handed, ", ")
+			firstInternal := resolvers.has(handed[0])
+			c.Actual = describeOrder(handed, resolvers)
 			switch {
 			case len(internal) == 0:
 				c.Status = Fail
 				c.Title = n.Name + " clients don't use the internal DNS server"
-				c.Detail = "DHCP hands out " + strings.Join(handed, ", ") + ", none of which is the internal DNS server. Internal names won't resolve on this network."
-			case len(other) > 0:
+				c.Detail = "DHCP hands out " + strings.Join(other, ", ") + ", none of which is the internal DNS server. Internal names won't resolve on this network."
+			case !firstInternal:
 				c.Status = Warn
-				c.Title = n.Name + " clients also get a DNS server that isn't internal"
-				c.Detail = fmt.Sprintf("Clients pick any of the servers they are given, so some lookups go to %s and skip the internal server: internal names will fail now and then. Use a second internal server as the backup instead.", strings.Join(other, ", "))
+				c.Title = n.Name + " clients ask " + norm(handed[0]) + " before the internal DNS server"
+				c.Detail = fmt.Sprintf("The internal server is handed out, but not first. Most devices ask the first server and only fall back when it doesn't answer, so they will mostly use %s and internal names won't resolve for them. Put %s first.", norm(handed[0]), internal[0])
+			case len(other) > 0:
+				c.Status = Pass
+				c.Title = n.Name + " clients use the internal DNS server first"
+				c.Detail = fmt.Sprintf("%s is a fallback for when the internal server doesn't answer, which keeps the internet working if it is down. While a device is using the fallback, internal names won't resolve for it.", strings.Join(other, ", "))
 			default:
 				c.Status = Pass
 				c.Title = n.Name + " clients use the internal DNS server"
@@ -255,9 +328,35 @@ func routerChecks(rt Router, resolvers set, gateways *set) []Check {
 	return out
 }
 
+// expectedHanded is what a LAN should hand out: an internal server first; public servers
+// after it are accepted as a fallback.
+func expectedHanded(resolvers set) string {
+	if len(resolvers) == 0 {
+		return ""
+	}
+	return strings.Join(resolvers.list(), " or ") + " first"
+}
+
+// describeOrder lists the handed-out servers in order, marking which are internal.
+func describeOrder(handed []string, resolvers set) string {
+	parts := make([]string, 0, len(handed))
+	for _, h := range handed {
+		if resolvers.has(h) {
+			parts = append(parts, norm(h)+" (internal)")
+		} else {
+			parts = append(parts, norm(h))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
 func describeHanded(d *inv.NetworkDNS, upstream []string) string {
 	if len(d.Servers) > 0 {
-		return strings.Join(d.Servers, ", ")
+		out := make([]string, len(d.Servers))
+		for i, h := range d.Servers {
+			out[i] = norm(h)
+		}
+		return strings.Join(out, ", ")
 	}
 	s := "the router itself"
 	if d.Gateway != "" {
@@ -272,9 +371,9 @@ func describeHanded(d *inv.NetworkDNS, upstream []string) string {
 func dhcpFix(rt Router, network string, resolvers []string) (string, string) {
 	want := strings.Join(resolvers, " and ")
 	if rt.Kind == "unifi" {
-		return fmt.Sprintf("In UniFi Network open Settings → Networks → %s → DHCP Service Management, set DNS Server to manual and enter %s only.", network, want), rt.URL
+		return fmt.Sprintf("In UniFi Network open Settings → Networks → %s → DHCP Service Management, set DNS Server to manual and enter %s as the first DNS server (UniFi takes addresses only, no port). Public servers such as 1.1.1.1 may follow as a fallback.", network, want), rt.URL
 	}
-	return fmt.Sprintf("In %s's DHCP settings for %s, set the DNS server handed to clients to %s only.", rt.Name, network, want), rt.URL
+	return fmt.Sprintf("In %s's DHCP settings for %s, make %s the first DNS server handed to clients (address only, no port). Public servers may follow as a fallback.", rt.Name, network, want), rt.URL
 }
 
 // forwarderCheck checks that one internal resolver forwards internet queries to the ISP.
@@ -292,14 +391,16 @@ func forwarderCheck(s Resolver, isp set, ispSource string, manualWAN []string, r
 	case s.NoResolver:
 		c.Status = Unknown
 		c.Title = "Can't see where " + s.Name + " forwards internet queries"
-		c.Detail = "This connection is the authoritative server, which never forwards; the resolver clients talk to is a separate PowerDNS Recursor."
-		c.Fix, c.FixURL = "In Settings, edit "+s.Name+" and fill in “Recursor API URL” (webserver-address and webserver-port in recursor.conf, e.g. http://ns1:8082).", "#/settings"
+		c.Detail = "This connection is the authoritative server, which never forwards; the resolver clients talk to is a separate PowerDNS Recursor, and NCC needs its API URL."
+		c.Fix, c.FixURL = "Press Fix to have NCC find the Recursor's API (and turn it on if it is off), or in Settings fill in “Recursor API URL” on "+s.Name+" (webserver-address and webserver-port in recursor.conf, e.g. http://ns1:8082).", "#/settings"
+		c.Action, c.Target = ActionRecursorAPI, s.ID
 		return c
 	case s.Error != "":
 		c.Status = Unknown
 		c.Title = "Can't read the forwarders of " + s.Name
-		c.Detail = s.Error
-		c.Fix, c.FixURL = "Check the Recursor API URL and key on "+s.Name+" in Settings.", "#/settings"
+		c.Detail, c.Fix = explainReadError(s.Error)
+		c.FixURL = "#/settings"
+		c.Action, c.Target = ActionRecursorAPI, s.ID
 		return c
 	case s.Forwarding == nil:
 		c.Status = Unknown
@@ -353,9 +454,10 @@ func forwarderCheck(s Resolver, isp set, ispSource string, manualWAN []string, r
 		}
 		c.Fix, c.FixURL = "In Settings, edit "+s.Name+" and fill in “ISP DNS servers” (from your ISP or the router's WAN status page).", "#/settings"
 	case len(other) > 0:
-		c.Status = Fail
+		// Works (public resolvers answer), just not what was asked for: a warning, not a failure.
+		c.Status = Warn
 		c.Title = s.Name + " forwards internet queries to servers that aren't your ISP's"
-		c.Detail = strings.Join(other, ", ") + " is not one of your ISP's DNS servers."
+		c.Detail = strings.Join(other, ", ") + " is not one of your ISP's DNS servers. Internet names still resolve, but not through your ISP as intended."
 		c.Fix = recurseFix
 	default:
 		c.Status = Pass
@@ -365,15 +467,81 @@ func forwarderCheck(s Resolver, isp set, ispSource string, manualWAN []string, r
 	return c
 }
 
+// explainReadError turns the error from reading the Recursor's API into what it means for a
+// person, and what to do about it.
+func explainReadError(e string) (detail, fix string) {
+	l := strings.ToLower(e)
+	where := ""
+	if u := urlIn(e); u != "" {
+		where = " at " + u
+	}
+	switch {
+	case strings.Contains(l, "connection refused"):
+		return "Nothing answers" + where + ": the Recursor's web server is off, listens on another port, or only listens on 127.0.0.1. (" + e + ")",
+			"Press Fix: NCC looks for the Recursor's API on the usual ports and, if it is off, shows the exact recursor.conf changes to turn it on over SSH before making them."
+	case strings.Contains(l, "rejected"), strings.Contains(l, "401"), strings.Contains(l, "403"):
+		return "The Recursor answered but refused NCC's API key. (" + e + ")",
+			"Press Fix to read the Recursor's api-key over SSH, or in Settings enter the api-key from recursor.conf as the Recursor API key."
+	case strings.Contains(l, "timeout"), strings.Contains(l, "deadline exceeded"), strings.Contains(l, "no route to host"):
+		return "No answer" + where + " in time: a firewall on the DNS server or between it and NCC is dropping the connection, or the address is wrong. (" + e + ")",
+			"Press Fix to check the address and open the port on the server's firewall, or check the Recursor API URL in Settings."
+	case strings.Contains(l, "no such host"):
+		return "NCC can't look up the Recursor API URL's host name. (" + e + ")", "Use the server's IP address in the Recursor API URL, or press Fix to find it."
+	case strings.Contains(l, "404"):
+		return "Something answers" + where + " but it isn't the Recursor's API (wrong port, or the authoritative server's API). (" + e + ")",
+			"Press Fix to find the Recursor's API port."
+	}
+	return e, "Press Fix to find the Recursor's API and check it, or check the Recursor API URL and key in Settings."
+}
+
+// urlIn returns the scheme://host:port of the first URL in s, or "".
+func urlIn(s string) string {
+	i := strings.Index(s, "http://")
+	if j := strings.Index(s, "https://"); i < 0 || (j >= 0 && j < i) {
+		i = j
+	}
+	if i < 0 {
+		return ""
+	}
+	u := s[i:]
+	if k := strings.IndexAny(u, " \"\n"); k >= 0 {
+		u = u[:k]
+	}
+	if p, err := url.Parse(u); err == nil && p.Host != "" {
+		return p.Scheme + "://" + p.Host
+	}
+	return ""
+}
+
 // set is a set of IP addresses compared in canonical form.
 type set map[string]struct{}
 
+// norm is the canonical form of a DNS server address. Only the IP counts: a port
+// ("192.168.1.70:53", "[2001:db8::1]:53", PowerDNS's "192.168.1.70#53"), a URL scheme and
+// path are dropped, so the same server written differently compares equal.
 func norm(a string) string {
 	a = strings.TrimSpace(a)
 	if p, err := netip.ParseAddr(a); err == nil {
 		return p.Unmap().String()
 	}
-	return strings.ToLower(a)
+	h := a
+	if i := strings.Index(h, "://"); i >= 0 {
+		h = h[i+3:]
+	}
+	if i := strings.IndexAny(h, "/?"); i >= 0 {
+		h = h[:i]
+	}
+	if i := strings.LastIndex(h, "#"); i > 0 {
+		h = h[:i]
+	}
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
+	}
+	h = strings.Trim(h, "[]")
+	if p, err := netip.ParseAddr(h); err == nil {
+		return p.Unmap().String()
+	}
+	return strings.ToLower(h)
 }
 
 func (s set) add(v ...string) {

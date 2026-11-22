@@ -57,8 +57,30 @@ export interface Target {
 }
 /** One finding of the DNS chain check (router hands out the internal DNS server, which forwards to the ISP). */
 export interface DNSCheck {
-  id: string; kind: "dhcp" | "forwarders" | "setup"; status: "pass" | "skip" | "unknown" | "warn" | "fail";
+  id: string; kind: "dhcp" | "forwarders" | "setup" | "live"; status: "pass" | "skip" | "unknown" | "warn" | "fail";
   subject: string; title: string; expected?: string; actual?: string; detail?: string; fix?: string; fix_url?: string;
+  /** A fix NCC can carry out itself (after a preview), for the connection `target`. */
+  action?: "recursor-api"; target?: number;
+}
+export interface RecursorProbe {
+  url: string; status?: number; daemon_type?: string; version?: string; recursor: boolean; key_ok: boolean; error?: string;
+}
+export interface RecursorDiscovery {
+  discovery: { hosts: string[]; probes: RecursorProbe[]; found?: RecursorProbe };
+  current_url?: string; needs_api_key: boolean; no_resolver: boolean;
+  ssh: { host: string; port: number; user: string; sudo: boolean; host_key?: string; has_password: boolean; has_key: boolean };
+}
+export interface RecursorStep { title: string; command?: string; file?: string; diff?: string[]; note?: string }
+export interface RecursorPlan {
+  mode: "api" | "install" | "resolver"; host: string; url?: string; new_key: boolean; warnings: string[]; blocked?: string; next?: string; zone?: string;
+  steps: RecursorStep[];
+  facts: {
+    os?: string; version?: string; config_file?: string; style?: string; on_port_53?: string; listening?: string[]; ufw?: boolean;
+    auth_config?: string; current: Record<string, string>;
+  };
+}
+export interface RecursorResult {
+  ok: boolean; url?: string; error?: string; rolled_back?: boolean; steps: { title: string; ok: boolean; output?: string }[];
 }
 export interface DNSReport {
   /** Worst check's status; "" when there is no DNS server to check. */
