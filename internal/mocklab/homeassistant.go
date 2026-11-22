@@ -19,6 +19,13 @@ type haEnt struct {
 	category                   string // entity_category (config, diagnostic)
 }
 
+// haConnections are the network MACs Home Assistant knows for some devices; they match
+// clients of the pretend UniFi network.
+var haConnections = map[string][][]string{
+	"d-thermo": {{"mac", "DE:AD:00:00:00:07"}},
+	"d-hue":    {{"mac", "de:ad:00:00:00:0c"}},
+}
+
 type haDev struct {
 	id, name, manufacturer, model, sw, area, platform string
 }
@@ -40,9 +47,9 @@ func HomeAssistant(token string) http.Handler {
 		{"d-kitchen", "Kitchen lights", "TP-Link", "Tapo L535E", "1.1.0", "kitchen", "matter"},
 		{"d-coffee", "Coffee machine plug", "TP-Link", "Tapo P125M", "1.2.3", "kitchen", "matter"},
 		{"d-echo", "Echo Show", "Amazon", "Echo Show 8 (3rd gen)", "", "kitchen", "alexa_devices"},
-		{"d-thermo", "Thermostat", "Google", "Nest Learning Thermostat (4th gen)", "", "hallway", "nest"},
+		{"d-thermo", "Thermostat", "Google", "Nest Learning Thermostat (4th gen)", "4.2.6", "hallway", "nest"},
 		{"d-lock", "Front door", "Aqara", "Smart Lock U200", "4.0.3", "hallway", "matter"},
-		{"d-bell", "Doorbell", "Google", "Nest Doorbell (battery)", "", "hallway", "nest"},
+		{"d-bell", "Doorbell", "Google", "Nest Doorbell (battery)", "1.67.2", "hallway", "nest"},
 		{"d-bedlamp", "Bedside lamp", "IKEA of Sweden", "TRADFRI bulb E27", "2.3.095", "bedroom", "matter"},
 		{"d-bedtemp", "Bedroom sensor", "Aqara", "Climate Sensor W100", "1.0.7", "bedroom", "matter"},
 		{"d-garage", "Garage door", "Meross", "MSG100 Smart Garage Opener", "6.2.0", "garage", "matter"},
@@ -299,7 +306,7 @@ func HomeAssistant(token string) http.Handler {
 					}
 					out = append(out, map[string]any{"id": d.id, "name": d.name, "name_by_user": nil, "manufacturer": d.manufacturer,
 						"model": d.model, "sw_version": d.sw, "area_id": nilIfEmpty(d.area), "disabled_by": nil, "entry_type": entry,
-						"identifiers": [][]string{{d.platform, d.id}}})
+						"identifiers": [][]string{{d.platform, d.id}}, "connections": haConnections[d.id]})
 				}
 				ok(out)
 			case "config/entity_registry/list":

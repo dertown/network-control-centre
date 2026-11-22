@@ -36,7 +36,8 @@ export function VLANs({ tick, user }: { tick: number; user: User }) {
   const [tid, setTid] = useState<number | null>(null);
   const [q, setQ] = useState("");
   const [medium, setMedium] = useState<"" | "wired" | "wifi">("");
-  const [sel, setSel] = useState<Set<string>>(new Set());
+  // the IoT page links here with ?select=mac,mac to move those devices
+  const [sel, setSel] = useState<Set<string>>(() => new Set(new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("select")?.split(",").filter(Boolean) ?? []));
   const [over, setOver] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [move, setMove] = useState<{ network: Network; macs: string[] } | null>(null);
@@ -73,7 +74,8 @@ export function VLANs({ tick, user }: { tick: number; user: User }) {
 
   // drop selection entries that are no longer visible
   useEffect(() => {
-    const vis = new Set((t?.clients ?? []).map((c) => c.mac));
+    if (!t) return; // not loaded yet: keep a selection the IoT page passed in
+    const vis = new Set(t.clients.map((c) => c.mac));
     setSel((s) => { const n = new Set([...s].filter((m) => vis.has(m))); return n.size === s.size ? s : n; });
   }, [t]);
 

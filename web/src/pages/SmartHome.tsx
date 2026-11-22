@@ -1,6 +1,6 @@
 // Smart home page: lights, plugs, climate, locks, media, sensors and scenes from every Home
 // Assistant connection, grouped by room or type, with controls and Matter pairing.
-import { useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { api, MatterCheck, SmartDevice, SmartEntity, SmartInventory, SmartPlan, SmartSource, User } from "../api";
 import { ago } from "../format";
 import { Icon, IconName } from "../icons";
@@ -102,7 +102,8 @@ function normalise(s: SmartSource): SmartSource {
   };
 }
 
-export function SmartHome({ tick, user }: { tick: number; user: User }) {
+/** SmartHome is the smart home controls; the IoT page shows it as a tab, passing its title and tab bar. */
+export function SmartHome({ tick, user, title = "Smart home", nav }: { tick: number; user: User; title?: string; nav?: ReactNode }) {
   const { data: sources, err, busy, refetch, refresh } = useSourceData<{ sources: SmartSource[] | null }, SmartSource[]>(
     "/api/smarthome", tick, (d) => d, (r) => (r.sources ?? []).map(normalise));
   const [group, setGroup] = useState<"rooms" | "types">(() => {
@@ -117,12 +118,13 @@ export function SmartHome({ tick, user }: { tick: number; user: User }) {
 
   const live = useMemo(() => (sources ?? []).filter((s) => s.enabled && s.inventory), [sources]);
 
-  if (!sources) return <PageLoading title="Smart home" err={err} />;
+  if (!sources) return <PageLoading title={title} err={err} />;
 
   if (sources.length === 0) {
     return (
       <>
-        <h1>Smart home</h1>
+        <h1>{title}</h1>
+        {nav}
         <p className="muted lede">Lights, plugs, thermostats, locks, speakers and sensors from Google Home, Alexa, Matter and more, in one place.</p>
         <section className="card">
           <div className="empty" style={{ alignItems: "flex-start", textAlign: "left", padding: 0 }}>
@@ -166,11 +168,12 @@ export function SmartHome({ tick, user }: { tick: number; user: User }) {
 
   return (
     <>
-      <PageHeader title="Smart home">
+      <PageHeader title={title}>
         {isAdmin && live.length > 0 && <button onClick={() => setPairing(true)}><Icon name="plus" size={15} />Add Matter device</button>}
         {adder.button}
         <RefreshButton user={user} busy={busy} onClick={refresh} />
       </PageHeader>
+      {nav}
       {adder.panel}
       <p className="muted lede">
         {devices.length} device{devices.length === 1 ? "" : "s"} in {new Set(invs.flatMap((i) => i.areas.map((a) => a.id))).size} rooms

@@ -125,6 +125,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/storage/snapshots", o(s.storageCreateSnapshot))
 	mux.Handle("POST /api/storage/snapshots/delete", a(s.storageDeleteSnapshot))
 
+	mux.Handle("GET /api/iot", v(s.listIoT))
+	mux.Handle("POST /api/iot/devices", o(s.addIoT))
+	mux.Handle("PUT /api/iot/devices", o(s.updateIoT))
+	mux.Handle("DELETE /api/iot/devices/{mac}", a(s.deleteIoT))
+	mux.Handle("PUT /api/iot/networks", a(s.setIoTNetworks))
+
 	mux.Handle("GET /api/smarthome", v(s.listSmartHome))
 	mux.Handle("POST /api/smarthome/plan", o(s.smartHomePlan))
 	mux.Handle("POST /api/smarthome/control", o(s.smartHomeControl))

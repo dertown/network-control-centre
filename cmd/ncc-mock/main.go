@@ -40,6 +40,7 @@ import (
 func main() {
 	dnsTo := flag.String("dnslog", "", "send pretend DNS query logs to this NCC dns_log address, e.g. localhost:4242")
 	loops := flag.Bool("loops", false, "cable two switching loops into the pretend network, to try loop detection")
+	office := flag.Bool("office", false, "add an office's IoT devices (cameras, phones, door controller, UPS...) to the pretend network")
 	flag.Parse()
 	if *dnsTo != "" {
 		go sendDNS(*dnsTo)
@@ -48,6 +49,10 @@ func main() {
 	if *loops {
 		handler = mocklab.UniFiWithLoops()
 		log.Printf("pretend network has switching loops (-loops)")
+	}
+	if *office {
+		handler = mocklab.UniFiOffice()
+		log.Printf("pretend network has office IoT devices (-office)")
 	}
 	unifi := httptest.NewUnstartedServer(handler)
 	l, err := netListen(":9443")

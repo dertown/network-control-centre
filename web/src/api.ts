@@ -216,3 +216,16 @@ export interface SmartSource {
 }
 export interface SmartPlan { entity: string; name: string; description: string; sensitive: boolean; call: { domain: string; service: string; data: Record<string, unknown> } }
 export interface MatterCheck { code: { kind: "manual" | "qr"; formatted: string; discriminator: number; vendor_present?: boolean }; hub: string; matter_ready: boolean; devices: number }
+
+export interface IoTDevice {
+  mac: string; name: string; label: string; hostname?: string; ip?: string; vendor?: string; type: string; auto_type: string;
+  network_id?: string; network?: string; vlan?: number; wired: boolean; ssid?: string; switch_mac?: string; switch_port?: number; ap_mac?: string;
+  uplink?: string; target_id?: number; target?: string; first_seen: string; last_seen: string; online: boolean;
+  owner: string; site: string; building: string; floor: string; room: string; notes: string; ignored: boolean;
+  network_ok: boolean; network_ok_reason?: string; updated_at?: string; updated_by?: string; model?: string; firmware?: string;
+  issues: ("wrong_network" | "offline" | "no_location" | "no_owner")[];
+}
+export interface IoTNetwork { id: string; name: string; vlan?: number; subnet?: string; zone?: string; target: string; iot: boolean; suggested: boolean; devices: number }
+export interface IoTCandidate { mac: string; name: string; ip?: string; vendor?: string; network?: string; guess?: string; ignored: boolean }
+export interface IoTView { devices: IoTDevice[]; networks: IoTNetwork[]; networks_chosen: boolean; types: string[]; candidates: IoTCandidate[]; sources: number }
+export type IoTPatch = Partial<Pick<IoTDevice, "type" | "label" | "owner" | "site" | "building" | "floor" | "room" | "notes" | "ignored" | "network_ok" | "network_ok_reason">>;

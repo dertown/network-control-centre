@@ -74,7 +74,17 @@ This first release (the MVP) covers:
   (QNAP, Synology; admins, typing the connection name to confirm). QNAP's public API has no share or
   snapshot calls, so those stay in QTS. Use a dedicated admin account without two-step verification for
   QNAP and Synology. Try it with `go run ./cmd/ncc-mock` (QNAP on :9050, Synology on :9051).
-- **Smart home** (Configure → Smart home): lights, plugs, fans, thermostats, locks, garage doors, speakers,
+- **IoT devices** (Configure → IoT devices): an inventory of the company's IoT gear, found among the router's
+  clients by vendor and name: IP cameras and NVRs, door and badge controllers, printers, desk and conference
+  phones, meeting-room systems, displays and signage, building (HVAC/BMS) controllers, UPSs, PDUs, sensors,
+  lighting and speakers. Each device records its site, building, floor, room, owner and notes (edit one, or select
+  many and set them together), with its network, VLAN, switch port or access point, IP, last seen and, when Home
+  Assistant knows it, model and firmware. Choose which networks are IoT networks (NCC guesses from names like IoT,
+  Cameras, BMS, OT until an admin does): devices elsewhere are flagged, with a link that preselects them on the VLANs
+  page to move, or an exception with a reason. Devices NCC missed are added by hand; ones that aren't IoT are marked
+  so they stay out. Export to CSV. Operators edit, admins choose the networks and remove devices; every change is
+  in the audit log. Try it with `go run ./cmd/ncc-mock -office`, which adds an office's IoT devices to the pretend network.
+- **Smart home** (the IoT page's Smart home controls tab): lights, plugs, fans, thermostats, locks, garage doors, speakers,
   robot vacuums, cameras, sensors and scenes from **Google Home, Alexa, Matter, Google Nest, Cast, Hue, TP-Link** and
   anything else **Home Assistant** controls, grouped by room or by type. Google Home and Alexa have no open control
   API, so NCC talks to Home Assistant (WebSocket and REST API, long-lived token in the vault). Operators switch,
@@ -294,6 +304,7 @@ internal/drivers/        device driver interface; unifi/
 internal/dns/            DNS provider interface; powerdns/
 internal/hypervisor/     virtual machine provider interface; proxmox/, vmware/
 internal/storage/        NAS provider interface; qnap/, synology/, smb/, nfs/, snmpnas/
+internal/iot/            IoT inventory: device classification, locations, IoT network policy
 internal/smarthome/      smart home provider interface and Matter codes; homeassistant/
 internal/dnslog/         PowerDNS Recursor / dnsdist protobuf query-log receiver
 internal/vault/          secret store interface; local and HashiCorp backends
