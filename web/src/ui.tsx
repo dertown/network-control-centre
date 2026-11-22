@@ -11,9 +11,11 @@ export type Tone = "good" | "warn" | "bad";
  * a big value and an optional line underneath. With href the whole tile is a link.
  * iconTone colours just the icon (c1..c4 or a tone); tone colours the tile itself.
  */
-export function Tile({ label, value, sub, tone, icon, iconTone, valueClass, subClass, href }: {
+export function Tile({ label, value, sub, tone, icon, iconTone, valueClass, subClass, href, children }: {
   label: string; value: ReactNode; sub?: ReactNode; tone?: Tone; icon: IconName; iconTone?: string;
   valueClass?: string; subClass?: string; href?: string;
+  /** Drawn at the bottom of the tile: a sparkline or a meter. */
+  children?: ReactNode;
 }) {
   const body = (
     <>
@@ -23,6 +25,7 @@ export function Tile({ label, value, sub, tone, icon, iconTone, valueClass, subC
       </div>
       <div className={`tile-value ${valueClass ?? ""}`}>{value}</div>
       {sub && <div className={`muted small ${subClass ?? ""}`}>{sub}</div>}
+      {children}
     </>
   );
   return href

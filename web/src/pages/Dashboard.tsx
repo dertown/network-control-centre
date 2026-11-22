@@ -16,17 +16,16 @@
 
 import { useState } from "react";
 import { kindLabel } from "../live";
-import { Icon, IconName, kindIcon } from "../icons";
+import { Icon, kindIcon } from "../icons";
 import { Meter, Sparkline } from "../charts";
-import { bytes, rate } from "./Traffic";
+import { bytes, rate } from "../format";
+import { Tile, Tone } from "../ui";
 import { Attention, buildAttention, DashData, internetState, openForwards, plural, useDashboardData } from "./dashboardModel";
 
 /** Device kinds in the order they are listed: core of the network first. */
 const kindOrder = ["gateway", "switch", "unmanaged-switch", "ap", "unknown"];
 /** How many problems to show before "Show all". */
 const attentionLimit = 6;
-
-type Tone = "good" | "warn" | "bad";
 
 export function Dashboard({ tick }: { tick: number }) {
   const d = useDashboardData(tick);
@@ -112,16 +111,18 @@ function AreaTiles({ d, attention }: { d: DashData; attention: Attention[] }) {
       <Tile label="Internet" icon="internet" href="#/traffic"
         tone={net.state === "down" ? "bad" : net.state === "up" ? "good" : undefined}
         value={net.state === "up" ? "Online" : net.state === "down" ? "Down" : "Unknown"}
-        sub={<><Icon name="download" size={12} /> {rate(down)} · <Icon name="upload" size={12} /> {rate(up)}</>}
-        spark={<Sparkline values={d.hist.down} color="var(--c3)" />} />
+        sub={<><Icon name="download" size={12} /> {rate(down)} · <Icon name="upload" size={12} /> {rate(up)}</>}>
+        <Sparkline values={d.hist.down} color="var(--c3)" />
+      </Tile>
 
       <Tile label="Network devices" icon="devices" href="#/devices" tone={toneFor("Devices", infra.length > 0)}
         value={<>{infra.length - offline.length}<small> / {infra.length} online</small></>}
         sub={offline.length ? `Offline: ${offline.map((x) => x.name).join(", ")}` : passive ? `+${passive} unmanaged (found by LLDP)` : "managed by your controller"} />
 
       <Tile label="Clients" icon="client" iconTone="c2" href="#/traffic" value={clients.length}
-        sub={`${clients.length - wireless} wired · ${wireless} wireless`}
-        spark={<Sparkline values={d.hist.clients} color="var(--c2)" />} />
+        sub={`${clients.length - wireless} wired · ${wireless} wireless`}>
+        <Sparkline values={d.hist.clients} color="var(--c2)" />
+      </Tile>
 
       {hosts.length > 0 && (
         <Tile label="Virtual machines" icon="vm" href="#/vms" tone={toneFor("Virtual machines", true)}
@@ -132,8 +133,9 @@ function AreaTiles({ d, attention }: { d: DashData; attention: Attention[] }) {
       {stTotal > 0 && (
         <Tile label="Storage" icon="nas" href="#/storage" tone={toneFor("Storage", true)}
           value={<>{Math.round((stUsed / stTotal) * 100)}%<small> used</small></>}
-          sub={`${bytes(stTotal - stUsed)} free of ${bytes(stTotal)}`}
-          spark={<Meter value={stUsed / stTotal} tone={stUsed / stTotal > 0.9 ? "bad" : stUsed / stTotal > 0.8 ? "warn" : undefined} />} />
+          sub={`${bytes(stTotal - stUsed)} free of ${bytes(stTotal)}`}>
+          <Meter value={stUsed / stTotal} tone={stUsed / stTotal > 0.9 ? "bad" : stUsed / stTotal > 0.8 ? "warn" : undefined} />
+        </Tile>
       )}
 
       {smartDevices.length > 0 && (
@@ -154,23 +156,6 @@ function AreaTiles({ d, attention }: { d: DashData; attention: Attention[] }) {
           sub={forwards.length ? "listed below" : "nothing exposed"} />
       )}
     </div>
-  );
-}
-
-function Tile({ label, value, sub, tone, icon, iconTone, href, spark }: {
-  label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: Tone; icon: IconName;
-  iconTone?: string; href: string; spark?: React.ReactNode;
-}) {
-  return (
-    <a className={`tile ${tone ?? ""}`} href={href}>
-      <div className="tile-top">
-        <span className="tile-label">{label}</span>
-        <span className={`tile-icon ${iconTone ?? tone ?? ""}`}><Icon name={icon} size={17} /></span>
-      </div>
-      <div className="tile-value">{value}</div>
-      {sub && <div className="muted small tile-sub">{sub}</div>}
-      {spark}
-    </a>
   );
 }
 

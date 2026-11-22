@@ -695,7 +695,7 @@ label.check.field-check .field-help { flex-basis: 100%; }
 /* ───────────── Dashboard ───────────── */
 .row-between { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.tile-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-tiles .tile > .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile .meter { margin-top: auto; }
 /* problems list: a coloured edge per row so severity reads at a glance */
 .attn li { padding: 10px 12px 10px 10px; margin: 0 -12px 0 -10px; border-left: 3px solid transparent; }
