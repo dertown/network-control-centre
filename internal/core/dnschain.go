@@ -26,7 +26,12 @@ type ResolverStatus struct {
 	Forwarding *dns.Forwarding `json:"forwarding,omitempty"`
 	NoResolver bool            `json:"no_resolver,omitempty"`
 	Error      string          `json:"error,omitempty"`
+	// Live are real lookups sent to each address (an internet name and an internal zone).
+	Live []dnscheck.Live `json:"live,omitempty"`
 }
+
+// ProbeDNS sends the live lookups of the DNS chain check; tests replace it.
+var ProbeDNS dnscheck.Prober = dnscheck.Query
 
 // Options on a DNS server connection used by the check.
 const (
@@ -50,7 +55,12 @@ var lookupHost = func(h string) ([]string, error) {
 // resolverAddresses is what clients should get as DNS for a DNS server connection.
 func resolverAddresses(t *Target) []string {
 	if v := strings.TrimSpace(t.Options[OptResolverIPs]); v != "" {
-		return dnscheck.SplitList(v)
+		// only the address counts: "http://192.168.1.70:8082" or "192.168.1.70:53" is 192.168.1.70
+		var out []string
+		for _, a := range dnscheck.SplitList(v) {
+			out = append(out, dnscheck.HostAddresses(a, lookupHost)...)
+		}
+		return out
 	}
 	from := t.Options[OptRecursorURL]
 	if strings.TrimSpace(from) == "" {
@@ -85,9 +95,36 @@ func (p *Poller) readResolver(ctx context.Context, t *Target, prov dns.Provider,
 	} else {
 		st.NoResolver = true
 	}
+	// ask each address what a client would: an internet name, and a zone this server holds
+	zone := ""
+	zctx, zcancel := context.WithTimeout(ctx, 10*time.Second)
+	if zs, err := prov.ListZones(zctx, dns.Server{ID: t.ID, Name: t.Name, Kind: t.Kind, Address: t.Address, Options: t.Options}, creds); err == nil {
+		zone = forwardZone(zs)
+	}
+	zcancel()
+	for _, a := range st.Addresses {
+		lctx, lcancel := context.WithTimeout(ctx, 8*time.Second)
+		st.Live = append(st.Live, dnscheck.ProbeServer(lctx, ProbeDNS, a, zone))
+		lcancel()
+	}
 	if err := SaveResolverStatus(ctx, p.DB, t.ID, st); err != nil && p.Log != nil {
 		p.Log.Warn("save resolver status", "target", t.Name, "err", err)
 	}
+}
+
+// forwardZone picks the zone to test internal lookups with: the shortest forward zone.
+func forwardZone(zs []dns.Zone) string {
+	best := ""
+	for _, z := range zs {
+		n := strings.TrimSuffix(z.Name, ".")
+		if n == "" || strings.HasSuffix(n, ".arpa") {
+			continue
+		}
+		if best == "" || len(n) < len(best) {
+			best = n
+		}
+	}
+	return best
 }
 
 // SaveResolverStatus replaces the stored resolver status of one DNS server connection.
@@ -150,7 +187,7 @@ func DNSChain(ctx context.Context, db *sql.DB, targets *Targets) (dnscheck.Repor
 		}
 		r := dnscheck.Resolver{ID: t.ID, Name: t.Name, ISP: dnscheck.SplitList(t.Options[OptISPDNS])}
 		if st, ok := statuses[t.ID]; ok {
-			r.Addresses, r.Forwarding, r.NoResolver, r.Error = st.Addresses, st.Forwarding, st.NoResolver, st.Error
+			r.Addresses, r.Forwarding, r.NoResolver, r.Error, r.Live = st.Addresses, st.Forwarding, st.NoResolver, st.Error, st.Live
 		} else {
 			r.Addresses = resolverAddresses(&t)
 		}
