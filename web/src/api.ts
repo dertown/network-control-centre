@@ -266,3 +266,27 @@ export interface IoTNetwork { id: string; name: string; vlan?: number; subnet?: 
 export interface IoTCandidate { mac: string; name: string; ip?: string; vendor?: string; network?: string; guess?: string; ignored: boolean }
 export interface IoTView { devices: IoTDevice[]; networks: IoTNetwork[]; networks_chosen: boolean; types: string[]; candidates: IoTCandidate[]; sources: number }
 export type IoTPatch = Partial<Pick<IoTDevice, "type" | "label" | "owner" | "site" | "building" | "floor" | "room" | "notes" | "ignored" | "network_ok" | "network_ok_reason">>;
+
+// ---- AI assistant (internal/assistant) ----
+/** One way of reaching a model: a vendor's own tool signed in with the person's subscription, or a local model server. */
+export interface AIProvider {
+  id: string; label: string; account: string; binary?: string; install?: string; sign_in?: string[]; sign_in_help?: string;
+  paste?: string; note?: string; default_model?: string; http?: boolean;
+  kind: string; enabled: boolean; model: string; address: string; connected_at?: string; last_used?: string; last_error?: string;
+  installed: boolean; connected: boolean; problem?: string;
+}
+export interface AISignIn { id: string; kind: string; state: "running" | "connected" | "failed"; output: string; error?: string }
+export interface AIStepClient { mac: string; name: string; ip?: string; from?: string; type?: string; via?: string; blocked?: string; along_with?: boolean }
+export interface AIStep {
+  id: string; kind: "create_vlan" | "move_clients" | "create_zone" | "assign_zone"; title: string; why: string;
+  router_id?: number; router_name?: string; dns_server_id?: number; dns_server?: string;
+  network?: { name: string; vlan: number; gateway?: string; dhcp_start?: string; dhcp_stop?: string; isolated: boolean; internet_access: boolean };
+  network_id?: string; network_name?: string; clients?: AIStepClient[]; zone?: string;
+  warnings: string[]; problem?: string; recommended: boolean;
+  result?: { state: "ok" | "failed" | "skipped"; message: string; at: string };
+}
+export interface AIPlan {
+  id: string; created_at: string; created_by: string; provider: string; model?: string; goal?: string; summary: string; notes: string[];
+  steps: AIStep[]; source: "ai" | "rules"; ai_error?: string;
+  status: "proposed" | "deploying" | "deployed" | "partial" | "failed" | "discarded"; deployed_at?: string; deployed_by?: string;
+}

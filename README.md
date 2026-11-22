@@ -95,6 +95,18 @@ This first release (the MVP) covers:
   page to move, or an exception with a reason. Devices NCC missed are added by hand; ones that aren't IoT are marked
   so they stay out. Export to CSV. Operators edit, admins choose the networks and remove devices; every change is
   in the audit log. Try it with `go run ./cmd/ncc-mock -office`, which adds an office's IoT devices to the pretend network.
+- **AI assistant** (Configure → AI assistant): asks a model for a plan for the whole network (VLANs, every
+  client, the IoT inventory, port forwards and DNS zones): which IoT devices move to which VLAN (creating an IoT or
+  Security VLAN when needed), which internet-facing devices belong in a DMZ, and which DNS zones to create and hand out
+  on each VLAN. Every step is checked against the network by NCC (unknown devices are dropped, VLAN and subnet clashes,
+  switch ports shared with other devices and ports to other switches are flagged, exactly as on the VLANs page) and
+  shown with the reason for it. Nothing changes until an admin picks the steps and confirms; deploys reuse the VLAN
+  create and move code and are audited. **No API keys**: models are reached through subscriptions you already have,
+  by running each vendor's own command-line tool on the NCC server: **Claude Code** (Claude Pro/Max/Team/Enterprise),
+  **GitHub Copilot CLI** (any Copilot plan), **Gemini CLI** (Login with Google) and **OpenAI Codex CLI** (ChatGPT
+  plans), or a local **Ollama** model that needs no account. Sign-in runs the tool's own sign-in (device code or
+  browser link) in a terminal shown on the page; the result goes into the vault and is only written to a private,
+  temporary home folder while the tool runs. Without a connected model, NCC's own rules make the plan.
 - **Smart home** (the IoT page's Smart home controls tab): lights, plugs, fans, thermostats, locks, garage doors, speakers,
   robot vacuums, cameras, sensors and scenes from **Google Home, Alexa, Matter, Google Nest, Cast, Hue, TP-Link** and
   anything else **Home Assistant** controls, grouped by room or by type. Google Home and Alexa have no open control
@@ -153,6 +165,27 @@ cd deploy && docker compose up -d --build
 ```
 
 ## Connecting your network
+
+### AI assistant
+
+Install the tool for the subscription you have on the NCC server (Node.js 20 or newer), then open
+**Configure → AI assistant**, press **Sign in** on its card and follow the link and code it shows:
+
+| Provider | Install | Account |
+|---|---|---|
+| Claude | `npm install -g @anthropic-ai/claude-code` | Claude Pro, Max, Team or Enterprise (`claude setup-token`) |
+| GitHub Copilot | `npm install -g @github/copilot` | GitHub with any Copilot plan (device code) |
+| Gemini | `npm install -g @google/gemini-cli` | Google account, Login with Google |
+| ChatGPT | `npm install -g @openai/codex` | ChatGPT Plus, Pro, Business or Enterprise (device code) |
+| Ollama | https://ollama.com | none; set its address and model in the card's settings |
+
+Each card can instead take a sign-in made on another computer (**Paste sign-in**): the `claude setup-token`
+output, a `gh auth token`, `~/.gemini/oauth_creds.json` or `~/.codex/auth.json`. API keys are refused.
+Anthropic's terms allow a Claude subscription to be used through the unmodified Claude Code tool for your own
+use, not to serve other people: connect only your own account, for your own network. **What is sent?** on the
+page shows exactly what the model receives (no passwords, keys or certificates). DNS zone steps use the same planner
+as the DNS page's Zones & VLANs tab: new zones are delegated from their parent, assigned to the VLAN, and the
+router hands them out as that network's DHCP domain.
 
 ### Dream Router 7 (or any UniFi OS console)
 
