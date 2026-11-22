@@ -94,6 +94,15 @@ credential files) is restored there from the vault (`ai/<kind>`) and refreshed t
 (`runner.go`). Sign-in runs the CLI's own login under a pseudo-terminal (`signin.go`, creack/pty) whose output
 the page shows and whose input the page sends.
 
+`install.go` lets an admin install the CLIs from the page. `PlanInstall` returns the exact commands for the
+confirmation dialog; `Installs.Start` runs one install at a time in the background: `npm install --prefix
+<data_dir>/ai-tools/npm --registry=https://registry.npmjs.org/ <package>@latest` with the server's Node.js 20+,
+or with a Node.js LTS downloaded from nodejs.org into `<data_dir>/ai-tools/node` after its SHA-256 matched
+`SHASUMS256.txt` (unpacked with path and link escapes refused), then `<tool> --version`. npm runs with its
+home, cache and config inside the tools folder. `BinaryPath` looks at the configured path, then the tools
+folder, then the `PATH`; tools run with the tools folder and Node.js first on their `PATH`. Installs are
+audited as `assistant.install`.
+
 ## Authentication
 
 `internal/auth` stores users with Argon2id password hashes and optional TOTP, issues session

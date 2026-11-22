@@ -23,6 +23,7 @@ import (
 type assistantState struct {
 	once      sync.Once
 	signIns   *assistant.SignIns
+	installs  *assistant.Installs
 	deploying sync.Mutex
 	busy      bool
 }
@@ -36,6 +37,7 @@ func (s *Server) ai() *assistant.Service {
 			s.Log.Error("assistant tables", "err", err)
 		}
 		s.aiState.signIns = &assistant.SignIns{Service: s.Assistant}
+		s.aiState.installs = &assistant.Installs{Service: s.Assistant}
 	})
 	return s.Assistant
 }
@@ -46,6 +48,10 @@ type aiProviderView struct {
 	Installed bool   `json:"installed"`
 	Connected bool   `json:"connected"`
 	Problem   string `json:"problem,omitempty"`
+	// Path is where the tool was found; NCCVersion is the version NCC installed itself.
+	Path       string `json:"path,omitempty"`
+	NCCVersion string `json:"ncc_version,omitempty"`
+	CanInstall bool   `json:"can_install"`
 }
 
 func (s *Server) aiProviders(ctx context.Context) ([]aiProviderView, error) {
@@ -58,9 +64,13 @@ func (s *Server) aiProviders(ctx context.Context) ([]aiProviderView, error) {
 	for i, k := range assistant.Kinds {
 		v := aiProviderView{Kind: k, Settings: sts[i], Installed: true}
 		if !k.HTTP {
-			if _, err := assistant.BinaryPath(k, sts[i]); err != nil {
+			if p, err := svc.BinaryPath(k, sts[i]); err != nil {
 				v.Installed, v.Problem = false, err.Error()
+			} else {
+				v.Path = p
 			}
+			v.NCCVersion = svc.InstalledVersion(k)
+			v.CanInstall = svc.CanInstall(k)
 		}
 		c, err := svc.Connected(ctx, k)
 		if err != nil && !errors.Is(err, vault.ErrSealed) {
@@ -194,6 +204,63 @@ func (s *Server) aiSignInCancel(w http.ResponseWriter, r *http.Request) {
 	s.ai()
 	s.aiState.signIns.Cancel(r.PathValue("id"))
 	w.WriteHeader(204)
+}
+
+// aiInstallPlan shows exactly what installing a provider's tool will do.
+func (s *Server) aiInstallPlan(w http.ResponseWriter, r *http.Request) {
+	k := s.aiKind(w, r)
+	if k == nil {
+		return
+	}
+	p, err := s.ai().PlanInstall(k.ID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, p)
+}
+
+// aiInstall installs (or updates) a provider's tool in NCC's own folder, once the person has
+// seen the plan and confirmed it.
+func (s *Server) aiInstall(w http.ResponseWriter, r *http.Request) {
+	k := s.aiKind(w, r)
+	if k == nil {
+		return
+	}
+	var in struct {
+		Confirm bool `json:"confirm"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if !in.Confirm {
+		writeErr(w, 400, "confirm the install first")
+		return
+	}
+	plan, err := s.ai().PlanInstall(k.ID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	v, err := s.aiState.installs.Start(k.ID)
+	if err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	_ = s.Audit.Record(r.Context(), actor(r), "assistant.install", "ai/"+k.ID, map[string]any{
+		"package": plan.Package, "location": plan.Location, "node": plan.Node,
+		"download_node": plan.DownloadNode, "previous": plan.Installed, "install": v.ID})
+	writeJSON(w, 200, v)
+}
+
+func (s *Server) aiInstallView(w http.ResponseWriter, r *http.Request) {
+	s.ai()
+	v, err := s.aiState.installs.View(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, 404, err.Error())
+		return
+	}
+	writeJSON(w, 200, v)
 }
 
 func (s *Server) aiPaste(w http.ResponseWriter, r *http.Request) {

@@ -44,8 +44,11 @@ type Service struct {
 	TempDir string
 	// Timeout bounds one prompt (default 4 minutes).
 	Timeout time.Duration
-	// HTTP is used for Ollama (default http.DefaultClient with the timeout).
+	// HTTP is used for Ollama and for downloading Node.js (default http.DefaultClient).
 	HTTP *http.Client
+	// ToolsDir is where NCC installs the tools itself (normally <data_dir>/ai-tools). Empty
+	// turns installing from NCC off.
+	ToolsDir string
 }
 
 // Migrate creates the assistant's tables. It is safe to call more than once.
@@ -137,19 +140,6 @@ func (s *Service) update(ctx context.Context, kind string, fn func(*Settings)) e
 	}
 	fn(&st)
 	return s.Save(ctx, st)
-}
-
-// BinaryPath finds a provider's tool, or returns an error saying how to install it.
-func BinaryPath(k *Kind, st Settings) (string, error) {
-	name := k.Binary
-	if st.Binary != "" {
-		name = st.Binary
-	}
-	p, err := exec.LookPath(name)
-	if err != nil {
-		return "", fmt.Errorf("%s is not installed on the NCC server (%s)", name, k.Install)
-	}
-	return p, nil
 }
 
 // Connected reports whether a provider has a sign-in in the vault (or needs none).
@@ -248,7 +238,7 @@ func (s *Service) Ask(ctx context.Context, kind, prompt string) (string, error) 
 }
 
 func (s *Service) askCLI(ctx context.Context, k *Kind, st Settings, prompt string) (string, error) {
-	bin, err := BinaryPath(k, st)
+	bin, err := s.BinaryPath(k, st)
 	if err != nil {
 		return "", err
 	}
@@ -274,7 +264,7 @@ func (s *Service) askCLI(ctx context.Context, k *Kind, st Settings, prompt strin
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = filepath.Join(home, "work")
-	cmd.Env = toolEnv(home, sec)
+	cmd.Env = toolEnv(home, sec, s.toolPath())
 	if k.stdin {
 		cmd.Stdin = strings.NewReader(prompt)
 	}
@@ -354,8 +344,9 @@ func safeRel(p string) bool {
 }
 
 // toolEnv is the environment a tool runs with: its private home, its sign-in token, and
-// nothing else from NCC's own environment but the PATH.
-func toolEnv(home string, sec vault.Secret) []string {
+// nothing else from NCC's own environment but proxy and certificate settings. path is the
+// PATH (NCC's installed tools and Node.js first).
+func toolEnv(home string, sec vault.Secret, path string) []string {
 	env := []string{
 		"HOME=" + home,
 		"USERPROFILE=" + home,
@@ -366,8 +357,9 @@ func toolEnv(home string, sec vault.Secret) []string {
 		"TERM=xterm-256color",
 		"NO_COLOR=1",
 		"LANG=C.UTF-8",
+		"PATH=" + path,
 	}
-	for _, k := range []string{"PATH", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy", "SYSTEMROOT", "TZ"} {
+	for _, k := range []string{"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy", "SYSTEMROOT", "TZ"} {
 		if v, ok := os.LookupEnv(k); ok {
 			env = append(env, k+"="+v)
 		}

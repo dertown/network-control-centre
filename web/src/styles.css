@@ -849,3 +849,4 @@ label.check.field-check .field-help { flex-basis: 100%; }
   .zone-table td.actions { text-align: left; }
   .zone-issues { max-width: none; }
 }
+.ai-terminal.ai-commands { min-height: 0; max-height: none; white-space: pre-wrap; word-break: break-all; }

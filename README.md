@@ -168,10 +168,20 @@ cd deploy && docker compose up -d --build
 
 ### AI assistant
 
-Install the tool for the subscription you have on the NCC server (Node.js 20 or newer), then open
-**Configure → AI assistant**, press **Sign in** on its card and follow the link and code it shows:
+Open **Configure → AI assistant**, press **Install** on the card for the subscription you have, then
+**Sign in** and follow the link and code it shows.
 
-| Provider | Install | Account |
+**Install** (admins only) shows the exact commands first and runs them only once you confirm. NCC installs
+the tool's official npm package from `registry.npmjs.org` into its own data folder (`<data_dir>/ai-tools`), as
+the NCC service user: no root, nothing else on the server changes, and the output streams into the page. It
+uses the server's Node.js 20+ (including `/usr/local/node` from the Proxmox installer); when there is none it
+downloads the current Node.js LTS from `nodejs.org` into the same folder, after checking it against the
+`SHASUMS256.txt` published with it. At the end it runs `<tool> --version` and shows the result. **Settings →
+Update** gets the latest version the same way. NCC's own copy is used before one on the `PATH`; a path set in
+the card's settings wins over both. The Docker image has no system libraries for Node.js, so there install the
+tools in a derived image or run NCC on a VM. You can also install them by hand:
+
+| Provider | Install by hand | Account |
 |---|---|---|
 | Claude | `npm install -g @anthropic-ai/claude-code` | Claude Pro, Max, Team or Enterprise (`claude setup-token`) |
 | GitHub Copilot | `npm install -g @github/copilot` | GitHub with any Copilot plan (device code) |

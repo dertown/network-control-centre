@@ -12,11 +12,13 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/dertown/network-control-centre/internal/api"
+	"github.com/dertown/network-control-centre/internal/assistant"
 	"github.com/dertown/network-control-centre/internal/audit"
 	"github.com/dertown/network-control-centre/internal/auth"
 	"github.com/dertown/network-control-centre/internal/certdeploy"
@@ -131,11 +133,18 @@ func run(log *slog.Logger, cfgPath string) error {
 	certs := &pki.Inventory{DB: st.DB, Vault: vs}
 	deploy := &certdeploy.Service{DB: st.DB, Vault: vs, Certs: certs, Audit: auditLog}
 	deploy.MarkInterrupted(ctx)
+	// the AI tools NCC installs itself go in its own data folder (absolute: the tools run in
+	// other working folders)
+	toolsDir, err := filepath.Abs(filepath.Join(cfg.DataDir, "ai-tools"))
+	if err != nil {
+		toolsDir = ""
+	}
 	srv := &api.Server{
 		Store: st, Auth: authSvc, Audit: auditLog, Vault: vs, Targets: targets,
 		Poller: poller, Hub: hub, Certs: certs, Deploy: deploy,
 		Traffic: traffic, DNSLog: dnsLog,
-		UI: web.UI(), Log: log, SecureCookies: !cfg.PlainHTTP || cfg.BehindTLSProxy,
+		Assistant: &assistant.Service{DB: st.DB, Vault: vs, ToolsDir: toolsDir},
+		UI:        web.UI(), Log: log, SecureCookies: !cfg.PlainHTTP || cfg.BehindTLSProxy,
 	}
 
 	go poller.Run(ctx)

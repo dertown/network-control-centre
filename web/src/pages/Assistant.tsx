@@ -3,9 +3,10 @@
 // to move to which VLAN, which DNS zones to create and which VLAN each serves. Every step is
 // checked by NCC and shown with why; nothing changes until an admin picks steps and confirms.
 // The providers section connects the accounts: NCC runs the vendor's own sign-in on the
-// server and shows it here, and keeps the result in the vault. No API keys.
+// server and shows it here, and keeps the result in the vault. No API keys. An admin can also
+// have NCC install a tool itself (from the official npm registry, into NCC's own data folder).
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AIPlan, AIProvider, AISignIn, AIStep, api, User } from "../api";
+import { AIInstall, AIInstallPlan, AIPlan, AIProvider, AISignIn, AIStep, api, User } from "../api";
 import { ago } from "../format";
 import { Icon, IconName } from "../icons";
 import { Modal, PageHeader, PageLoading } from "../ui";
@@ -306,20 +307,22 @@ function ConfirmDeploy({ plan, steps, onClose, onDone }: { plan: AIPlan; steps: 
 function Providers({ providers, isAdmin, onChange }: { providers: AIProvider[]; isAdmin: boolean; onChange: () => void }) {
   const [signIn, setSignIn] = useState<AIProvider | null>(null);
   const [paste, setPaste] = useState<AIProvider | null>(null);
+  const [install, setInstall] = useState<AIProvider | null>(null);
   return (
     <div className="card">
       <div className="card-head"><h2>AI providers</h2></div>
       <p className="muted small ai-prov-lede">Sign in with the subscription you already have. NCC runs each vendor's own tool on the NCC server and keeps the sign-in in the vault; no API keys.</p>
       <div className="ai-providers">
-        {providers.map((p) => <ProviderCard key={p.id} p={p} isAdmin={isAdmin} onChange={onChange} onSignIn={() => setSignIn(p)} onPaste={() => setPaste(p)} />)}
+        {providers.map((p) => <ProviderCard key={p.id} p={p} isAdmin={isAdmin} onChange={onChange} onSignIn={() => setSignIn(p)} onPaste={() => setPaste(p)} onInstall={() => setInstall(p)} />)}
       </div>
       {signIn && <SignInModal p={signIn} onClose={() => { setSignIn(null); onChange(); }} />}
+      {install && <InstallModal p={install} onClose={() => { setInstall(null); onChange(); }} />}
       {paste && <PasteModal p={paste} onClose={() => { setPaste(null); onChange(); }} />}
     </div>
   );
 }
 
-function ProviderCard({ p, isAdmin, onChange, onSignIn, onPaste }: { p: AIProvider; isAdmin: boolean; onChange: () => void; onSignIn: () => void; onPaste: () => void }) {
+function ProviderCard({ p, isAdmin, onChange, onSignIn, onPaste, onInstall }: { p: AIProvider; isAdmin: boolean; onChange: () => void; onSignIn: () => void; onPaste: () => void; onInstall: () => void }) {
   const [model, setModel] = useState(p.model);
   const [address, setAddress] = useState(p.address);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -355,12 +358,16 @@ function ProviderCard({ p, isAdmin, onChange, onSignIn, onPaste }: { p: AIProvid
       </div>
       <div className="row ai-prov-state">
         <span className={`pill ${state[1]}`}>{state[0]}</span>
+        {p.ncc_version && p.installed && <span className="muted small" title={p.path}>v{p.ncc_version}, installed by NCC</span>}
         {p.last_used && <span className="muted small">used {ago(p.last_used)}</span>}
       </div>
-      {!p.installed && <div className="small muted">Install on the NCC server: <code>{p.install}</code></div>}
+      {!p.installed && (p.can_install && isAdmin
+        ? <div className="small muted">Not on the NCC server yet. NCC can install it for you.</div>
+        : <div className="small muted">Install on the NCC server: <code>{p.install}</code></div>)}
       {p.last_error && p.installed && <div className="small error ellipsis" title={p.last_error}>{p.last_error}</div>}
       {isAdmin && (
         <div className="row ai-prov-actions">
+          {!p.installed && p.can_install && <button className="small-btn primary" onClick={onInstall}><Icon name="download" size={14} /> Install</button>}
           {!p.http && p.installed && !p.connected && <button className="small-btn primary" onClick={onSignIn}>Sign in</button>}
           {!p.http && p.installed && !p.connected && p.paste && <button className="small-btn" onClick={onPaste}>Paste sign-in</button>}
           {p.connected && p.installed && <button className="small-btn" disabled={busy} onClick={test}>{busy ? <span className="spin" /> : null} Test</button>}
@@ -373,6 +380,8 @@ function ProviderCard({ p, isAdmin, onChange, onSignIn, onPaste }: { p: AIProvid
           <label>Model <input value={model} placeholder={p.default_model || "the tool's default"} onChange={(e) => setModel(e.target.value)} onBlur={() => model !== p.model && save({ model })} /></label>
           {p.http && <label>Address <input value={address} onChange={(e) => setAddress(e.target.value)} onBlur={() => address !== p.address && save({ address })} /></label>}
           {p.note && <p className="small muted">{p.note}</p>}
+          {p.installed && p.path && <p className="small muted">Using <code>{p.path}</code></p>}
+          {p.installed && p.can_install && <button className="small-btn" onClick={onInstall}>{p.ncc_version ? "Update" : "Install NCC's own copy"}</button>}
         </div>
       )}
       {msg && <div className={`small ${msg.ok ? "ok" : "error"}`}>{msg.text}</div>}
@@ -418,6 +427,67 @@ function SignInModal({ p, onClose }: { p: AIProvider; onClose: () => void }) {
       {s?.state === "connected" && <div className="banner good"><Icon name="check" size={16} /> Signed in. The sign-in is in the vault.</div>}
       {s?.state === "failed" && <div className="banner bad"><Icon name="alert" size={16} /> {s.error}</div>}
       <div className="modal-actions"><button onClick={onClose}>{s?.state === "connected" ? "Done" : "Close"}</button></div>
+    </Modal>
+  );
+}
+
+// InstallModal shows exactly what NCC will run to install a tool, asks for confirmation, then
+// shows the install as it runs and the version it checked at the end.
+function InstallModal({ p, onClose }: { p: AIProvider; onClose: () => void }) {
+  const [plan, setPlan] = useState<AIInstallPlan | null>(null);
+  const [job, setJob] = useState<AIInstall | null>(null);
+  const [err, setErr] = useState("");
+  const [starting, setStarting] = useState(false);
+  useEffect(() => {
+    api<AIInstallPlan>("GET", `/api/assistant/providers/${p.id}/install`).then(setPlan).catch((e) => setErr((e as Error).message));
+  }, [p.id]);
+  useEffect(() => {
+    if (!job || job.state !== "running") return;
+    const t = setInterval(() => api<AIInstall>("GET", `/api/assistant/install/${job.id}`).then(setJob).catch(() => {}), 1000);
+    return () => clearInterval(t);
+  }, [job?.id, job?.state]);
+  const start = async () => {
+    setStarting(true);
+    setErr("");
+    try { setJob(await api<AIInstall>("POST", `/api/assistant/providers/${p.id}/install`, { confirm: true })); } catch (e) { setErr((e as Error).message); }
+    setStarting(false);
+  };
+  const verb = plan?.installed ? "Update" : "Install";
+  return (
+    <Modal title={`${verb} ${p.label}`} onClose={onClose} wide>
+      {!plan && !err && <p className="muted"><span className="spin" /> Checking the server…</p>}
+      {err && <div className="error block">{err}</div>}
+      {plan && !job && (plan.can_install ? (
+        <>
+          <p>
+            NCC will install <code>{plan.package}</code> from the official npm registry into its own folder, <code>{plan.location}</code>,
+            as the NCC service user. It needs no administrator rights and changes nothing else on the server.
+            {plan.installed && <> Version {plan.installed} is installed now; this gets the latest.</>}
+          </p>
+          <p className="small muted">{plan.download_node ? "There is no Node.js 20 or newer on the server, so NCC first gets one: " : "Uses "}{plan.node}.</p>
+          <div className="small muted">NCC will run exactly this:</div>
+          <pre className="ai-terminal ai-commands">{plan.commands.map((c) => `$ ${c}`).join("\n")}</pre>
+          {p.note && <p className="small muted">{p.note}</p>}
+          <div className="modal-actions">
+            <button onClick={onClose}>Cancel</button>
+            <button className="primary" disabled={starting} onClick={start}>{starting ? <span className="spin" /> : null} {verb}</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="banner warn"><Icon name="alert" size={16} /> {plan.problem}</div>
+          <div className="modal-actions"><button onClick={onClose}>Close</button></div>
+        </>
+      ))}
+      {job && (
+        <>
+          <pre className="ai-terminal" aria-live="polite">{job.output || "Starting…"}</pre>
+          {job.state === "running" && <p className="small muted"><span className="spin" /> Installing. This can take a minute or two; you can close this and come back.</p>}
+          {job.state === "done" && <div className="banner good"><Icon name="check" size={16} /> Installed and checked: {p.binary} {job.version}. Next, sign in.</div>}
+          {job.state === "failed" && <div className="banner bad"><Icon name="alert" size={16} /> {job.error}</div>}
+          <div className="modal-actions"><button onClick={onClose}>{job.state === "done" ? "Done" : "Close"}</button></div>
+        </>
+      )}
     </Modal>
   );
 }

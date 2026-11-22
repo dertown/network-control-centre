@@ -70,7 +70,7 @@ func (m *SignIns) Start(kind string) (SignInView, error) {
 	if err != nil {
 		return SignInView{}, err
 	}
-	bin, err := BinaryPath(k, st)
+	bin, err := s.BinaryPath(k, st)
 	if err != nil {
 		return SignInView{}, err
 	}
@@ -84,7 +84,7 @@ func (m *SignIns) Start(kind string) (SignInView, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), signInTimeout)
 	cmd := exec.CommandContext(ctx, bin, k.SignIn...)
 	cmd.Dir = home
-	cmd.Env = append(toolEnv(home, nil), k.signInEnv...)
+	cmd.Env = append(toolEnv(home, nil, s.toolPath()), k.signInEnv...)
 	cmd.WaitDelay = 5 * time.Second
 	tty, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 200})
 	if err != nil {
