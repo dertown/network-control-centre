@@ -222,13 +222,15 @@ func Inspect(ctx context.Context, c Conn, o Options) (*Plan, error) {
 		p.Blocked = "NCC found pdns_recursor but not its configuration file (looked in /etc/powerdns and /etc/pdns-recursor). Turn the web server on by hand: " + setupHint + ", then enter the URL and key in Settings."
 		return p, nil
 	}
-	f.Style = "conf"
-	if strings.HasSuffix(f.ConfigFile, ".yml") {
-		f.Style = "yaml"
-	}
 	raw, err := c.ReadFile(ctx, f.ConfigFile)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", f.ConfigFile, err)
+	}
+	// Recursor 5 packages (Ubuntu 24.10+, Debian 13) ship recursor.conf in YAML, so the
+	// format comes from the content, not the file name.
+	f.Style = "conf"
+	if strings.HasSuffix(f.ConfigFile, ".yml") || isYAMLConfig(raw) {
+		f.Style = "yaml"
 	}
 	var cur settings
 	if f.Style == "yaml" {
@@ -290,7 +292,27 @@ func Inspect(ctx context.Context, c Conn, o Options) (*Plan, error) {
 	recChanged := string(content) != string(raw)
 	restartRec := recChanged
 
-	// 1. the authoritative server leaves port 53 (resolver mode)
+	// 1. the Recursor's own file, checked before anything is restarted
+	if recChanged {
+		bak := f.ConfigFile + ".ncc-bak-" + stamp
+		title := "Turn on the web server and API"
+		if resolverMode {
+			title = "Make the Recursor answer on port 53 and turn on its API"
+		}
+		p.Steps = append(p.Steps,
+			Step{Title: "Back up " + path.Base(f.ConfigFile), Command: "cp -p " + shQuote(f.ConfigFile) + " " + shQuote(bak)},
+			Step{Title: title, File: f.ConfigFile, Diff: diff, Note: "Existing lines for these settings are commented out, not deleted."})
+		p.actions = append(p.actions,
+			action{title: "Back up " + path.Base(f.ConfigFile), cmd: "cp -p " + shQuote(f.ConfigFile) + " " + shQuote(bak)},
+			action{title: title, file: f.ConfigFile, content: content, change: true})
+		p.rollback = append([]string{"cp -p " + shQuote(bak) + " " + shQuote(f.ConfigFile)}, p.rollback...)
+		if check := configCheck(*f); check != "" {
+			p.Steps = append(p.Steps, Step{Title: "Check the new configuration is valid", Command: check,
+				Note: "Nothing is restarted if the Recursor rejects it; the old file is put back."})
+			p.actions = append(p.actions, action{title: "Check the new configuration is valid", cmd: check})
+		}
+	}
+	// 2. the authoritative server leaves port 53 (resolver mode)
 	if resolverMode && f.OnPort53 == "authoritative" {
 		araw, err := c.ReadFile(ctx, f.AuthConfig)
 		if err != nil {
@@ -324,21 +346,6 @@ func Inspect(ctx context.Context, c Conn, o Options) (*Plan, error) {
 		restartRec = true
 	}
 
-	// 2. the Recursor's own file
-	if recChanged {
-		bak := f.ConfigFile + ".ncc-bak-" + stamp
-		title := "Turn on the web server and API"
-		if resolverMode {
-			title = "Make the Recursor answer on port 53 and turn on its API"
-		}
-		p.Steps = append(p.Steps,
-			Step{Title: "Back up " + path.Base(f.ConfigFile), Command: "cp -p " + shQuote(f.ConfigFile) + " " + shQuote(bak)},
-			Step{Title: title, File: f.ConfigFile, Diff: diff, Note: "Existing lines for these settings are commented out, not deleted."})
-		p.actions = append(p.actions,
-			action{title: "Back up " + path.Base(f.ConfigFile), cmd: "cp -p " + shQuote(f.ConfigFile) + " " + shQuote(bak)},
-			action{title: title, file: f.ConfigFile, content: content, change: true})
-		p.rollback = append([]string{"cp -p " + shQuote(bak) + " " + shQuote(f.ConfigFile)}, p.rollback...)
-	}
 	if f.Style == "conf" {
 		keys := managedAPI
 		if resolverMode {
@@ -399,9 +406,9 @@ func planInstall(p *Plan, o Options) (*Plan, error) {
 	}
 	p.Steps = []Step{
 		{Title: "Install PowerDNS Recursor", Command: cmd, Note: "Nothing else changes yet. The authoritative server keeps answering on port 53."},
-		{Title: "Keep the new Recursor stopped until it is set up", Command: "systemctl stop pdns-recursor; true"},
+		{Title: "Keep the new Recursor stopped until it is set up", Command: "systemctl disable --now pdns-recursor; true"},
 	}
-	p.actions = []action{{title: "Install PowerDNS Recursor", cmd: cmd}, {title: "Keep it stopped for now", cmd: "systemctl stop pdns-recursor 2>/dev/null; true"}}
+	p.actions = []action{{title: "Install PowerDNS Recursor", cmd: cmd}, {title: "Keep it stopped for now", cmd: "systemctl disable --now pdns-recursor 2>/dev/null; true"}}
 	p.Next = "Once it is installed NCC reads the new Recursor's configuration and shows a second preview: moving the authoritative server to 127.0.0.1:" + o.AuthPort + " and putting the Recursor on port 53. Nothing moves until you confirm that one too."
 	if f.OnPort53 == "authoritative" {
 		p.Warnings = append(p.Warnings, o.Host+" only runs the PowerDNS authoritative server, which refuses internet lookups. That is why clients handed this server can't resolve internet names through it.")
@@ -432,11 +439,34 @@ func (p *Plan) addIncludeFixes(ctx context.Context, c Conn, dir, mainFile string
 	}
 }
 
+// isYAMLConfig reports whether a Recursor configuration file is YAML (Recursor 5): it parses
+// as a YAML mapping and has no old-style key=value lines.
+func isYAMLConfig(b []byte) bool {
+	for _, l := range strings.Split(string(b), "\n") {
+		if _, _, _, ok := confLine(l); ok {
+			return false
+		}
+	}
+	var m map[string]any
+	return yaml.Unmarshal(b, &m) == nil && len(m) > 0
+}
+
+// configCheck is the command that validates the Recursor's configuration without starting
+// it (Recursor 5's --config=check), or "" when the installed version has none.
+func configCheck(f Facts) string {
+	major, _ := strconv.Atoi(strings.SplitN(f.Version, ".", 2)[0])
+	if major < 5 {
+		return ""
+	}
+	bin := nonEmpty(f.Binary, "pdns_recursor")
+	return shQuote(bin) + " --config-dir=" + shQuote(path.Dir(f.ConfigFile)) + " --config=check"
+}
+
 // rollbackTail finishes the undo list for resolver mode: stop the Recursor so the
 // authoritative server can take port 53 back, restart it on its old settings, and start the
 // Recursor again only if it was running before.
 func (p *Plan) rollbackTail(recUnit, authUnit string) {
-	p.rollback = append(p.rollback, "systemctl stop "+shQuote(recUnit)+" 2>/dev/null; true", "systemctl restart "+shQuote(authUnit))
+	p.rollback = append(p.rollback, "{ systemctl disable --now "+shQuote(recUnit)+" 2>/dev/null; true; }", "systemctl restart "+shQuote(authUnit))
 }
 
 // StepResult is how one step went.
