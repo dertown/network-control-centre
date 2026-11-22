@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { Component, ErrorInfo, ReactNode, useCallback, useEffect, useState } from "react";
 import { api, ApiError, setCSRF, User, VaultStatus } from "./api";
 import { Dashboard } from "./pages/Dashboard";
 import { Topology } from "./pages/Topology";
@@ -148,7 +148,7 @@ export default function App() {
             ))}
           </div>
         </header>
-        <main>
+        <main><PageBoundary key={page}>
           {vault && (vault.sealed || !vault.initialized) && (
             <SealedBanner status={vault} isAdmin={user.role === "admin"} onUnsealed={setVault} />
           )}
@@ -166,7 +166,7 @@ export default function App() {
           {page === "deploy" && <CertDeploy user={user} tick={tick} />}
           {page === "settings" && <Settings user={user} tick={tick} />}
           {page === "audit" && <Audit />}
-        </main>
+        </PageBoundary></main>
       </div>
     </div>
   );
@@ -202,4 +202,22 @@ function SealedBanner({ status, isAdmin, onUnsealed }: { status: VaultStatus; is
       )}
     </div>
   );
+}
+
+// PageBoundary keeps a crash in one page from blanking the whole app: it shows what went
+// wrong and keeps the menu working.
+class PageBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error("page crashed", error, info.componentStack); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="banner bad" role="alert">
+        <Icon name="alert" size={16} /><strong>This page hit an error.</strong>
+        <span>{this.state.error.message}</span>
+        <button onClick={() => this.setState({ error: null })}>Try again</button>
+      </div>
+    );
+  }
 }
