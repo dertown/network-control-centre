@@ -400,6 +400,15 @@ const (
 // Finish fills in derived fields: device online state, battery levels, allowed actions,
 // alerts, sources and a stable order.
 func (inv *Inventory) Finish() {
+	if inv.Areas == nil {
+		inv.Areas = []Area{}
+	}
+	if inv.Devices == nil {
+		inv.Devices = []Device{}
+	}
+	if inv.Entities == nil {
+		inv.Entities = []Entity{}
+	}
 	devIdx := map[string]int{}
 	for i := range inv.Devices {
 		devIdx[inv.Devices[i].ID] = i
@@ -424,7 +433,7 @@ func (inv *Inventory) Finish() {
 			srcs[d.Source] = true
 		}
 	}
-	inv.Alerts = inv.Alerts[:0]
+	inv.Alerts = []Alert{} // never null in JSON: the page maps over it
 	for i := range inv.Entities {
 		e := &inv.Entities[i]
 		if e.Area == "" && e.Device != "" {
@@ -467,7 +476,7 @@ func (inv *Inventory) Finish() {
 		}
 		return inv.Alerts[i].Subject < inv.Alerts[j].Subject
 	})
-	inv.Hub.Sources = inv.Hub.Sources[:0]
+	inv.Hub.Sources = []string{}
 	for s := range srcs {
 		inv.Hub.Sources = append(inv.Hub.Sources, s)
 	}

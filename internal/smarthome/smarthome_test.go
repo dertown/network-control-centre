@@ -1,6 +1,7 @@
 package smarthome
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -115,5 +116,16 @@ func TestPlan(t *testing.T) {
 	}
 	if len(inv.Alerts) != 1 || inv.Alerts[0].Level != "critical" || inv.Alerts[0].Subject != "Sensor" {
 		t.Fatalf("alerts: %+v", inv.Alerts)
+	}
+}
+
+// A home with nothing wrong must still send empty lists, not null: the page maps over them.
+func TestFinishEmptyListsNotNull(t *testing.T) {
+	for _, inv := range []*Inventory{{}, {Devices: []Device{{ID: "d", Name: "Plug"}}, Entities: []Entity{{ID: "switch.p", Domain: "switch", State: "on", Device: "d"}}}} {
+		inv.Finish()
+		b, _ := json.Marshal(inv)
+		if strings.Contains(string(b), "null") {
+			t.Fatalf("null in %s", b)
+		}
 	}
 }

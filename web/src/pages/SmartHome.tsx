@@ -80,6 +80,22 @@ function stateText(e: SmartEntity, unit?: string): string {
 
 type Busy = Record<string, boolean>;
 
+// normalise fills in lists an older or partial read may send as null, so the page never
+// maps over null.
+function normalise(s: SmartSource): SmartSource {
+  const inv = s.inventory;
+  if (!inv) return s;
+  return {
+    ...s,
+    inventory: {
+      ...inv,
+      hub: { ...inv.hub, sources: inv.hub?.sources ?? [] },
+      areas: inv.areas ?? [], devices: inv.devices ?? [], entities: (inv.entities ?? []).map((e) => ({ ...e, state: e.state ?? "unknown" })),
+      alerts: inv.alerts ?? [], warnings: inv.warnings ?? [],
+    },
+  };
+}
+
 export function SmartHome({ tick, user }: { tick: number; user: User }) {
   const [sources, setSources] = useState<SmartSource[] | null>(null);
   const [err, setErr] = useState("");
@@ -92,7 +108,7 @@ export function SmartHome({ tick, user }: { tick: number; user: User }) {
   const [pairing, setPairing] = useState(false);
   const isAdmin = user.role === "admin";
 
-  const refetch = () => api<{ sources: SmartSource[] }>("GET", "/api/smarthome").then((v) => { setSources(v.sources); setErr(""); }).catch((e) => setErr(e.message));
+  const refetch = () => api<{ sources: SmartSource[] | null }>("GET", "/api/smarthome").then((v) => { setSources((v.sources ?? []).map(normalise)); setErr(""); }).catch((e) => setErr(e.message));
   useEffect(() => { refetch(); }, [tick]);
   useEffect(() => { try { localStorage.setItem("ncc-iot-group", group); } catch { /* storage blocked */ } }, [group]);
 
