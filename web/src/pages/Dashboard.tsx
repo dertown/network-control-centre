@@ -1,253 +1,164 @@
-import { useEffect, useState } from "react";
-import { api, Cert, Client, Device, Loop, Target, TrafficView } from "../api";
-import { LoopList } from "../loops";
+// Dashboard: a one-screen overview of the whole network.
+//
+// Layout, top to bottom:
+//   - a one-line verdict ("Everything is healthy" / "2 problems need attention"),
+//   - one status tile per area (internet, devices, clients, VMs, storage, smart home,
+//     certificates, exposed ports); optional areas only appear once they are set up,
+//   - "Needs attention": every problem from every area in one list, worst first,
+//   - device availability and traffic/exposure details.
+//
+// Each fact is shown once: tiles summarise an area, the attention list names the problems,
+// and the lower cards give the detail that no other panel shows. Data loading and the
+// problem rules live in dashboardModel.ts.
+
+import { useState } from "react";
+import { Target } from "../api";
 import { ago, kindLabel } from "../live";
 import { Icon, IconName, kindIcon } from "../icons";
-import { Donut, Meter, Sparkline } from "../charts";
-import { record, recent } from "../history";
+import { Meter, Sparkline } from "../charts";
 import { bytes, rate } from "./Traffic";
+import { Attention, buildAttention, DashData, internetState, openForwards, plural, useDashboardData } from "./dashboardModel";
+
+/** Device kinds in the order they are listed: core of the network first. */
+const kindOrder = ["gateway", "switch", "unmanaged-switch", "ap", "unknown"];
+/** How many problems to show before "Show all". */
+const attentionLimit = 6;
+
+type Tone = "good" | "warn" | "bad";
 
 export function Dashboard({ tick }: { tick: number }) {
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [targets, setTargets] = useState<Target[]>([]);
-  const [certs, setCerts] = useState<Cert[]>([]);
-  const [traffic, setTraffic] = useState<TrafficView | null>(null);
-  const [loops, setLoops] = useState<Loop[]>([]);
-  const [hist, setHist] = useState({ clients: recent("clients"), down: recent("down"), up: recent("up") });
-
-  useEffect(() => {
-    api<Device[]>("GET", "/api/devices").then(setDevices).catch(() => {});
-    api<Client[]>("GET", "/api/clients").then((c) => {
-      setClients(c);
-      setHist((h) => ({ ...h, clients: record("clients", c.length) }));
-    }).catch(() => {});
-    api<Target[]>("GET", "/api/targets").then(setTargets).catch(() => {});
-    api<Cert[]>("GET", "/api/certs").then(setCerts).catch(() => {});
-    api<Loop[]>("GET", "/api/loops").then(setLoops).catch(() => {});
-    api<TrafficView>("GET", "/api/traffic?window=session").then((t) => {
-      setTraffic(t);
-      const online = t.clients.filter((c) => c.online);
-      setHist((h) => ({
-        ...h,
-        down: record("down", online.reduce((s, c) => s + c.down_rate, 0)),
-        up: record("up", online.reduce((s, c) => s + c.up_rate, 0)),
-      }));
-    }).catch(() => {});
-  }, [tick]);
-
-  const infra = devices.filter((d) => d.discovery === "controller");
-  const offline = infra.filter((d) => !d.online);
-  const passive = devices.filter((d) => d.discovery !== "controller");
-  const certAlerts = certs.filter((c) => c.status !== "ok");
-  const wireless = clients.filter((c) => !c.wired).length;
-  const badTargets = targets.filter((t) => t.enabled && t.last_error);
-  const liveDown = hist.down.at(-1) ?? 0;
-  const liveUp = hist.up.at(-1) ?? 0;
-
-  const kinds = ["gateway", "switch", "unmanaged-switch", "ap", "unknown"];
-  const kindColors = ["var(--c1)", "var(--c2)", "var(--c6)", "var(--c3)", "var(--c4)"];
-  const mix = kinds.map((k, i) => ({ label: kindLabel[k], value: devices.filter((d) => d.kind === k).length, color: kindColors[i] })).filter((s) => s.value > 0);
-
-  const talkers = [...(traffic?.clients ?? [])]
-    .sort((a, b) => b.window_down + b.window_up - (a.window_down + a.window_up))
-    .filter((c) => c.window_down + c.window_up > 0)
-    .slice(0, 6);
-  const talkMax = talkers[0] ? talkers[0].window_down + talkers[0].window_up : 1;
-
-  const health = offline.length ? "warn" : "good";
+  const d = useDashboardData(tick);
+  const attention = buildAttention(d);
+  const critical = attention.filter((a) => a.level === "critical").length;
+  const loaded = d.devices !== undefined || d.targets !== undefined;
+  const empty = loaded && !d.devices?.length && !d.targets?.length;
 
   return (
     <>
       <h1>Dashboard</h1>
-      <p className="muted lede">
-        {devices.length === 0
-          ? "Connect your network to see it here."
-          : offline.length
-            ? `${offline.length} of ${infra.length} managed devices are offline. Everything else is reporting normally.`
-            : `All ${infra.length} managed devices are online and reporting.`}
-      </p>
+      <p className="muted lede">{verdict(d, attention.length, critical, empty)}</p>
 
-      {loops.length > 0 && (() => {
-        const critical = loops.filter((l) => l.severity === "critical");
-        return (
-          <div className={`banner ${critical.length ? "bad" : "warn"}`} role="alert">
-            <Icon name="alert" size={16} />
-            <strong>{loops.length} switching loop{loops.length === 1 ? "" : "s"}</strong>
-            <span>{(critical[0] ?? loops[0]).summary}{loops.length > 1 ? ` (and ${loops.length - 1} more)` : ""}</span>
-            <a href="#/topology">See ports on the map →</a>
-          </div>
-        );
-      })()}
-
-      <div className="tiles">
-        <Tile label="Devices online" icon="devices" tone={health} href="#/devices"
-          value={<>{infra.length - offline.length}<small> / {infra.length}</small></>}
-          sub={passive.length ? `+${passive.length} found by LLDP or inference` : "managed by your controller"} />
-        <Tile label="Clients" icon="client" iconTone="c2" href="#/traffic" value={clients.length}
-          sub={`${clients.length - wireless} wired · ${wireless} wireless`}
-          spark={<Sparkline values={hist.clients} color="var(--c2)" />} />
-        <Tile label="Internet, now" icon="traffic" iconTone="c3" href="#/traffic" value={rate(liveDown)} valueClass="small-value"
-          sub={<><Icon name="download" size={12} /> down · <Icon name="upload" size={12} /> {rate(liveUp)} up</>}
-          spark={<Sparkline values={hist.down} color="var(--c3)" />} />
-        <Tile label="Certificates" icon="cert" tone={certAlerts.length ? "warn" : "good"} href="#/vault"
-          value={certs.length} sub={certAlerts.length ? `${certAlerts.length} need attention` : "none expiring soon"} />
-        <Tile label="Integrations" icon="link" tone={badTargets.length ? "bad" : targets.length ? "good" : undefined} href="#/settings"
-          value={<>{targets.length - badTargets.length}<small> / {targets.length}</small></>}
-          sub={badTargets.length ? `${badTargets.length} failing` : "all healthy"} />
-      </div>
-
-      <div className="grid-3">
-        <section className="card">
-          <h2><Icon name="check" size={16} /> Device health</h2>
-          <Donut center={infra.length ? `${Math.round(((infra.length - offline.length) / infra.length) * 100)}%` : "–"} sub="online"
-            segments={[
-              { label: "Online", value: infra.length - offline.length, color: "var(--good)" },
-              { label: "Offline", value: offline.length, color: "var(--bad)" },
-              { label: "Passive (not polled)", value: passive.length, color: "var(--c6)" },
-            ]} />
-        </section>
-        <section className="card">
-          <h2><Icon name="devices" size={16} /> Device mix</h2>
-          <Donut center={devices.length} sub="devices" segments={mix} />
-        </section>
-        <section className="card">
-          <h2><Icon name="client" size={16} /> Clients by connection</h2>
-          <Donut center={clients.length} sub="clients" segments={[
-            { label: "Wired", value: clients.length - wireless, color: "var(--c1)" },
-            { label: "Wireless", value: wireless, color: "var(--c2)" },
-          ]} />
-        </section>
-      </div>
+      <AreaTiles d={d} attention={attention} />
+      {!empty && <AttentionCard items={attention} loaded={loaded} />}
 
       <div className="grid-main">
         <div>
-          <section className="card">
-            <div className="card-head">
-              <h2><Icon name="topology" size={16} /> Availability</h2>
-              <a href="#/topology">Open map →</a>
-            </div>
-            {devices.length === 0 ? (
-              <p className="muted">No devices yet. Add your UniFi console in <a href="#/settings">Settings</a>.</p>
-            ) : (
-              <div className="avail">
-                {[...devices].sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind) || a.name.localeCompare(b.name)).map((d) => (
-                  <a key={d.id} href="#/devices" className={d.discovery !== "controller" ? "passive" : d.online ? "" : "down"}
-                    title={`${d.name} · ${kindLabel[d.kind] ?? d.kind} · ${d.discovery !== "controller" ? "not polled" : d.online ? "online" : "offline"}`}>
-                    <Icon name={kindIcon[d.kind] ?? "unknown"} size={18} />
-                    <span style={{ minWidth: 0 }}><div className="nm">{d.name}</div><div className="md">{d.model || kindLabel[d.kind]}</div></span>
-                  </a>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="card flush">
-            <div className="card-head" style={{ padding: "16px 20px 0" }}>
-              <h2><Icon name="link" size={16} /> Connections</h2>
-              <a href="#/settings">Manage →</a>
-            </div>
-            {targets.length === 0 ? (
-              <p className="muted" style={{ padding: "0 20px 16px" }}>Nothing connected yet. Add your Dream Router and PowerDNS server in <a href="#/settings">Settings</a>.</p>
-            ) : (
-              <table>
-                <thead><tr><th>Name</th><th>Type</th><th>Address</th><th>Last poll</th><th>Status</th></tr></thead>
-                <tbody>
-                  {targets.map((t) => (
-                    <tr key={t.id}>
-                      <td><strong>{t.name}</strong></td>
-                      <td><span className="pill">{t.kind}</span></td>
-                      <td className="mono">{t.address}</td>
-                      <td className="muted">{ago(t.last_poll)}</td>
-                      <td>{!t.enabled ? <span className="pill">disabled</span> : t.last_error ? <span className="pill bad" title={t.last_error}>error</span> : !t.last_poll ? <span className="pill">not checked</span> : <span className="pill good">healthy</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
+          <Availability d={d} />
+          <Connections targets={d.targets} />
         </div>
-
         <div>
-          <section className="card">
-            <div className="card-head">
-              <h2><Icon name="traffic" size={16} /> Top talkers</h2>
-              <a href="#/traffic">Traffic →</a>
-            </div>
-            {talkers.length === 0 ? <p className="muted">No traffic data yet.</p> : (
-              <ul className="list">
-                {talkers.map((c) => (
-                  <li key={c.mac}>
-                    <span className="tile-icon" style={{ width: 28, height: 28 }}><Icon name={c.wired ? "client" : "ap"} size={15} /></span>
-                    <div className="grow-col">
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                        <strong className="small" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</strong>
-                        <span className="small muted">{bytes(c.window_down + c.window_up)}</span>
-                      </div>
-                      <Meter value={(c.window_down + c.window_up) / talkMax} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <h2><Icon name="cert" size={16} /> Certificates</h2>
-              <a href="#/vault">Vault →</a>
-            </div>
-            {certs.length === 0 ? <p className="muted">No certificates imported.</p> : certAlerts.length === 0 ? (
-              <div className="empty"><Icon name="check" size={28} />All {certs.length} certificates are valid for more than 30 days.</div>
-            ) : (
-              <ul className="list">
-                {[...certs].sort((a, b) => a.days_left - b.days_left).slice(0, 6).map((c) => {
-                  const tone = c.status === "ok" ? "good" : c.status === "expiring" ? "warn" : "bad";
-                  return (
-                    <li key={c.id}>
-                      <div className="grow-col">
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                          <span className="small" style={{ fontWeight: 550 }}>{c.name}</span>
-                          <span className={`pill ${tone}`}>{c.days_left < 0 ? "expired" : `${c.days_left} days`}</span>
-                        </div>
-                        <Meter value={Math.max(c.days_left, 0) / 90} tone={tone} />
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-
-          {loops.length > 0 && (
-            <section className="card">
-              <div className="card-head">
-                <h2><Icon name="alert" size={16} /> Switching loops</h2>
-                <a href="#/topology">Map →</a>
-              </div>
-              <LoopList compact loops={loops} />
-            </section>
-          )}
-
-          {offline.length > 0 && (
-            <section className="card">
-              <h2><Icon name="alert" size={16} /> Offline devices</h2>
-              <ul className="list">
-                {offline.map((d) => (
-                  <li key={d.id}><span className="dot bad" /><span className="grow-col">{d.name} <span className="muted small">{d.model}</span></span><span className="mono small muted">{d.ip || d.mac}</span></li>
-                ))}
-              </ul>
-            </section>
-          )}
+          <TopTalkers d={d} />
+          <ExposedPorts d={d} />
         </div>
       </div>
     </>
   );
 }
 
-function Tile({ label, value, sub, tone, icon, iconTone, href, spark, valueClass }: {
-  label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: "good" | "warn" | "bad"; icon: IconName;
-  iconTone?: string; href: string; spark?: React.ReactNode; valueClass?: string;
+/** verdict is the sentence under the title: the state of the network in plain words. */
+function verdict(d: DashData, problems: number, critical: number, empty: boolean): string {
+  if (!d.devices && !d.targets) return "Loading…";
+  if (empty) return "Connect your router, DNS server and other systems in Settings to see them here.";
+  const infra = (d.devices ?? []).filter((x) => x.discovery === "controller");
+  const online = infra.filter((x) => x.online).length;
+  const devices = `${online} of ${plural(infra.length, "network device")} online`;
+  if (problems === 0) return `Everything is healthy. ${devices}, no alerts.`;
+  if (critical) return `${plural(critical, "critical problem")}${problems > critical ? ` and ${plural(problems - critical, "warning")}` : ""} need attention. ${devices}.`;
+  return `${plural(problems, "warning")} to look at, nothing critical. ${devices}.`;
+}
+
+// ---------------------------------------------------------------------------------------
+// Area tiles: one per area, each with its own one-line summary. Tone follows the worst
+// problem in that area from the attention list, so tiles and list always agree.
+
+function AreaTiles({ d, attention }: { d: DashData; attention: Attention[] }) {
+  const toneFor = (area: string, ok: boolean): Tone | undefined => {
+    const own = attention.filter((a) => a.area === area);
+    if (own.some((a) => a.level === "critical")) return "bad";
+    if (own.length) return "warn";
+    return ok ? "good" : undefined;
+  };
+
+  const net = internetState(d.devices);
+  const down = d.hist.down.at(-1) ?? 0;
+  const up = d.hist.up.at(-1) ?? 0;
+
+  const infra = (d.devices ?? []).filter((x) => x.discovery === "controller");
+  const offline = infra.filter((x) => !x.online);
+  const passive = (d.devices ?? []).length - infra.length;
+
+  const clients = d.clients ?? [];
+  const wireless = clients.filter((c) => !c.wired).length;
+
+  const vms = (d.vms?.vms ?? []).filter((v) => !v.template);
+  const running = vms.filter((v) => v.state === "running").length;
+  const hosts = d.vms?.hosts ?? [];
+
+  const storage = (d.storage ?? []).flatMap((s) => s.inventory?.volumes ?? []);
+  const stUsed = storage.reduce((s, v) => s + v.used, 0);
+  const stTotal = storage.reduce((s, v) => s + v.total, 0);
+
+  const smartDevices = (d.smart ?? []).flatMap((s) => s.inventory?.devices ?? []);
+  const smartOnline = smartDevices.filter((x) => x.online).length;
+
+  const certs = [...(d.certs ?? [])].sort((a, b) => a.days_left - b.days_left);
+  const next = certs[0];
+
+  const forwards = openForwards(d.firewall);
+
+  return (
+    <div className="tiles dash-tiles">
+      <Tile label="Internet" icon="internet" href="#/traffic"
+        tone={net.state === "down" ? "bad" : net.state === "up" ? "good" : undefined}
+        value={net.state === "up" ? "Online" : net.state === "down" ? "Down" : "Unknown"}
+        sub={<><Icon name="download" size={12} /> {rate(down)} · <Icon name="upload" size={12} /> {rate(up)}</>}
+        spark={<Sparkline values={d.hist.down} color="var(--c3)" />} />
+
+      <Tile label="Network devices" icon="devices" href="#/devices" tone={toneFor("Devices", infra.length > 0)}
+        value={<>{infra.length - offline.length}<small> / {infra.length} online</small></>}
+        sub={offline.length ? `Offline: ${offline.map((x) => x.name).join(", ")}` : passive ? `+${passive} unmanaged (found by LLDP)` : "managed by your controller"} />
+
+      <Tile label="Clients" icon="client" iconTone="c2" href="#/traffic" value={clients.length}
+        sub={`${clients.length - wireless} wired · ${wireless} wireless`}
+        spark={<Sparkline values={d.hist.clients} color="var(--c2)" />} />
+
+      {hosts.length > 0 && (
+        <Tile label="Virtual machines" icon="vm" href="#/vms" tone={toneFor("Virtual machines", true)}
+          value={<>{running}<small> / {vms.length} running</small></>}
+          sub={`on ${plural(hosts.length, "host")}${hosts.some((h) => !h.online) ? `, ${hosts.filter((h) => !h.online).length} offline` : ""}`} />
+      )}
+
+      {stTotal > 0 && (
+        <Tile label="Storage" icon="nas" href="#/storage" tone={toneFor("Storage", true)}
+          value={<>{Math.round((stUsed / stTotal) * 100)}%<small> used</small></>}
+          sub={`${bytes(stTotal - stUsed)} free of ${bytes(stTotal)}`}
+          spark={<Meter value={stUsed / stTotal} tone={stUsed / stTotal > 0.9 ? "bad" : stUsed / stTotal > 0.8 ? "warn" : undefined} />} />
+      )}
+
+      {smartDevices.length > 0 && (
+        <Tile label="Smart home" icon="home" href="#/iot" tone={toneFor("Smart home", true)}
+          value={<>{smartOnline}<small> / {smartDevices.length} online</small></>}
+          sub={attention.some((a) => a.area === "Smart home") ? plural(attention.filter((a) => a.area === "Smart home").length, "alert") : "no alerts"} />
+      )}
+
+      {next && (
+        <Tile label="Certificates" icon="cert" href="#/vault" tone={toneFor("Vault", true)}
+          value={next.days_left < 0 ? "Expired" : <>{next.days_left}<small> days left</small></>}
+          sub={`${next.name} is next to expire`} />
+      )}
+
+      {d.firewall && d.firewall.length > 0 && (
+        <Tile label="Open to the internet" icon="firewall" href="#/firewall" tone={forwards.length ? undefined : "good"}
+          value={<>{forwards.length}<small> port forward{forwards.length === 1 ? "" : "s"}</small></>}
+          sub={forwards.length ? "listed below" : "nothing exposed"} />
+      )}
+    </div>
+  );
+}
+
+function Tile({ label, value, sub, tone, icon, iconTone, href, spark }: {
+  label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: Tone; icon: IconName;
+  iconTone?: string; href: string; spark?: React.ReactNode;
 }) {
   return (
     <a className={`tile ${tone ?? ""}`} href={href}>
@@ -255,9 +166,191 @@ function Tile({ label, value, sub, tone, icon, iconTone, href, spark, valueClass
         <span className="tile-label">{label}</span>
         <span className={`tile-icon ${iconTone ?? tone ?? ""}`}><Icon name={icon} size={17} /></span>
       </div>
-      <div className={`tile-value ${valueClass ?? ""}`}>{value}</div>
-      {sub && <div className="muted small">{sub}</div>}
+      <div className="tile-value">{value}</div>
+      {sub && <div className="muted small tile-sub">{sub}</div>}
       {spark}
     </a>
+  );
+}
+
+// ---------------------------------------------------------------------------------------
+// Needs attention
+
+function AttentionCard({ items, loaded }: { items: Attention[]; loaded: boolean }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? items : items.slice(0, attentionLimit);
+  const critical = items.filter((a) => a.level === "critical").length;
+  return (
+    <section className="card attn-card">
+      <div className="card-head">
+        <h2><Icon name="alert" size={16} /> Needs attention</h2>
+        {items.length > 0 && (
+          <span>
+            {critical > 0 && <span className="pill bad">{critical} critical</span>}{" "}
+            {items.length > critical && <span className="pill warn">{items.length - critical} warning{items.length - critical === 1 ? "" : "s"}</span>}
+          </span>
+        )}
+      </div>
+      {!loaded ? <p className="muted">Checking…</p> : items.length === 0 ? (
+        <div className="empty"><Icon name="check" size={28} />All clear. No outages, loops, failing disks, expiring certificates or connection errors.</div>
+      ) : (
+        <>
+          <ul className="list attn">
+            {shown.map((a) => {
+              const tone = a.level === "critical" ? "bad" : "warn";
+              return (
+                <li key={a.key} className={tone}>
+                  <span className={`tile-icon ${tone}`}><Icon name={a.icon} size={16} /></span>
+                  <div className="grow-col">
+                    <strong className="attn-title">{a.title}</strong>
+                    {a.detail && <div className="muted small attn-detail">{a.detail}</div>}
+                  </div>
+                  <a className="small" href={a.href}>{a.area} →</a>
+                </li>
+              );
+            })}
+          </ul>
+          {items.length > attentionLimit && (
+            <button className="small attn-more" onClick={() => setAll(!all)}>
+              {all ? "Show fewer" : `Show all ${items.length}`}
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------------------
+// Detail cards
+
+/** Availability: every network device as a chip, red when offline, dashed when not polled. */
+function Availability({ d }: { d: DashData }) {
+  const devices = [...(d.devices ?? [])].sort((a, b) => kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind) || a.name.localeCompare(b.name));
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2><Icon name="topology" size={16} /> Network devices</h2>
+        <a href="#/topology">Open map →</a>
+      </div>
+      {devices.length === 0 ? (
+        <p className="muted">No devices yet. Add your UniFi console in <a href="#/settings">Settings</a>.</p>
+      ) : (
+        <div className="avail">
+          {devices.map((x) => {
+            const polled = x.discovery === "controller";
+            const state = !polled ? "not polled" : x.online ? "online" : "offline";
+            return (
+              <a key={x.id} href="#/devices" className={!polled ? "passive" : x.online ? "" : "down"}
+                title={`${x.name} · ${kindLabel[x.kind] ?? x.kind} · ${state}`} aria-label={`${x.name}, ${state}`}>
+                <Icon name={kindIcon[x.kind] ?? "unknown"} size={18} />
+                <span style={{ minWidth: 0 }}><div className="nm">{x.name}</div><div className="md">{x.model || kindLabel[x.kind]}</div></span>
+              </a>
+            );
+          })}
+        </div>
+      )}
+      {devices.length > 0 && (
+        <p className="muted small avail-key">
+          <span className="dot good" />online <span className="dot bad" />offline <span className="dot" />unmanaged (seen by LLDP or inferred)
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** TopTalkers: the clients that moved the most data this session. */
+function TopTalkers({ d }: { d: DashData }) {
+  const talkers = (d.traffic?.clients ?? [])
+    .map((c) => ({ ...c, total: c.window_down + c.window_up }))
+    .filter((c) => c.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+  const max = talkers[0]?.total || 1;
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2><Icon name="traffic" size={16} /> Top talkers</h2>
+        <a href="#/traffic">Traffic →</a>
+      </div>
+      {talkers.length === 0 ? <p className="muted">No traffic data yet.</p> : (
+        <ul className="list">
+          {talkers.map((c) => (
+            <li key={c.mac}>
+              <span className="tile-icon" style={{ width: 28, height: 28 }}><Icon name={c.wired ? "client" : "wifi"} size={15} /></span>
+              <div className="grow-col">
+                <div className="row-between">
+                  <strong className="small ellipsis">{c.name}</strong>
+                  <span className="small muted">{bytes(c.total)}</span>
+                </div>
+                <Meter value={c.total / max} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** ExposedPorts: what the router forwards from the internet to the inside. */
+function ExposedPorts({ d }: { d: DashData }) {
+  const forwards = openForwards(d.firewall);
+  if (!forwards.length) return null;
+  const limit = 6;
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2><Icon name="firewall" size={16} /> Open to the internet</h2>
+        <a href="#/firewall">Firewall →</a>
+      </div>
+      <ul className="list">
+        {forwards.slice(0, limit).map((f) => {
+          const anyone = !f.source || f.source.toLowerCase() === "any";
+          return (
+            <li key={`${f.target}-${f.id}`}>
+              <div className="grow-col">
+                <div className="row-between">
+                  <strong className="small ellipsis">{f.name}</strong>
+                  <span className="mono small">{f.protocol.toUpperCase()} {f.external_port}</span>
+                </div>
+                <div className="muted small">
+                  to <span className="mono">{f.forward_client || f.forward_ip}:{f.forward_port}</span> · {anyone ? "from anyone" : `from ${f.source}`}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {forwards.length > limit && <p className="muted small">and {forwards.length - limit} more on the Firewall page.</p>}
+    </section>
+  );
+}
+
+/** Connections: each system NCC reads from, and when it last answered. */
+function Connections({ targets }: { targets?: Target[] }) {
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2><Icon name="link" size={16} /> Connections</h2>
+        <a href="#/settings">Manage →</a>
+      </div>
+      {!targets?.length ? (
+        <p className="muted">Nothing connected yet. Add your router and DNS server in <a href="#/settings">Settings</a>.</p>
+      ) : (
+        <ul className="list">
+          {targets.map((t) => {
+            const [tone, word] = !t.enabled ? ["", "disabled"] : t.last_error ? ["bad", "error"] : !t.last_poll ? ["", "not checked yet"] : ["good", `read ${ago(t.last_poll)}`];
+            return (
+              <li key={t.id} title={t.last_error || t.address}>
+                <span className={`dot ${tone}`} />
+                <span className="grow-col small"><strong>{t.name}</strong> <span className="muted">{t.kind}</span></span>
+                <span className="small muted">{word}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }

@@ -6,6 +6,12 @@ and draws the network as a live map.
 
 This first release (the MVP) covers:
 
+- **Dashboard**: one screen for a quick look at the whole network. A status tile per area (internet
+  link and live throughput, network devices, clients, virtual machines, storage, smart home, the
+  next certificate to expire, and how many ports are open to the internet), then **Needs attention**:
+  every problem from every area in one list, critical first (internet down, switching loops,
+  offline devices or VM hosts, NAS disk and volume alerts, smart home alerts, expiring
+  certificates, connections NCC can't read), each linking to the page that fixes it.
 - **UniFi discovery (read-only).** Connects to a UniFi OS console such as the Dream Router 7
   and lists every gateway, switch and access point with **make, model, firmware, IP, ports,
   PoE, uplinks and clients**. Switches are found three ways:
