@@ -4,6 +4,7 @@ import { api, Device } from "../api";
 import { discoveryLabel, kindLabel } from "../live";
 import { uptime } from "../format";
 import { Icon, kindIcon } from "../icons";
+import { PortsPanel } from "../ports";
 
 export function Devices({ tick }: { tick: number }) {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -71,16 +72,7 @@ export function Devices({ tick }: { tick: number }) {
                         <dt>Source</dt><dd>{d.target}</dd>
                         {d.detail && (<><dt>Detail</dt><dd>{d.detail}</dd></>)}
                       </dl>
-                      {d.ports && d.ports.length > 0 && (
-                        <div className="ports">
-                          {d.ports.map((p) => (
-                            <div key={p.index} className={`port ${p.up ? "up" : "down"} ${p.uplink ? "uplink" : ""}`} title={`${p.name}${p.speed_mbps ? ` · ${p.speed_mbps} Mbps` : ""}${p.poe_watts ? ` · PoE ${p.poe_watts} W` : ""}`}>
-                              <span>{p.index}</span>
-                              <small>{p.up ? (p.speed_mbps ? (p.speed_mbps >= 1000 ? `${p.speed_mbps / 1000}G` : `${p.speed_mbps}M`) : "up") : "—"}</small>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      {d.kind !== "client" && <PortsPanel id={d.id} tick={tick} />}
                     </td>
                   </tr>
                 )}

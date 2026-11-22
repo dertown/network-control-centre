@@ -107,6 +107,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/targets/{id}/poll", o(s.pollTarget))
 
 	mux.Handle("GET /api/devices", v(s.listDevices))
+	mux.Handle("GET /api/devices/{id}/ports", v(s.devicePorts))
 	mux.Handle("GET /api/clients", v(s.listClients))
 	mux.Handle("GET /api/topology", v(s.topology))
 	mux.Handle("GET /api/loops", v(s.loops))
