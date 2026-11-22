@@ -134,69 +134,57 @@ func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, er
 	if err != nil {
 		return nil, err
 	}
-	if t.Category == CategoryDNS {
+	switch t.Category {
+	case CategoryDNS:
 		err := p.checkDNS(ctx, t)
-		_ = p.Targets.RecordPoll(ctx, t.ID, err)
-		if p.Hub != nil {
-			ev := map[string]any{"target": t.Name}
-			kind := "dns_status"
-			if err != nil {
-				kind = "poll_error"
-				ev["error"] = err.Error()
-			}
-			p.Hub.Publish(kind, ev)
-		}
+		p.finish(ctx, t, err, "dns_status", func() map[string]any { return map[string]any{} })
 		return nil, err
-	}
-	if t.Category == CategoryHypervisor {
+	case CategoryHypervisor:
 		inv, err := p.collectVMs(ctx, t)
-		_ = p.Targets.RecordPoll(ctx, t.ID, err)
-		if p.Hub != nil {
-			if err != nil {
-				p.Hub.Publish("poll_error", map[string]any{"target": t.Name, "error": err.Error()})
-			} else {
-				p.Hub.Publish("vms", map[string]any{"target": t.Name, "vms": len(inv.VMs), "hosts": len(inv.Hosts)})
-			}
-		}
+		p.finish(ctx, t, err, "vms", func() map[string]any { return map[string]any{"vms": len(inv.VMs), "hosts": len(inv.Hosts)} })
 		return nil, err
-	}
-	if t.Category == CategoryStorage {
+	case CategoryStorage:
 		inv, err := p.collectStorage(ctx, t)
-		_ = p.Targets.RecordPoll(ctx, t.ID, err)
-		if p.Hub != nil {
-			if err != nil {
-				p.Hub.Publish("poll_error", map[string]any{"target": t.Name, "error": err.Error()})
-			} else {
-				p.Hub.Publish("storage", map[string]any{"target": t.Name, "health": inv.System.Health, "alerts": len(inv.Alerts)})
-			}
-		}
+		p.finish(ctx, t, err, "storage", func() map[string]any {
+			return map[string]any{"health": inv.System.Health, "alerts": len(inv.Alerts)}
+		})
 		return nil, err
-	}
-	if t.Category == CategorySmartHome {
+	case CategorySmartHome:
 		inv, err := p.collectSmartHome(ctx, t)
-		_ = p.Targets.RecordPoll(ctx, t.ID, err)
-		if p.Hub != nil {
-			if err != nil {
-				p.Hub.Publish("poll_error", map[string]any{"target": t.Name, "error": err.Error()})
-			} else {
-				p.Hub.Publish("smarthome", map[string]any{"target": t.Name, "devices": len(inv.Devices), "alerts": len(inv.Alerts)})
-			}
-		}
+		p.finish(ctx, t, err, "smarthome", func() map[string]any {
+			return map[string]any{"devices": len(inv.Devices), "alerts": len(inv.Alerts)}
+		})
 		return nil, err
 	}
 	snap, err := p.collect(ctx, t)
-	_ = p.Targets.RecordPoll(ctx, t.ID, err)
+	p.finish(ctx, t, err, "snapshot", func() map[string]any {
+		return map[string]any{"devices": len(snap.Devices), "clients": len(snap.Clients), "loops": len(snap.Loops)}
+	})
 	if err != nil {
-		if p.Hub != nil {
-			p.Hub.Publish("poll_error", map[string]any{"target": t.Name, "error": err.Error()})
-		}
 		return nil, err
 	}
-	if p.Hub != nil {
-		p.Hub.Publish("snapshot", map[string]any{"target": t.Name, "devices": len(snap.Devices), "clients": len(snap.Clients),
-			"loops": len(snap.Loops)})
-	}
 	return snap, nil
+}
+
+// finish records the outcome of one poll on the target (last_poll, last_error) and tells
+// the browsers: a "poll_error" event with the error, or a kind event with the fields detail
+// returns (detail is only called on success, when the collected data is valid). Every
+// event carries the target's name.
+func (p *Poller) finish(ctx context.Context, t *Target, err error, kind string, detail func() map[string]any) {
+	_ = p.Targets.RecordPoll(ctx, t.ID, err)
+	if p.Hub == nil {
+		return
+	}
+	ev := map[string]any{"target": t.Name}
+	if err != nil {
+		kind = "poll_error"
+		ev["error"] = err.Error()
+	} else {
+		for k, v := range detail() {
+			ev[k] = v
+		}
+	}
+	p.Hub.Publish(kind, ev)
 }
 
 func (p *Poller) checkDNS(ctx context.Context, t *Target) error {

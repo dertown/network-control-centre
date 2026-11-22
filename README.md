@@ -102,7 +102,7 @@ This first release (the MVP) covers:
   one and logs out every other browser). Admins can reset another user's password, which logs
   that user out everywhere, and delete users. The last admin cannot be deleted.
 
-The design and the phased plan are in the project's architecture document. Port profile editing, BIND (RFC 2136), ACME / Let's Encrypt and more vendors come in later phases.
+How NCC is built is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Port profile editing, BIND (RFC 2136), ACME / Let's Encrypt and more vendors come in later phases.
 
 ## Quick start
 
@@ -277,24 +277,37 @@ and `listen: ":8080"` while you work on the UI.
 
 ### Layout
 
+How the pieces fit together (polling, live updates, the vault, the UI's conventions) is in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ```
 cmd/ncc/                 server entry point
-cmd/ncc-mock/            pretend UniFi console, PowerDNS, Proxmox VE and vCenter for demos
+cmd/ncc-mock/            pretend UniFi, PowerDNS, Proxmox VE, vCenter, QNAP, Synology and Home Assistant
 internal/api/            HTTP API, auth middleware, static UI
 internal/auth/           users, Argon2id, TOTP, sessions, roles
 internal/audit/          hash-chained audit log
-internal/core/           targets, poller, snapshots, topology graph
+internal/config/         config.yaml loading and defaults
+internal/core/           connections (targets), poller, snapshots, topology, VLAN moves, traffic
+internal/inventory/      vendor-neutral network model that device drivers produce
+internal/store/          SQLite database and migrations
 internal/drivers/        device driver interface; unifi/
 internal/dns/            DNS provider interface; powerdns/
 internal/hypervisor/     virtual machine provider interface; proxmox/, vmware/
+internal/storage/        NAS provider interface; qnap/, synology/, smb/, nfs/, snmpnas/
+internal/smarthome/      smart home provider interface and Matter codes; homeassistant/
 internal/dnslog/         PowerDNS Recursor / dnsdist protobuf query-log receiver
 internal/vault/          secret store interface; local and HashiCorp backends
 internal/pki/            certificate inventory
-internal/mocklab/        recorded UniFi data and an in-memory PowerDNS, used by tests and the demo
+internal/certdeploy/     certificate deployment over SSH and WinRM
+internal/netutil/        shared HTTP client helpers (certificate pinning)
+internal/mocklab/        recorded and emulated devices, used by tests and the demo
 web/                     React + TypeScript UI (Vite, Cytoscape.js), embedded into the binary
+deploy/                  Docker Compose, Proxmox Terraform, Home Assistant setup
 ```
 
-### Adding a device driver or DNS provider
+### Adding a device driver or provider
 
-Implement `drivers.Driver` (`Collect`, `Test`) or `dns.Provider` (`ListZones`, `ListRecords`,
-`Apply`), call `Register` from `init()`, and import the package in `cmd/ncc/main.go`.
+Implement the interface for the category (`drivers.Driver`, `dns.Provider`,
+`hypervisor.Provider`, `storage.Provider` or `smarthome.Provider`), call `Register` from
+`init()`, and import the package in `cmd/ncc/main.go`. The steps for the UI side are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#adding-a-new-kind-of-connection).

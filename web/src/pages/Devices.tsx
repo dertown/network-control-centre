@@ -1,6 +1,8 @@
+// Devices page: every gateway, switch and access point found, with make, model, firmware and ports.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, Device } from "../api";
-import { discoveryLabel, kindLabel, uptime } from "../live";
+import { discoveryLabel, kindLabel } from "../live";
+import { uptime } from "../format";
 import { Icon, kindIcon } from "../icons";
 
 export function Devices({ tick }: { tick: number }) {

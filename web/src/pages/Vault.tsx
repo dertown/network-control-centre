@@ -1,3 +1,5 @@
+// Vault & certificates page: vault status (seal, list and reveal secrets for admins) and the
+// certificate inventory (import, CA bundles, expiry, delete).
 import { Fragment, useEffect, useState } from "react";
 import { api, Cert, User, VaultStatus } from "../api";
 
