@@ -61,6 +61,8 @@ type rawNetwork struct {
 	DHCPDNS2       string `json:"dhcpd_dns_2"`
 	DHCPDNS3       string `json:"dhcpd_dns_3"`
 	DHCPDNS4       string `json:"dhcpd_dns_4"`
+	// DomainName is the DNS domain DHCP hands out (option 15, the clients' search domain).
+	DomainName string `json:"domain_name"`
 	// DNS the gateway itself uses on a WAN: "auto" (from the provider) or "manual".
 	// Older firmware has no preference field and is manual when wan_dns1 is set.
 	WANDNSPreference string `json:"wan_dns_preference"`
@@ -90,7 +92,7 @@ func networkDNS(r rawNetwork, gatewayDNS []string) *inv.NetworkDNS {
 	if strings.Contains(r.Purpose, "vpn") || r.Purpose == "vlan-only" {
 		return nil
 	}
-	d := &inv.NetworkDNS{DHCP: r.DHCPEnabled}
+	d := &inv.NetworkDNS{DHCP: r.DHCPEnabled, Domain: strings.TrimSuffix(strings.TrimSpace(r.DomainName), ".")}
 	if p, err := netip.ParsePrefix(strings.TrimSpace(r.IPSubnet)); err == nil {
 		d.Gateway = p.Addr().String()
 	}

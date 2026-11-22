@@ -128,3 +128,11 @@ type NetworkWriter interface {
 	// switch port is power-cycled (PoE) or switched off briefly.
 	Reconnect(ctx context.Context, t Target, creds vault.Secret, moves []ClientMove) ([]MoveResult, error)
 }
+
+// NetworkDomainSetter is a driver that can set the DNS domain name a network's DHCP server
+// hands out (the clients' search domain), so a VLAN's clients resolve short names in its zone.
+type NetworkDomainSetter interface {
+	// SetNetworkDomain sets the domain of the network with id networkID; "" clears it.
+	// domain has no trailing dot.
+	SetNetworkDomain(ctx context.Context, t Target, creds vault.Secret, networkID, domain string) error
+}

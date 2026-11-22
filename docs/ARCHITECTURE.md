@@ -121,7 +121,10 @@ Conventions:
 ## Tests and the pretend network
 
 `go test ./...` runs unit tests for every package plus API tests against an in-memory
-database. `internal/mocklab` emulates a UniFi console, PowerDNS, Proxmox VE, vCenter, QNAP,
+database. `internal/dnszones` ties DNS zones to router networks: the assignments (`dns_zone_vlans`),
+the check (`Evaluate`) and the planner (`BuildPlan`/`Apply`, over an `Env` the API server implements),
+which creates zones through the optional `dns.ZoneManager` and sets DHCP domains through the optional
+`drivers.NetworkDomainSetter`. `internal/mocklab` emulates a UniFi console, PowerDNS, Proxmox VE, vCenter, QNAP,
 Synology and Home Assistant from recorded data; the tests use it, and `cmd/ncc-mock` serves it
 on local ports so you can try the whole UI without a real network (see the README).
 

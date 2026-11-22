@@ -99,6 +99,9 @@ type NetworkDNS struct {
 	// Servers are the DNS servers DHCP hands out, in order. Empty means the router hands
 	// out itself, and answers with its own resolver (which asks the WAN's Upstream).
 	Servers []string `json:"servers,omitempty"`
+	// Domain is the DNS domain name DHCP hands out (the clients' search domain), without
+	// the trailing dot; empty when none is set.
+	Domain string `json:"domain,omitempty"`
 
 	// WAN networks.
 	// Upstream are the DNS servers the router itself asks on this WAN.

@@ -4,6 +4,7 @@
 // records).
 import { useEffect, useMemo, useState } from "react";
 import { api, Change, DNSCheck, DNSReport, RRSet, Target, User, Zone, ZonePlan } from "../api";
+import { DNSZones } from "./DNSZones";
 
 const TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "SRV", "PTR", "NS", "CAA"];
 
@@ -94,7 +95,30 @@ function DNSChainCard({ tick, servers, canPoll }: { tick: number; servers: Targe
   );
 }
 
+type Tab = "records" | "zones";
+
+/** DNS is the page: a tab bar over the records browser (with the router DNS check) and the zones and VLANs view. */
 export function DNS({ user, tick = 0 }: { user: User; tick?: number }) {
+  const [tab, setTab] = useState<Tab>(() => (hashParams().get("tab") === "zones" ? "zones" : "records"));
+  const choose = (t: Tab) => {
+    setTab(t);
+    window.history.replaceState(null, "", t === "zones" ? "#/dns?tab=zones" : "#/dns");
+  };
+  return (
+    <>
+      <div className="card-head" style={{ marginBottom: 4 }}>
+        <h1 style={{ margin: 0 }}>DNS</h1>
+        <div className="seg" role="tablist" aria-label="DNS view">
+          <button role="tab" aria-selected={tab === "records"} className={tab === "records" ? "on" : ""} onClick={() => choose("records")}>Records</button>
+          <button role="tab" aria-selected={tab === "zones"} className={tab === "zones" ? "on" : ""} onClick={() => choose("zones")}>Zones &amp; VLANs</button>
+        </div>
+      </div>
+      {tab === "zones" ? <DNSZones user={user} tick={tick} /> : <Records user={user} tick={tick} />}
+    </>
+  );
+}
+
+function Records({ user, tick }: { user: User; tick: number }) {
   const canWrite = user.role !== "viewer";
   const [servers, setServers] = useState<Target[]>([]);
   const [server, setServer] = useState<number | null>(null);
@@ -169,7 +193,6 @@ export function DNS({ user, tick = 0 }: { user: User; tick?: number }) {
   if (servers.length === 0) {
     return (
       <>
-        <h1>DNS</h1>
         <p className="muted">No DNS servers yet. Add your PowerDNS server in <a href="#/settings">Settings</a>.</p>
         {err && <div className="error">{err}</div>}
       </>
@@ -178,7 +201,6 @@ export function DNS({ user, tick = 0 }: { user: User; tick?: number }) {
 
   return (
     <>
-      <h1>DNS</h1>
       <DNSChainCard tick={tick} servers={servers} canPoll={canWrite} />
       <div className="toolbar">
         <select value={server ?? ""} onChange={(e) => setServer(Number(e.target.value))}>
