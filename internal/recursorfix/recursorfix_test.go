@@ -190,7 +190,7 @@ func TestMakeTheRecursorTheResolver(t *testing.T) {
 		t.Fatalf("want a rollback: %+v (%s)", r, dnsAsked)
 	}
 	undo := srv.ran[len(srv.ran)-1]
-	for _, want := range []string{"pdns.conf.ncc-bak-20261122T193000Z' '/etc/powerdns/pdns.conf'", "recursor.conf.ncc-bak-20261122T193000Z' '/etc/powerdns/recursor.conf'", "systemctl stop 'pdns-recursor.service'", "systemctl restart 'pdns.service'"} {
+	for _, want := range []string{"pdns.conf.ncc-bak-20261122T193000Z' '/etc/powerdns/pdns.conf'", "recursor.conf.ncc-bak-20261122T193000Z' '/etc/powerdns/recursor.conf'", "systemctl disable --now 'pdns-recursor.service'", "systemctl restart 'pdns.service'"} {
 		if !strings.Contains(undo, want) {
 			t.Errorf("undo misses %q: %s", want, undo)
 		}
@@ -310,5 +310,85 @@ func TestDiscover(t *testing.T) {
 	d = Discover(ctx, []string{"127.0.0.1"}, []string{"wrong"}, nil)
 	if d.Found == nil || d.Found.KeyOK || d.Found.URL != "http://127.0.0.1:8083" {
 		t.Fatalf("found without key: %+v", d.Found)
+	}
+}
+
+// Ubuntu's Recursor 5 package ships recursor.conf in YAML. NCC must edit it as YAML, check it
+// with --config=check before touching the authoritative server, and undo everything when the
+// check fails.
+const ubuntuRecConf = `# PowerDNS Recursor configuration (YAML)
+dnssec:
+  # validation: process
+  trustanchorfile: /usr/share/dns/root.key
+recursor:
+  hint_file: /usr/share/dns/root.hints
+  include_dir: /etc/powerdns/recursor.d
+incoming:
+  listen:
+    - 127.0.0.1
+outgoing:
+  source_address:
+    - 0.0.0.0
+`
+
+func TestUbuntuYAMLInRecursorConf(t *testing.T) {
+	newBox := func() *fakeServer {
+		return &fakeServer{facts: facts(ssAuth53, "Recursor 4.8.4=>Recursor 5.3.5", "Debian GNU/Linux 12 (bookworm)=>Ubuntu 25.10"),
+			files: map[string]string{"/etc/powerdns/recursor.conf": ubuntuRecConf, "/etc/powerdns/pdns.conf": authConf}}
+	}
+	o := opts()
+	o.MakeResolver, o.AuthZones, o.ISP = true, []string{"izanami.org."}, []string{"76.76.10.155"}
+	srv := newBox()
+	p, err := Inspect(context.Background(), srv, o)
+	if err != nil || p.Blocked != "" || p.Facts.Style != "yaml" || p.Facts.Version != "5.3.5" {
+		t.Fatalf("inspect: %v %+v", err, p)
+	}
+	var order []string
+	for _, s := range p.Steps {
+		order = append(order, s.Title)
+	}
+	got := strings.Join(order, " | ")
+	check := strings.Index(got, "Check the new configuration is valid")
+	auth := strings.Index(got, "Restart the authoritative server")
+	if check < 0 || auth < 0 || check > auth {
+		t.Fatalf("the config must be checked before anything restarts: %s", got)
+	}
+	if r := Apply(context.Background(), srv, p, okChecks()); !r.OK {
+		t.Fatalf("apply: %+v", r)
+	}
+	out := srv.files["/etc/powerdns/recursor.conf"]
+	if strings.Contains(out, "webserver=yes") || !isYAMLConfig([]byte(out)) {
+		t.Fatalf("recursor.conf must stay valid YAML:\n%s", out)
+	}
+	for _, want := range []string{"trustanchorfile: /usr/share/dns/root.key", "zone: izanami.org", "forwarders: ['127.0.0.1:5300']", "webserver: true", "port: 53", "listen: [0.0.0.0]"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(strings.Join(srv.ran, "\n"), "'/usr/sbin/pdns_recursor' --config-dir='/etc/powerdns' --config=check") {
+		t.Fatalf("no config check: %v", srv.ran)
+	}
+
+	// the Recursor rejects the file: the authoritative server is never touched
+	srv = newBox()
+	srv.fail = "--config=check"
+	p, _ = Inspect(context.Background(), srv, o)
+	r := Apply(context.Background(), srv, p, okChecks())
+	if r.OK || !r.RolledBack {
+		t.Fatalf("want rollback: %+v", r)
+	}
+	if srv.files["/etc/powerdns/pdns.conf"] != authConf {
+		t.Fatal("pdns.conf must not change when the Recursor config is rejected")
+	}
+	for _, c := range srv.ran {
+		if strings.HasPrefix(c, "systemctl restart 'pdns.service'") && !strings.Contains(c, "cp -p") {
+			t.Fatalf("the authoritative server was restarted before the check: %v", srv.ran)
+		}
+	}
+}
+
+func TestOldStyleIsNotYAML(t *testing.T) {
+	if isYAMLConfig([]byte(recConf)) || isYAMLConfig([]byte("local-address=0.0.0.0\n")) || !isYAMLConfig([]byte(ubuntuRecConf)) {
+		t.Fatal("format detection")
 	}
 }
