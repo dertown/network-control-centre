@@ -150,6 +150,36 @@ type WLANChange struct {
 	// Passphrase is the new Wi-Fi password. It is never marshalled, so a WLANChange can be
 	// written to the audit log or a log line without leaking it.
 	Passphrase *string `json:"-"`
+	// Bands are the bands the network is broadcast on: "2.4", "5" and "6" (GHz).
+	Bands []string `json:"bands,omitempty"`
+}
+
+// RadioSetting is a change to one radio of an access point. Nil fields are left as they are.
+type RadioSetting struct {
+	// Band is "2.4", "5" or "6" (GHz); it picks the radio.
+	Band string `json:"band"`
+	// Channel is the channel number, or 0 for auto (the access point picks).
+	Channel *int `json:"channel,omitempty"`
+	// WidthMHz is the channel width: 20, 40, 80, 160 or 320.
+	WidthMHz *int `json:"width_mhz,omitempty"`
+	// TxPowerMode is auto | high | medium | low | custom; TxPower is the power in dBm for custom.
+	TxPowerMode *string `json:"tx_power_mode,omitempty"`
+	TxPower     *int    `json:"tx_power,omitempty"`
+}
+
+// APChange is a change to one access point's radios and the Wi-Fi networks it broadcasts.
+type APChange struct {
+	Radios []RadioSetting `json:"radios,omitempty"`
+	// SSIDsOff, when set, is the complete list per band ("2.4", "5", "6") of the Wi-Fi
+	// networks (by SSID id) this access point stops broadcasting; networks not listed for a
+	// band are broadcast there as the network itself says. Bands not in the map are left alone.
+	SSIDsOff map[string][]string `json:"ssids_off,omitempty"`
+}
+
+// APRadioWriter is a driver that can change access point radios.
+type APRadioWriter interface {
+	// UpdateAPRadios changes the access point with device id deviceID (its normalised MAC).
+	UpdateAPRadios(ctx context.Context, t Target, creds vault.Secret, deviceID string, ch APChange) error
 }
 
 // WiFiWriter is a driver that can change Wi-Fi networks.

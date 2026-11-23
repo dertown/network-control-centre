@@ -911,3 +911,19 @@ label.check.field-check .field-help { flex-basis: 100%; }
   .wifi-form .row { flex-direction: column; gap: 0; }
   .wifi-checks { flex-direction: row !important; gap: 14px !important; }
 }
+/* access point radio settings */
+.wifi-ap-btn { margin-top: 8px; }
+.wifi-sug { margin-left: 8px; font-size: 12px; }
+.ap-radios { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.ap-radio { margin: 0; }
+.ap-radio h3 { margin: 0; }
+.ap-radio-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+.ap-radio .row { flex-wrap: wrap; gap: 10px; }
+.ap-radio .row > label { flex: 1; min-width: 110px; }
+.ap-radio .row > label.ap-dbm { flex: 0 0 80px; min-width: 80px; }
+.ap-now { margin-bottom: 8px; }
+.ap-sug { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin: -2px 0 8px; line-height: 1.4; }
+.ap-matrix td, .ap-matrix th { padding-top: 6px; padding-bottom: 6px; }
+@media (max-width: 640px) {
+  .ap-radio .row { flex-direction: row !important; }
+}

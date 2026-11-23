@@ -1,8 +1,10 @@
 // Wi-Fi page: each router's Wi-Fi networks (SSIDs), its access points' radios and how well
 // wireless clients hear them, the weak settings NCC flags, and SSID changes (name, on/off,
-// network/VLAN, security, passphrase), always through a preview. Passphrases are kept in the vault.
+// network/VLAN, security, passphrase, bands), and access point radio settings (channel, width,
+// power, and which networks each access point broadcasts on each band) with a suggested quiet
+// channel, always through a preview. Passphrases are kept in the vault.
 import { useEffect, useMemo, useState } from "react";
-import { api, Radio, SSID, User, WiFiChange, WiFiClient, WiFiFinding, WiFiPlan, WiFiTarget } from "../api";
+import { api, APPlan, APRequest, Radio, RadioSetting, SSID, User, WiFiChange, WiFiClient, WiFiFinding, WiFiPlan, WiFiTarget } from "../api";
 import { ago } from "../format";
 import { Icon } from "../icons";
 import { Modal, PageHeader, Tile, Tone } from "../ui";
@@ -43,6 +45,7 @@ export function WiFi({ tick, user }: { tick: number; user: User }) {
   const [err, setErr] = useState("");
   const [tid, setTid] = useState<number | null>(null);
   const [edit, setEdit] = useState<SSID | null>(null);
+  const [apEdit, setApEdit] = useState<{ id: string; fix?: string } | null>(null);
   const [allClients, setAllClients] = useState(false);
   const [flash, setFlash] = useState("");
   const isAdmin = user.role === "admin";
@@ -76,6 +79,11 @@ export function WiFi({ tick, user }: { tick: number; user: User }) {
   }
 
   const canEdit = isAdmin && t.writable;
+  const canRadios = isAdmin && t.radios_writable;
+  const suggestionFor = (id: string, band: string) => t.suggestions.find((x) => x.device_id === id && x.band === band);
+  // the band a radio finding is about: 2.4 GHz for the 2.4-only kinds, else the band NCC has a better channel for
+  const findingBand = (f: WiFiFinding) =>
+    f.kind === "width-2g" || f.kind === "channel-2g" ? "2.4" : t.suggestions.find((x) => x.device_id === f.device_id && x.better)?.band ?? f.summary.match(/(2\.4|5|6) GHz/)?.[1];
   const on = t.ssids.filter((s) => s.enabled);
   const weak = t.clients.filter((c) => c.signal && c.signal < -67).sort((a, b) => (a.signal ?? 0) - (b.signal ?? 0));
   const shownClients = allClients ? [...t.clients].sort((a, b) => (a.signal ?? 0) - (b.signal ?? 0)) : weak;
@@ -128,6 +136,9 @@ export function WiFi({ tick, user }: { tick: number; user: User }) {
                     {f.fix && <div className="muted small">{f.fix}</div>}
                   </span>
                   {s && canEdit && <button onClick={() => setEdit(s)}><Icon name="edit" size={14} />Fix</button>}
+                  {!s && f.device_id && canRadios && aps.some((a) => a.id === f.device_id) && (
+                    <button onClick={() => setApEdit({ id: f.device_id!, fix: findingBand(f) })}><Icon name="edit" size={14} />Fix</button>
+                  )}
                 </li>
               );
             })}
@@ -171,9 +182,12 @@ export function WiFi({ tick, user }: { tick: number; user: User }) {
       </div>
 
       <div className="card flush">
-        <div className="card-head fw-head"><h2>Access points and radios</h2><span className="muted small">channel, width and power as the radios report them</span></div>
+        <div className="card-head fw-head">
+          <h2>Access points and radios</h2>
+          <span className="muted small">channel, width and power as the radios report them{t.neighbors > 0 && <> · {t.neighbors} neighbouring networks heard</>}</span>
+        </div>
         <table className="wifi-table">
-          <thead><tr><th>Access point</th><th>Band</th><th>Channel</th><th>Width</th><th>Transmit power</th><th>Clients</th><th>Channel use</th></tr></thead>
+          <thead><tr><th>Access point</th><th>Band</th><th>Channel</th><th>Width</th><th>Transmit power</th><th>Clients</th><th>Channel use</th><th>Networks</th></tr></thead>
           <tbody>
             {aps.map((a) => a.radios.map((r, i) => (
               <tr key={a.id + r.band} className={a.online ? "" : "fw-off"}>
@@ -181,10 +195,21 @@ export function WiFi({ tick, user }: { tick: number; user: User }) {
                   <td rowSpan={a.radios.length} className="wifi-ap">
                     <span className={`dot ${a.online ? "good" : "bad"}`} /><strong>{a.name}</strong>
                     <div className="muted small">{a.online ? `${a.clients.length} clients` : "offline"}</div>
+                    {canRadios && <button className="wifi-ap-btn" onClick={() => setApEdit({ id: a.id })}><Icon name="settings" size={14} />Settings</button>}
                   </td>
                 )}
                 <td className="nowrap">{bandText(r.band)}</td>
-                <td>{r.channel ?? "—"}{r.channel_auto && <span className="muted small"> auto</span>}</td>
+                <td className="nowrap">
+                  {r.channel ?? "—"}{r.channel_auto && <span className="muted small"> auto</span>}
+                  {(() => {
+                    const sg = suggestionFor(a.id, r.band);
+                    return sg?.better && a.online ? (
+                      canRadios
+                        ? <button className="link wifi-sug" title={sg.reason} onClick={() => setApEdit({ id: a.id, fix: r.band })}>→ try {sg.channel}</button>
+                        : <span className="muted small wifi-sug" title={sg.reason}>→ {sg.channel} is quieter</span>
+                    ) : null;
+                  })()}
+                </td>
                 <td>{r.width_mhz ? `${r.width_mhz} MHz` : "—"}</td>
                 <td>{r.tx_power ? `${r.tx_power} dBm` : "—"}{r.tx_power_mode && <span className="muted small"> {r.tx_power_mode}</span>}</td>
                 <td>{a.online ? r.clients : "—"}</td>
@@ -193,9 +218,13 @@ export function WiFi({ tick, user }: { tick: number; user: User }) {
                     <><div className={`meter ${r.utilization >= 70 ? "bad" : r.utilization >= 50 ? "warn" : "good"}`}><span style={{ width: `${r.utilization}%` }} /></div><span className="muted small">{r.utilization}%</span></>
                   ) : <span className="muted">—</span>}
                 </td>
+                <td className="small">{(() => {
+                  const on = onAir(t.ssids, r);
+                  return on.length ? on.map((x) => x.name).join(", ") : <span className="warn-text">none (off)</span>;
+                })()}</td>
               </tr>
             )))}
-            {aps.length === 0 && <tr><td colSpan={7} className="muted">No access points reported radio details.</td></tr>}
+            {aps.length === 0 && <tr><td colSpan={8} className="muted">No access points reported radio details.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -232,6 +261,10 @@ export function WiFi({ tick, user }: { tick: number; user: User }) {
       )}
 
       {edit && <SSIDDialog key={edit.id} target={t} ssid={edit} onClose={(msg) => { setEdit(null); if (msg) { setFlash(msg); refetch(); } }} />}
+      {apEdit && (() => {
+        const a = aps.find((x) => x.id === apEdit.id);
+        return a ? <APDialog key={a.id} target={t} ap={a} fix={apEdit.fix} onClose={(msg) => { setApEdit(null); if (msg) { setFlash(msg); refetch(); } }} /> : null;
+      })()}
     </>
   );
 }
@@ -257,6 +290,8 @@ function SSIDDialog({ target, ssid, onClose }: { target: WiFiTarget; ssid: SSID;
   const [enabled, setEnabled] = useState(ssid.enabled);
   const [hidden, setHidden] = useState(!!ssid.hidden);
   const [network, setNetwork] = useState(ssid.network_id ?? "");
+  const [bands, setBands] = useState<string[]>(ssid.bands ?? []);
+  const radioBands = [...new Set(target.radios.map((r) => r.band))];
   const [security, setSecurity] = useState<string>(weakNow && !enterprise ? "wpa2-wpa3" : ssid.security);
   const [pass, setPass] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -275,6 +310,9 @@ function SSIDDialog({ target, ssid, onClose }: { target: WiFiTarget; ssid: SSID;
     if (network && network !== ssid.network_id) c.network_id = network;
     if (!enterprise && security !== ssid.security && ["wpa2", "wpa2-wpa3", "wpa3"].includes(security)) c.security = security as WiFiChange["security"];
     if (pass) c.passphrase = pass;
+    const order = ["2.4", "5", "6"];
+    const sorted = order.filter((b) => bands.includes(b));
+    if (sorted.join() !== order.filter((b) => (ssid.bands ?? []).includes(b)).join()) c.bands = sorted;
     return c;
   };
   const body = () => ({ target_id: target.id, ssid_id: ssid.id, ...change() });
@@ -344,6 +382,15 @@ function SSIDDialog({ target, ssid, onClose }: { target: WiFiTarget; ssid: SSID;
           </label>
         </div>
         <div className="row wifi-checks">
+          <span className="small muted">Bands</span>
+          {["2.4", "5", "6"].map((b) => (
+            <label key={b} className="check" title={radioBands.includes(b) ? "" : "None of your access points has this band"}>
+              <input type="checkbox" checked={bands.includes(b)} onChange={(e) => { setBands(e.target.checked ? [...bands, b] : bands.filter((x) => x !== b)); reset(); }} />
+              {" "}{b} GHz{!radioBands.includes(b) && <span className="muted small"> (no radio)</span>}
+            </label>
+          ))}
+        </div>
+        <div className="row wifi-checks">
           <label className="check"><input type="checkbox" checked={enabled} onChange={(e) => { setEnabled(e.target.checked); reset(); }} /> Broadcasting (on)</label>
           <label className="check"><input type="checkbox" checked={hidden} onChange={(e) => { setHidden(e.target.checked); reset(); }} /> Hide the name</label>
         </div>
@@ -391,3 +438,214 @@ function SSIDDialog({ target, ssid, onClose }: { target: WiFiTarget; ssid: SSID;
     </Modal>
   );
 }
+
+/** The Wi-Fi networks an access point broadcasts on one radio. */
+function onAir(ssids: SSID[], r: Radio): SSID[] {
+  return ssids.filter((x) => x.enabled && (x.bands ?? []).includes(r.band) && !(r.ssids_off ?? []).includes(x.id));
+}
+
+const channels: Record<string, number[]> = {
+  "2.4": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+  "5": [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165],
+  "6": Array.from({ length: 59 }, (_, i) => 1 + i * 4),
+};
+const widths: Record<string, number[]> = { "2.4": [20, 40], "5": [20, 40, 80, 160], "6": [20, 40, 80, 160, 320] };
+const isDFS = (band: string, ch: number) => band === "5" && ch >= 52 && ch <= 144;
+const channelNote = (band: string, ch: number) =>
+  band === "2.4" ? ([1, 6, 11].includes(ch) ? "" : ch > 11 ? " · not US/Canada" : " · overlaps") : isDFS(band, ch) ? " · DFS (radar)" : "";
+
+type RadioForm = { channel: number; width: number; mode: string; power: number };
+
+/** Settings for one access point: per radio channel, width and power, and which networks it broadcasts on each band. */
+function APDialog({ target, ap, fix, onClose }: {
+  target: WiFiTarget; ap: { id: string; name: string; online: boolean; radios: Radio[]; clients: WiFiClient[] }; fix?: string; onClose: (msg?: string) => void;
+}) {
+  const initial = (r: Radio): RadioForm => ({
+    channel: r.channel_auto ? 0 : r.channel ?? 0, width: r.width_mhz ?? 20,
+    mode: r.tx_power_mode || "auto", power: r.tx_power ?? 20,
+  });
+  const [form, setForm] = useState<Record<string, RadioForm>>(() => {
+    const f: Record<string, RadioForm> = {};
+    for (const r of ap.radios) {
+      f[r.band] = initial(r);
+      const sg = target.suggestions.find((x) => x.device_id === ap.id && x.band === r.band);
+      if (fix === r.band && sg?.better) f[r.band] = { ...f[r.band], channel: sg.channel, width: sg.width_mhz };
+    }
+    return f;
+  });
+  // on[band][ssid id] = broadcast on this access point
+  const [on, setOn] = useState<Record<string, Record<string, boolean>>>(() => {
+    const o: Record<string, Record<string, boolean>> = {};
+    for (const r of ap.radios) {
+      o[r.band] = {};
+      for (const s of target.ssids) o[r.band][s.id] = !(r.ssids_off ?? []).includes(s.id);
+    }
+    return o;
+  });
+  const [plan, setPlan] = useState<APPlan | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState(false);
+  const reset = () => { setPlan(null); setErr(""); };
+  const setRadio = (band: string, patch: Partial<RadioForm>) => { setForm({ ...form, [band]: { ...form[band], ...patch } }); reset(); };
+
+  const request = (): APRequest => {
+    const radios: RadioSetting[] = [];
+    for (const r of ap.radios) {
+      const f = form[r.band], i = initial(r), rs: RadioSetting = { band: r.band };
+      if (f.channel !== i.channel) rs.channel = f.channel;
+      if (f.width !== i.width) rs.width_mhz = f.width;
+      if (f.mode !== i.mode || (f.mode === "custom" && f.power !== i.power)) { rs.tx_power_mode = f.mode; if (f.mode === "custom") rs.tx_power = f.power; }
+      if (Object.keys(rs).length > 1) radios.push(rs);
+    }
+    const ssids: APRequest["ssids"] = [];
+    for (const r of ap.radios) {
+      for (const s of target.ssids) {
+        const was = !(r.ssids_off ?? []).includes(s.id);
+        if (on[r.band][s.id] !== was) ssids.push({ ssid_id: s.id, band: r.band, on: on[r.band][s.id] });
+      }
+    }
+    return { radios, ssids };
+  };
+  const body = () => ({ target_id: target.id, device_id: ap.id, ...request() });
+  const review = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setErr("");
+    try { setPlan(await api<APPlan>("POST", "/api/wifi/ap/plan", body())); } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  };
+  const apply = async () => {
+    setBusy(true); setErr("");
+    try { await api("POST", "/api/wifi/ap/apply", body()); setDone(true); } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  };
+
+  const title = `${ap.name} settings`;
+  if (done) {
+    const msg = `${ap.name} was updated on ${target.name}. The table updates after the next refresh.`;
+    return (
+      <Modal title={title} onClose={() => onClose(msg)}>
+        <p style={{ marginTop: 0 }}><Icon name="check" size={15} /> {target.name} accepted the change. {ap.name} applies it within a minute; clients on a radio that changed channel reconnect on their own.</p>
+        <div className="row"><button className="primary" onClick={() => onClose(msg)}>Done</button></div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title={title} onClose={() => onClose()} wide>
+      <form onSubmit={review} className="wifi-form">
+        <p className="muted small" style={{ marginTop: 0 }}>
+          {ap.online ? `${ap.clients.length} clients connected.` : "Offline: the router keeps the settings until it reconnects."}
+          {" "}Nothing is sent until you review and apply.
+        </p>
+        <div className="ap-radios">
+          {ap.radios.map((r) => {
+            const f = form[r.band];
+            const sg = target.suggestions.find((x) => x.device_id === ap.id && x.band === r.band);
+            const ssidsHere = target.ssids.filter((s) => s.enabled && (s.bands ?? []).includes(r.band));
+            const anyOn = ssidsHere.some((s) => on[r.band][s.id]);
+            return (
+              <section key={r.band} className={`subcard ap-radio ${anyOn ? "" : "fw-off"}`}>
+                <div className="ap-radio-head">
+                  <h3>{r.band} GHz</h3>
+                  <label className="check small" title="Switches every Wi-Fi network on or off on this band, for this access point only">
+                    <input type="checkbox" checked={anyOn} disabled={!ssidsHere.length} onChange={(e) => {
+                      const o = { ...on[r.band] };
+                      for (const s of ssidsHere) o[s.id] = e.target.checked;
+                      setOn({ ...on, [r.band]: o }); reset();
+                    }} /> Broadcasting
+                  </label>
+                </div>
+                <div className="muted small ap-now">
+                  Now: channel {r.channel ?? "—"}{r.channel_auto ? " (auto)" : ""} · {r.width_mhz ?? "—"} MHz · {r.clients} clients
+                  {r.utilization !== undefined && ap.online && <> · <span className={r.utilization >= 70 ? "bad-text" : r.utilization >= 50 ? "warn-text" : ""}>{r.utilization}% busy</span></>}
+                </div>
+                <label>Channel
+                  <select value={f.channel} onChange={(e) => setRadio(r.band, { channel: Number(e.target.value) })}>
+                    <option value={0}>Auto (the access point picks)</option>
+                    {channels[r.band].map((c) => <option key={c} value={c}>{c}{sg?.channel === c && sg.better ? " · suggested" : ""}{channelNote(r.band, c)}</option>)}
+                  </select>
+                </label>
+                {sg && ap.online && (
+                  <div className={`ap-sug small ${sg.better ? "" : "muted"}`}>
+                    <span><Icon name={sg.better ? "sparkle" : "check"} size={13} /> {sg.reason}</span>
+                    {sg.better && (f.channel !== sg.channel || f.width !== sg.width_mhz) && (
+                      <button type="button" className="link" onClick={() => setRadio(r.band, { channel: sg.channel, width: sg.width_mhz })}>Use channel {sg.channel}{r.band === "2.4" ? " at 20 MHz" : ""}</button>
+                    )}
+                  </div>
+                )}
+                <div className="row">
+                  <label>Width
+                    <select value={f.width} onChange={(e) => setRadio(r.band, { width: Number(e.target.value) })}>
+                      {widths[r.band].map((w) => <option key={w} value={w}>{w} MHz{r.band === "2.4" && w === 20 ? " (recommended)" : ""}</option>)}
+                    </select>
+                  </label>
+                  <label>Transmit power
+                    <select value={f.mode} onChange={(e) => setRadio(r.band, { mode: e.target.value })}>
+                      {["auto", "high", "medium", "low", "custom"].map((m) => <option key={m} value={m}>{m === "custom" ? "Custom (dBm)" : m[0].toUpperCase() + m.slice(1)}</option>)}
+                    </select>
+                  </label>
+                  {f.mode === "custom" && (
+                    <label className="ap-dbm">dBm<input type="number" min={1} max={30} value={f.power} onChange={(e) => setRadio(r.band, { power: Number(e.target.value) })} /></label>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+
+        <h3>Wi-Fi networks on {ap.name}</h3>
+        <table className="wifi-table ap-matrix">
+          <thead><tr><th>Network</th>{ap.radios.map((r) => <th key={r.band}>{r.band} GHz</th>)}</tr></thead>
+          <tbody>
+            {target.ssids.map((s) => (
+              <tr key={s.id} className={s.enabled ? "" : "fw-off"}>
+                <td><strong>{s.name}</strong>{!s.enabled && <span className="muted small"> · off everywhere</span>}</td>
+                {ap.radios.map((r) => {
+                  const uses = (s.bands ?? []).includes(r.band);
+                  return (
+                    <td key={r.band}>
+                      {uses ? (
+                        <label className="check"><input type="checkbox" checked={on[r.band][s.id]} disabled={!s.enabled}
+                          onChange={(e) => { setOn({ ...on, [r.band]: { ...on[r.band], [s.id]: e.target.checked } }); reset(); }} /> {on[r.band][s.id] ? "on" : "off"}</label>
+                      ) : <span className="muted small" title="Add the band in the network's settings">not on this band</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="muted small">These only affect {ap.name}. To change which bands a network uses everywhere, edit the network.</p>
+
+        {err && <div className="error block" style={{ marginTop: 12 }}>{err}</div>}
+        {plan ? (
+          <div className="subcard">
+            <h3 style={{ marginTop: 0 }}>What changes on {ap.name}</h3>
+            <table className="vlan-plan">
+              <thead><tr><th>Setting</th><th>Now</th><th>Becomes</th></tr></thead>
+              <tbody>{plan.changes.map((c) => <tr key={c.setting}><td>{c.setting}</td><td>{c.from}</td><td><strong>{c.to}</strong></td></tr>)}</tbody>
+            </table>
+            {plan.resolves.length > 0 && (
+              <ul className="vlan-steps">{plan.resolves.map((f) => <li key={f.kind + f.summary}><Icon name="check" size={14} /> <span className="good-text">Fixes:</span> {f.summary}</li>)}</ul>
+            )}
+            {plan.remaining.length > 0 && (
+              <ul className="vlan-steps">{plan.remaining.map((f) => <li key={f.kind + f.summary}><span className={`dot ${f.severity === "critical" ? "bad" : f.severity === "warning" ? "warn" : ""}`} /><span className="warn-text">Still flagged:</span> {f.summary}</li>)}</ul>
+            )}
+            {plan.warnings.map((w) => <div key={w} className="banner warn"><Icon name="alert" size={16} /><span>{w}</span></div>)}
+            <div className="row">
+              <button type="button" className="primary" disabled={busy} onClick={apply}>{busy ? "Applying…" : `Apply to ${ap.name}`}</button>
+              <button type="button" onClick={() => setPlan(null)}>Back</button>
+            </div>
+          </div>
+        ) : (
+          <div className="row" style={{ marginTop: 14 }}>
+            <button className="primary" disabled={busy}>{busy ? "Checking…" : "Review changes"}</button>
+            <button type="button" onClick={() => onClose()}>Cancel</button>
+          </div>
+        )}
+      </form>
+    </Modal>
+  );
+}
+

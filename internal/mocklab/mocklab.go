@@ -50,6 +50,12 @@ var RestPortConf []byte
 //go:embed rest_wlanconf.json
 var RestWLANConf []byte
 
+// StatRogueAP is a stat/rogueap response: the neighbours' Wi-Fi networks the Lounge AP and
+// the Dream Router hear, crowded on 2.4 GHz channel 6.
+//
+//go:embed stat_rogueap.json
+var StatRogueAP []byte
+
 // FirewallZones is a recorded v2 firewall/zone response (zone-based firewall), with the
 // DMZ network in the DMZ zone and IoT in a custom zone.
 //
@@ -282,6 +288,7 @@ func unifiWithState(loops, office bool) (http.Handler, *uState) {
 		}
 		serve(events)(w, r)
 	})
+	mux.HandleFunc("GET /proxy/network/api/s/default/stat/rogueap", serve(StatRogueAP))
 	mux.HandleFunc("GET /proxy/network/api/s/default/stat/sta", dyn(func(s *uState) []map[string]any { return s.clients }))
 	// Like a Network 9+ console: application data comes from the v2 traffic API and the
 	// legacy DPI calls answer "ok" with no rows.

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -55,6 +56,12 @@ type wifiTarget struct {
 	Findings  []core.WiFiFinding `json:"findings"`
 	// Saved lists the SSIDs (by id) whose passphrase NCC has a copy of in the vault.
 	Saved []string `json:"saved"`
+	// RadiosWritable is set when NCC can change this router's access point radios.
+	RadiosWritable bool `json:"radios_writable"`
+	// Suggestions are the quietest channel for each online radio.
+	Suggestions []core.ChannelSuggestion `json:"suggestions"`
+	// Neighbors is how many other Wi-Fi networks the access points hear.
+	Neighbors int `json:"neighbors"`
 }
 
 func wifiSecretPath(t *core.Target, ssidID string) string {
@@ -83,9 +90,10 @@ func (s *Server) listWiFi(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		wt := wifiTarget{ID: t.ID, Name: t.Name, Kind: t.Kind, LastError: t.LastError, SSIDs: []inventory.SSID{},
-			Radios: []inventory.Radio{}, Clients: []wifiClient{}, Networks: []wifiNetwork{}, Findings: []core.WiFiFinding{}, Saved: []string{}}
+			Radios: []inventory.Radio{}, Clients: []wifiClient{}, Networks: []wifiNetwork{}, Findings: []core.WiFiFinding{}, Saved: []string{}, Suggestions: []core.ChannelSuggestion{}}
 		if d, err := drivers.Get(t.Kind); err == nil {
 			_, wt.Writable = d.(drivers.WiFiWriter)
+			_, wt.RadiosWritable = d.(drivers.APRadioWriter)
 		}
 		snap := byName[t.Name]
 		if snap != nil {
@@ -94,7 +102,9 @@ func (s *Server) listWiFi(w http.ResponseWriter, r *http.Request) {
 			if snap.WiFi != nil {
 				wt.SSIDs = append(wt.SSIDs, snap.WiFi.SSIDs...)
 				wt.Radios = append(wt.Radios, snap.WiFi.Radios...)
+				wt.Neighbors = len(snap.WiFi.Neighbors)
 			}
+			wt.Suggestions = core.ChannelSuggestions(snap)
 			wt.Findings = core.WiFiFindings(snap)
 			names := map[string]string{}
 			for _, d := range snap.Devices {
@@ -135,19 +145,20 @@ func (s *Server) listWiFi(w http.ResponseWriter, r *http.Request) {
 // wifiIn is a requested SSID change. Passphrase travels only in this request: it is sent to
 // the router and saved in the vault, never echoed back, logged or audited.
 type wifiIn struct {
-	TargetID   int64   `json:"target_id"`
-	SSIDID     string  `json:"ssid_id"`
-	Name       *string `json:"name,omitempty"`
-	Enabled    *bool   `json:"enabled,omitempty"`
-	Hidden     *bool   `json:"hidden,omitempty"`
-	NetworkID  *string `json:"network_id,omitempty"`
-	Security   *string `json:"security,omitempty"`
-	Passphrase *string `json:"passphrase,omitempty"`
+	TargetID   int64    `json:"target_id"`
+	SSIDID     string   `json:"ssid_id"`
+	Name       *string  `json:"name,omitempty"`
+	Enabled    *bool    `json:"enabled,omitempty"`
+	Hidden     *bool    `json:"hidden,omitempty"`
+	NetworkID  *string  `json:"network_id,omitempty"`
+	Security   *string  `json:"security,omitempty"`
+	Passphrase *string  `json:"passphrase,omitempty"`
+	Bands      []string `json:"bands,omitempty"`
 }
 
 func (in wifiIn) change() *drivers.WLANChange {
 	return &drivers.WLANChange{Name: in.Name, Enabled: in.Enabled, Hidden: in.Hidden, NetworkID: in.NetworkID,
-		Security: in.Security, Passphrase: in.Passphrase}
+		Security: in.Security, Passphrase: in.Passphrase, Bands: in.Bands}
 }
 
 func (s *Server) wifiPlanFor(w http.ResponseWriter, r *http.Request, in wifiIn) (*core.Target, *core.WiFiPlan, *drivers.WLANChange, bool) {
@@ -300,4 +311,107 @@ func (s *Server) wifiPassphrase(w http.ResponseWriter, r *http.Request) {
 		resp["vault_path"] = path
 	}
 	writeJSON(w, 200, resp)
+}
+
+// apIn is a requested change to one access point's radios.
+type apIn struct {
+	TargetID int64  `json:"target_id"`
+	DeviceID string `json:"device_id"`
+	core.APRequest
+}
+
+// selfIPs are NCC's own addresses, so a change can't cut NCC off when it is on Wi-Fi.
+func (s *Server) selfIPs() []string {
+	if s.SelfIPs != nil {
+		return s.SelfIPs()
+	}
+	return interfaceIPs()
+}
+
+func interfaceIPs() []string {
+	var out []string
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && !n.IP.IsLoopback() {
+			out = append(out, n.IP.String())
+		}
+	}
+	return out
+}
+
+func (s *Server) apPlanFor(w http.ResponseWriter, r *http.Request, in apIn) (*core.Target, *core.APPlan, bool) {
+	t, err := s.Targets.Get(r.Context(), in.TargetID)
+	if err != nil {
+		s.fail(w, err)
+		return nil, nil, false
+	}
+	snap, err := s.snapshotFor(r.Context(), t)
+	if err != nil {
+		s.fail(w, err)
+		return nil, nil, false
+	}
+	if snap == nil {
+		writeErr(w, 409, "NCC has not read "+t.Name+" yet; wait for the first refresh")
+		return nil, nil, false
+	}
+	plan, err := core.PlanAPChange(snap, in.DeviceID, in.APRequest, core.Safety{ViewerIP: clientIP(r), SelfIPs: s.selfIPs()})
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return nil, nil, false
+	}
+	return t, plan, true
+}
+
+func (s *Server) planAP(w http.ResponseWriter, r *http.Request) {
+	var in apIn
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if _, plan, ok := s.apPlanFor(w, r, in); ok {
+		writeJSON(w, 200, plan)
+	}
+}
+
+func (s *Server) applyAP(w http.ResponseWriter, r *http.Request) {
+	var in apIn
+	if !readJSON(w, r, &in) {
+		return
+	}
+	t, plan, ok := s.apPlanFor(w, r, in)
+	if !ok {
+		return
+	}
+	if t.Category != core.CategoryDevice || !t.Enabled {
+		writeErr(w, 409, t.Name+" is not an enabled router connection")
+		return
+	}
+	d, err := drivers.Get(t.Kind)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	aw, ok := d.(drivers.APRadioWriter)
+	if !ok {
+		writeErr(w, 501, t.Kind+" connections cannot change access point radios yet")
+		return
+	}
+	creds, err := s.Vault.Get(r.Context(), t.SecretPath)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	err = aw.UpdateAPRadios(ctx, devTarget(t), creds, in.DeviceID, plan.Change)
+	_ = s.Audit.Record(r.Context(), actor(r), "wifi.ap.update", "wifi/"+t.Name+"/ap/"+plan.Device,
+		map[string]any{"device_id": in.DeviceID, "changes": plan.Changes, "result": errText(err)})
+	if err != nil {
+		writeErr(w, 502, err.Error())
+		return
+	}
+	s.refreshTarget(t.ID, 0, 10*time.Second)
+	writeJSON(w, 200, map[string]any{"ok": true, "device": plan.Device})
 }

@@ -159,6 +159,8 @@ type siteConfig struct {
 	Networks  []rawNetwork
 	PortConfs []rawPortConf
 	WLANs     []rawWLAN
+	// Neighbors are the other Wi-Fi networks the access points hear (stat/rogueap).
+	Neighbors []rawNeighbor
 	Zones     []rawZone
 	// ZonesKnown is set when the console returned its firewall zone list.
 	ZonesKnown bool
@@ -173,6 +175,7 @@ func collectSiteConfig(ctx context.Context, c *client) *siteConfig {
 	}
 	cfg.PortConfs, _ = getList[rawPortConf](ctx, c, "rest/portconf")
 	cfg.WLANs, _ = getList[rawWLAN](ctx, c, "rest/wlanconf")
+	cfg.Neighbors, _ = getList[rawNeighbor](ctx, c, "stat/rogueap?within=24")
 	var zones []rawZone
 	// older firmware has no zone-based firewall: zones are then inferred from each network
 	if err := c.req(ctx, http.MethodGet, c.v2Path("firewall/zone"), nil, &zones); err == nil {
