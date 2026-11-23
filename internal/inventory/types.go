@@ -143,6 +143,11 @@ type Client struct {
 	SwitchPort int    `json:"switch_port,omitempty"`
 	// APMAC is the access point a wireless client is associated with.
 	APMAC string `json:"ap_mac,omitempty"`
+	// Wireless clients: signal strength in dBm (e.g. -58), the band ("2.4", "5" or "6" GHz)
+	// and channel they are on. Zero or empty when the driver cannot tell.
+	Signal  int    `json:"signal,omitempty"`
+	Band    string `json:"band,omitempty"`
+	Channel int    `json:"channel,omitempty"`
 }
 
 // Snapshot is everything one target reported at one moment.
@@ -159,6 +164,77 @@ type Snapshot struct {
 	Loops []Loop `json:"loops,omitempty"`
 	// Firewall is the router's firewall rules and port forwards; nil when the driver cannot tell.
 	Firewall *Firewall `json:"firewall,omitempty"`
+	// WiFi is the router's wireless networks and access point radios; nil when the driver
+	// cannot tell.
+	WiFi *WiFi `json:"wifi,omitempty"`
+}
+
+// WiFi is a router's wireless setup: its Wi-Fi networks (SSIDs) and the radios of its
+// access points (including a router with built-in Wi-Fi, such as a Dream Router).
+type WiFi struct {
+	SSIDs  []SSID  `json:"ssids"`
+	Radios []Radio `json:"radios"`
+}
+
+// Wi-Fi security modes, from weakest to strongest.
+const (
+	SecOpen       = "open"       // no password, traffic unencrypted
+	SecWEP        = "wep"        // broken in minutes
+	SecWPA1       = "wpa1"       // WPA (TKIP), deprecated
+	SecWPA1WPA2   = "wpa1-wpa2"  // mixed mode: still lets WPA1 in
+	SecWPA2       = "wpa2"       // WPA2 Personal
+	SecWPA2WPA3   = "wpa2-wpa3"  // WPA2/WPA3 transition mode
+	SecWPA3       = "wpa3"       // WPA3 Personal only
+	SecEnterprise = "enterprise" // 802.1X (RADIUS), WPA2 or WPA3
+	SecOWE        = "owe"        // Enhanced Open: no password but encrypted
+)
+
+// SSID is one Wi-Fi network a router broadcasts. The passphrase itself is never kept in a
+// snapshot: snapshots are stored unencrypted, so only facts about it are.
+type SSID struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Hidden  bool   `json:"hidden,omitempty"`
+	// Security is one of the Sec* modes.
+	Security string `json:"security"`
+	// TKIP is set when the network allows TKIP encryption (slow and weak) besides AES.
+	TKIP bool `json:"tkip,omitempty"`
+	// PMF is protected management frames: disabled | optional | required.
+	PMF string `json:"pmf,omitempty"`
+	// Bands are "2.4", "5" and "6" (GHz).
+	Bands []string `json:"bands,omitempty"`
+	// NetworkID is the network (VLAN) the SSID puts its clients in.
+	NetworkID string `json:"network_id,omitempty"`
+	Network   string `json:"network,omitempty"`
+	VLAN      int    `json:"vlan,omitempty"`
+	Guest     bool   `json:"guest,omitempty"`
+	// ClientIsolation stops clients on this SSID from reaching each other.
+	ClientIsolation bool `json:"client_isolation,omitempty"`
+	// ShortPassphrase is set when the passphrase is shorter than 12 characters.
+	ShortPassphrase bool   `json:"short_passphrase,omitempty"`
+	Clients         int    `json:"clients"`
+	Target          string `json:"target"`
+}
+
+// Radio is one radio of an access point (or of a router with built-in Wi-Fi).
+type Radio struct {
+	DeviceID   string `json:"device_id"`
+	DeviceName string `json:"device_name"`
+	Online     bool   `json:"online"`
+	// Band is "2.4", "5" or "6" (GHz).
+	Band    string `json:"band"`
+	Channel int    `json:"channel,omitempty"`
+	// ChannelAuto is set when the access point picks the channel itself.
+	ChannelAuto bool `json:"channel_auto,omitempty"`
+	// WidthMHz is the channel width: 20, 40, 80, 160 or 320.
+	WidthMHz int `json:"width_mhz,omitempty"`
+	// TxPower is the transmit power in dBm; TxPowerMode is auto | high | medium | low | custom.
+	TxPower     int    `json:"tx_power,omitempty"`
+	TxPowerMode string `json:"tx_power_mode,omitempty"`
+	Clients     int    `json:"clients"`
+	// Utilization is how busy the channel is, 0-100 %, when the access point reports it.
+	Utilization int `json:"utilization,omitempty"`
 }
 
 // Loop severities.

@@ -16,6 +16,7 @@ const named = <K extends string>(load: () => Promise<Record<K, React.ComponentTy
 const Topology = named(() => import("./pages/Topology"), "Topology");
 const Devices = named(() => import("./pages/Devices"), "Devices");
 const VLANs = named(() => import("./pages/VLANs"), "VLANs");
+const WiFi = named(() => import("./pages/WiFi"), "WiFi");
 const VirtualMachines = named(() => import("./pages/VirtualMachines"), "VirtualMachines");
 const Storage = named(() => import("./pages/Storage"), "Storage");
 const IoT = named(() => import("./pages/IoT"), "IoT");
@@ -38,6 +39,7 @@ const pages = [
   { id: "traffic", label: "Traffic", icon: "traffic", group: "Monitor" },
   { id: "firewall", label: "Firewall", icon: "firewall", group: "Monitor" },
   { id: "vlans", label: "VLANs", icon: "vlan", group: "Configure" },
+  { id: "wifi", label: "Wi-Fi", icon: "wifi", group: "Configure" },
   { id: "iot", label: "IoT devices", icon: "plug", group: "Configure" },
   { id: "assistant", label: "AI assistant", icon: "sparkle", group: "Configure" },
   { id: "dns", label: "DNS", icon: "dns", group: "Services" },
@@ -172,6 +174,7 @@ export default function App() {
           {page === "traffic" && <Traffic tick={tick} />}
           {page === "firewall" && <Firewall tick={tick} />}
           {page === "vlans" && <VLANs tick={tick} user={user} />}
+          {page === "wifi" && <WiFi tick={tick} user={user} />}
           {page === "iot" && <IoT tick={tick} user={user} />}
           {page === "assistant" && <Assistant tick={tick} user={user} />}
           {page === "dns" && <DNS user={user} tick={tick} />}

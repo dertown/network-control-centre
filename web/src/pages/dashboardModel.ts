@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  api, Cert, Client, Device, DNSReport, Firewall, Loop, PortForward, SmartSource, StorageSource, Target, TrafficView, VMView,
+  api, Cert, Client, Device, DNSReport, Firewall, Loop, PortForward, SmartSource, StorageSource, Target, TrafficView, VMView, WiFiTarget,
 } from "../api";
 import { record, recent } from "../history";
 import { IconName } from "../icons";
@@ -31,6 +31,7 @@ export interface DashData {
   vms?: VMView;
   smart?: SmartSource[];
   dns?: DNSReport;
+  wifi?: WiFiTarget[];
   /** Recent samples for the sparklines (kept per browser tab by history.ts). */
   hist: { clients: number[]; down: number[]; up: number[] };
 }
@@ -39,7 +40,7 @@ export interface DashData {
 // or a permissions error) never blanks the rest of the page; it simply keeps its last value.
 async function loadAll(): Promise<Partial<DashData>> {
   const get = <T>(path: string) => api<T>("GET", path).catch(() => undefined);
-  const [devices, clients, targets, certs, loops, traffic, firewall, storage, vms, smart, dns] = await Promise.all([
+  const [devices, clients, targets, certs, loops, traffic, firewall, storage, vms, smart, dns, wifi] = await Promise.all([
     get<Device[]>("/api/devices"),
     get<Client[]>("/api/clients"),
     get<Target[]>("/api/targets"),
@@ -51,10 +52,12 @@ async function loadAll(): Promise<Partial<DashData>> {
     get<VMView>("/api/vms"),
     get<{ sources: SmartSource[] | null }>("/api/smarthome"),
     get<DNSReport>("/api/dns/check"),
+    get<{ targets: WiFiTarget[] }>("/api/wifi"),
   ]);
   const out: Partial<DashData> = { devices, clients, targets, certs, loops, traffic, firewall, vms, dns };
   if (storage) out.storage = storage.sources ?? [];
   if (smart) out.smart = smart.sources ?? [];
+  if (wifi) out.wifi = wifi.targets;
   // drop failed loads so the merge below keeps the previous value
   (Object.keys(out) as (keyof DashData)[]).forEach((k) => out[k] === undefined && delete out[k]);
   return out;
@@ -201,6 +204,25 @@ export function buildAttention(d: DashData): Attention[] {
       out.push({
         key: `sh-${s.id}-${i}`, level: a.level, icon: "home", area: "Smart home", href: "#/iot",
         title: a.subject, detail: a.message,
+      });
+    }
+  }
+
+  // Wi-Fi: each critical setting (an open network, WEP, WPA1) on its own line; the warnings of
+  // a router folded into one line, since the Wi-Fi page lists them.
+  for (const t of d.wifi ?? []) {
+    for (const f of t.findings.filter((x) => x.severity === "critical")) {
+      out.push({
+        key: `wifi-${t.id}-${f.kind}-${f.ssid_id ?? f.device_id ?? ""}`, level: "critical", icon: "wifi", area: "Wi-Fi", href: "#/wifi",
+        title: f.summary, detail: f.fix,
+      });
+    }
+    const warn = t.findings.filter((x) => x.severity === "warning");
+    if (warn.length) {
+      out.push({
+        key: `wifi-${t.id}-warnings`, level: "warning", icon: "wifi", area: "Wi-Fi", href: "#/wifi",
+        title: `${plural(warn.length, "Wi-Fi setting")} on ${t.name} could be safer or faster`,
+        detail: [...new Set(warn.map((f) => f.ssid ?? f.device ?? ""))].filter(Boolean).join(", "),
       });
     }
   }

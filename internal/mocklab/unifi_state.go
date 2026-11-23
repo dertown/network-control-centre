@@ -16,6 +16,7 @@ import (
 type uState struct {
 	mu       sync.Mutex
 	networks []map[string]any
+	wlans    []map[string]any
 	devices  []map[string]any
 	clients  []map[string]any
 	users    map[string]map[string]any // by MAC
@@ -36,7 +37,7 @@ func dataOf(b []byte) []map[string]any {
 }
 
 func newUState(devices []byte) *uState {
-	s := &uState{networks: dataOf(RestNetworkConf), devices: dataOf(devices), clients: dataOf(StatSta), users: map[string]map[string]any{}, down: map[string]bool{}}
+	s := &uState{networks: dataOf(RestNetworkConf), wlans: dataOf(RestWLANConf), devices: dataOf(devices), clients: dataOf(StatSta), users: map[string]map[string]any{}, down: map[string]bool{}}
 	for _, d := range s.devices {
 		if str(d["_id"]) == "" {
 			d["_id"] = "dev_" + strings.ReplaceAll(strings.ToLower(str(d["mac"])), ":", "")
@@ -169,6 +170,75 @@ func (s *uState) updateNetwork(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_, _ = w.Write(envelope([]any{n}))
+}
+
+// updateWLAN is a PUT of a whole WLAN object. Clients on the SSID follow a change of name
+// or network, as they would by rejoining. The passphrase is never recorded in Writes.
+func (s *uState) updateWLAN(w http.ResponseWriter, r *http.Request) {
+	var in map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		apiErr(w, 400, "api.err.InvalidPayload")
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var wl map[string]any
+	for _, x := range s.wlans {
+		if str(x["_id"]) == r.PathValue("id") {
+			wl = x
+		}
+	}
+	if wl == nil {
+		apiErr(w, 400, "api.err.WlanNotFound")
+		return
+	}
+	if p, ok := in["x_passphrase"].(string); ok && in["security"] == "wpapsk" && len(p) < 8 {
+		apiErr(w, 400, "api.err.InvalidPassphrase")
+		return
+	}
+	var changed []string
+	for k, v := range in {
+		if k == "_id" {
+			continue
+		}
+		old, _ := json.Marshal(wl[k])
+		nw, _ := json.Marshal(v)
+		if string(old) != string(nw) {
+			changed = append(changed, k)
+		}
+	}
+	sortStrings(changed)
+	s.writes = append(s.writes, "PUT rest/wlanconf/"+r.PathValue("id")+" "+strings.Join(changed, ","))
+	oldName, oldNet := str(wl["name"]), str(wl["networkconf_id"])
+	for k := range wl {
+		if _, ok := in[k]; !ok && k != "_id" {
+			delete(wl, k)
+		}
+	}
+	for k, v := range in {
+		if k != "_id" {
+			wl[k] = v
+		}
+	}
+	for _, c := range s.clients {
+		if c["is_wired"] == true || str(c["essid"]) != oldName {
+			continue
+		}
+		c["essid"] = wl["name"]
+		if n := str(wl["networkconf_id"]); n != oldNet && n != "" {
+			s.readdress(c, n)
+			s.renew(c)
+		}
+	}
+	_, _ = w.Write(envelope([]any{wl}))
+}
+
+func sortStrings(a []string) {
+	for i := 1; i < len(a); i++ {
+		for j := i; j > 0 && a[j] < a[j-1]; j-- {
+			a[j], a[j-1] = a[j-1], a[j]
+		}
+	}
 }
 
 func (s *uState) updateDevice(w http.ResponseWriter, r *http.Request) {

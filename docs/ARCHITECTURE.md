@@ -140,8 +140,20 @@ Conventions:
   disable and remove. Pages built on connections (Virtual machines, Storage, Smart home) show
   failing connections as banners and offer an admin-only "Add connection" button in the
   header, but don't repeat the list.
-- **Anything that changes a device is previewed first** (DNS changes, VLAN moves, certificate
-  deployments) and audited.
+- **Anything that changes a device is previewed first** (DNS changes, VLAN moves, Wi-Fi changes,
+  certificate deployments) and audited.
+
+## Wi-Fi
+
+The UniFi driver reads `rest/wlanconf` (SSIDs), each access point's `radio_table` and
+`radio_table_stats` (in `stat/device`) and the wireless clients' signal (`stat/sta`) into
+`Snapshot.WiFi` and `Client.Signal/Band/Channel` (`internal/drivers/unifi/wifi.go`). The
+passphrase is only looked at to set `ShortPassphrase`; it never goes into a snapshot, because
+snapshots are stored unencrypted. `internal/core/wifi.go` has the weak-setting rules
+(`WiFiFindings`) and the preview (`PlanWiFiChange`), which also says which findings a change fixes.
+Changes go through the optional `drivers.WiFiWriter` (`UpdateWLAN`, a read-modify-write of the whole
+WLAN object; `WLANPassphrase`). `drivers.WLANChange.Passphrase` is tagged `json:"-"` so a change can
+be audited without leaking it; the API saves passphrases in the vault at `wifi/<connection>/<ssid id>`.
 
 ## Tests and the pretend network
 
