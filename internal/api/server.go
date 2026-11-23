@@ -43,6 +43,9 @@ type Server struct {
 	Log       *slog.Logger
 	// SecureCookies sets the Secure flag; true unless running plain HTTP in development.
 	SecureCookies bool
+	// SelfIPs lists NCC's own addresses (so Wi-Fi changes can't cut NCC off); nil reads the
+	// network interfaces.
+	SelfIPs func() []string
 
 	limiter *loginLimiter
 	aiState assistantState
@@ -122,6 +125,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/wifi/plan", v(s.planWiFi))
 	mux.Handle("POST /api/wifi/apply", a(s.applyWiFi))
 	mux.Handle("POST /api/wifi/passphrase", a(s.wifiPassphrase))
+	mux.Handle("POST /api/wifi/ap/plan", v(s.planAP))
+	mux.Handle("POST /api/wifi/ap/apply", a(s.applyAP))
 	mux.Handle("GET /api/vms", v(s.listVMs))
 	mux.Handle("POST /api/vms/power", o(s.vmPower))
 	mux.Handle("POST /api/vms/settings", a(s.vmSettings))

@@ -1,0 +1,16 @@
+{"meta":{"rc":"ok"},"data":[
+ {"essid":"NETGEAR-5G","bssid":"30:46:9a:11:22:31","ap_mac":"aa:bb:cc:00:00:02","radio":"ng","channel":6,"signal":-58},
+ {"essid":"SKY-H7K2","bssid":"30:46:9a:11:22:32","ap_mac":"aa:bb:cc:00:00:02","radio":"ng","channel":6,"signal":-64},
+ {"essid":"Virgin-Media-88","bssid":"30:46:9a:11:22:33","ap_mac":"aa:bb:cc:00:00:02","radio":"ng","channel":6,"signal":-69},
+ {"essid":"HP-Print-4C","bssid":"30:46:9a:11:22:34","ap_mac":"aa:bb:cc:00:00:02","radio":"ng","channel":7,"signal":-71},
+ {"essid":"TALKTALK-02","bssid":"30:46:9a:11:22:35","ap_mac":"aa:bb:cc:00:00:02","radio":"ng","channel":11,"signal":-74},
+ {"essid":"BT-Hub-9921","bssid":"30:46:9a:11:22:36","ap_mac":"aa:bb:cc:00:00:02","radio":"ng","channel":1,"signal":-83},
+ {"essid":"NETGEAR-5G","bssid":"30:46:9a:11:22:41","ap_mac":"aa:bb:cc:00:00:02","radio":"na","channel":40,"signal":-66},
+ {"essid":"SKY-H7K2","bssid":"30:46:9a:11:22:42","ap_mac":"aa:bb:cc:00:00:02","radio":"na","channel":44,"signal":-72},
+ {"essid":"Virgin-Media-88","bssid":"30:46:9a:11:22:43","ap_mac":"aa:bb:cc:00:00:02","radio":"na","channel":100,"signal":-78},
+ {"essid":"","bssid":"30:46:9a:11:22:44","ap_mac":"aa:bb:cc:00:00:02","radio":"na","channel":157,"signal":-86},
+ {"essid":"SKY-H7K2","bssid":"30:46:9a:11:22:52","ap_mac":"aa:bb:cc:00:00:01","radio":"ng","channel":6,"signal":-70},
+ {"essid":"TALKTALK-02","bssid":"30:46:9a:11:22:55","ap_mac":"aa:bb:cc:00:00:01","radio":"ng","channel":11,"signal":-61},
+ {"essid":"BT-Hub-9921","bssid":"30:46:9a:11:22:56","ap_mac":"aa:bb:cc:00:00:01","radio":"ng","channel":1,"signal":-79},
+ {"essid":"NETGEAR-5G","bssid":"30:46:9a:11:22:57","ap_mac":"aa:bb:cc:00:00:01","radio":"na","channel":40,"signal":-75}
+]}

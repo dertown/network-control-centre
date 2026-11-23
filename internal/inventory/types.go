@@ -174,6 +174,9 @@ type Snapshot struct {
 type WiFi struct {
 	SSIDs  []SSID  `json:"ssids"`
 	Radios []Radio `json:"radios"`
+	// Neighbors are the other Wi-Fi networks the access points hear; empty when the router
+	// does not report them.
+	Neighbors []Neighbor `json:"neighbors,omitempty"`
 }
 
 // Wi-Fi security modes, from weakest to strongest.
@@ -235,6 +238,22 @@ type Radio struct {
 	Clients     int    `json:"clients"`
 	// Utilization is how busy the channel is, 0-100 %, when the access point reports it.
 	Utilization int `json:"utilization,omitempty"`
+	// SSIDsOff are the Wi-Fi networks (by SSID id) this access point does not broadcast on
+	// this band, although the network itself uses the band (a per-access-point override).
+	SSIDsOff []string `json:"ssids_off,omitempty"`
+}
+
+// Neighbor is a nearby Wi-Fi network that is not one of the router's own, as one of its
+// access points heard it. Used to pick a quiet channel.
+type Neighbor struct {
+	SSID    string `json:"ssid,omitempty"`
+	BSSID   string `json:"bssid"`
+	Band    string `json:"band"`
+	Channel int    `json:"channel"`
+	// Signal is how loud it is where the access point is, in dBm (e.g. -72).
+	Signal int `json:"signal,omitempty"`
+	// SeenBy is the access point (device id) that heard it.
+	SeenBy string `json:"seen_by,omitempty"`
 }
 
 // Loop severities.

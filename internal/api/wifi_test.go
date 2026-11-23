@@ -148,3 +148,74 @@ func TestWiFiViewOnlyAccount(t *testing.T) {
 		t.Errorf("writes: %v", lab.Writes())
 	}
 }
+
+func TestWiFiAccessPointRadios(t *testing.T) {
+	c, lab, id, done := vlanSetup(t, "ncc")
+	defer done()
+
+	var v struct {
+		Targets []struct {
+			RadiosWritable bool                     `json:"radios_writable"`
+			Neighbors      int                      `json:"neighbors"`
+			Suggestions    []core.ChannelSuggestion `json:"suggestions"`
+			Radios         []inventory.Radio        `json:"radios"`
+		} `json:"targets"`
+	}
+	if code := c.do("GET", "/api/wifi", nil, &v); code != 200 || len(v.Targets) != 1 {
+		t.Fatalf("wifi: %d", code)
+	}
+	tg := v.Targets[0]
+	if !tg.RadiosWritable || tg.Neighbors != 14 || len(tg.Suggestions) != 5 {
+		t.Fatalf("view: %+v", tg)
+	}
+	var lounge *core.ChannelSuggestion
+	for i, s := range tg.Suggestions {
+		if s.Device == "Lounge AP" && s.Band == "2.4" {
+			lounge = &tg.Suggestions[i]
+		}
+	}
+	if lounge == nil || !lounge.Better || lounge.Channel == 6 {
+		t.Fatalf("Lounge AP 2.4 GHz suggestion: %+v", lounge)
+	}
+
+	// preview the fix, then apply it; plans never write
+	body := map[string]any{"target_id": id, "device_id": "aa:bb:cc:00:00:02",
+		"radios": []map[string]any{{"band": "2.4", "channel": lounge.Channel, "width_mhz": 20}},
+		"ssids":  []map[string]any{{"ssid_id": "wl_guest", "band": "2.4", "on": false}}}
+	var plan core.APPlan
+	if code := c.do("POST", "/api/wifi/ap/plan", body, &plan); code != 200 || len(plan.Changes) != 3 {
+		t.Fatalf("plan: %d %+v", code, plan)
+	}
+	if len(lab.Writes()) != 0 {
+		t.Fatalf("plan wrote: %v", lab.Writes())
+	}
+	// Garage AP meshes through Lounge AP, so switching off 5 GHz there is refused
+	var e map[string]string
+	off := map[string]any{"target_id": id, "device_id": "aa:bb:cc:00:00:02", "ssids": []map[string]any{{"ssid_id": "wl_home", "band": "5", "on": false}, {"ssid_id": "wl_guest", "band": "5", "on": false}}}
+	if code := c.do("POST", "/api/wifi/ap/apply", off, &e); code != 400 || !strings.Contains(e["error"], "mesh") {
+		t.Errorf("mesh off: %d %v", code, e)
+	}
+	var res map[string]any
+	if code := c.do("POST", "/api/wifi/ap/apply", body, &res); code != 200 {
+		t.Fatalf("apply: %d %v", code, res)
+	}
+	w := strings.Join(lab.Writes(), "\n")
+	if !strings.Contains(w, "PUT rest/device/dev_aabbcc000002") || !strings.Contains(w, `"wlan_id":"wl_guest"`) || !strings.Contains(w, `"ht":20`) {
+		t.Errorf("writes: %s", w)
+	}
+	var audit []map[string]any
+	c.do("GET", "/api/audit", nil, &audit)
+	if ab, _ := json.Marshal(audit); !strings.Contains(string(ab), "wifi.ap.update") {
+		t.Errorf("audit: %s", ab)
+	}
+
+	pollUntil(c, id)
+	c.do("GET", "/api/wifi", nil, &v)
+	for _, r := range v.Targets[0].Radios {
+		if r.DeviceName == "Lounge AP" && r.Band == "2.4" {
+			if r.Channel != lounge.Channel || r.WidthMHz != 20 || len(r.SSIDsOff) != 1 || r.SSIDsOff[0] != "wl_guest" {
+				t.Errorf("after apply: %+v", r)
+			}
+		}
+	}
+}

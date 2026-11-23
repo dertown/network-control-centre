@@ -337,6 +337,19 @@ export interface SSID {
 export interface Radio {
   device_id: string; device_name: string; online: boolean; band: string; channel?: number; channel_auto?: boolean;
   width_mhz?: number; tx_power?: number; tx_power_mode?: string; clients: number; utilization?: number;
+  /** Wi-Fi networks (SSID ids) this access point leaves off on this band. */
+  ssids_off?: string[];
+}
+/** The quietest channel NCC finds for one radio. */
+export interface ChannelSuggestion {
+  device_id: string; device: string; band: string; current: number; channel: number; width_mhz: number; better: boolean; reason: string;
+  options: { channel: number; score: number; own?: string[]; neighbors: number; dfs?: boolean }[];
+}
+export interface RadioSetting { band: string; channel?: number; width_mhz?: number; tx_power_mode?: string; tx_power?: number }
+export interface APRequest { radios: RadioSetting[]; ssids: { ssid_id: string; band: string; on: boolean }[] }
+export interface APPlan {
+  device_id: string; device: string; changes: { setting: string; from: string; to: string }[]; warnings: string[];
+  resolves: WiFiFinding[]; remaining: WiFiFinding[];
 }
 export interface WiFiFinding {
   severity: "critical" | "warning" | "info"; kind: string; ssid_id?: string; ssid?: string; device_id?: string; device?: string;
@@ -348,11 +361,13 @@ export interface WiFiClient {
 export interface WiFiTarget {
   id: number; name: string; kind: string; writable: boolean; taken_at?: string; last_error?: string;
   ssids: SSID[]; radios: Radio[]; clients: WiFiClient[]; findings: WiFiFinding[]; saved: string[];
+  radios_writable: boolean; suggestions: ChannelSuggestion[]; neighbors: number;
   networks: { id: string; name: string; vlan?: number; purpose?: string; zone?: string; isolated?: boolean }[];
 }
 /** An SSID edit. Only set fields change; passphrase is sent to the router and the vault, never shown back. */
 export interface WiFiChange {
   name?: string; enabled?: boolean; hidden?: boolean; network_id?: string; security?: "wpa2" | "wpa2-wpa3" | "wpa3"; passphrase?: string;
+  bands?: string[];
 }
 export interface WiFiPlan {
   ssid: SSID; changes: { setting: string; from: string; to: string }[]; warnings: string[];

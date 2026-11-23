@@ -368,6 +368,60 @@ func PlanWiFiChange(snap *inventory.Snapshot, ssidID string, ch *drivers.WLANCha
 			p.Warnings = append(p.Warnings, fmt.Sprintf("The %s on %s are disconnected and each needs the new passphrase to rejoin.", clients, cur.Name))
 		}
 	}
+	if ch.Bands != nil {
+		var bands []string
+		for _, b := range []string{"2.4", "5", "6"} {
+			if hasStr(ch.Bands, b) {
+				bands = append(bands, b)
+			}
+		}
+		for _, b := range ch.Bands {
+			if b != "2.4" && b != "5" && b != "6" {
+				return nil, fmt.Errorf("unknown band %q: use 2.4, 5 or 6", b)
+			}
+		}
+		if len(bands) == 0 {
+			return nil, fmt.Errorf("%s needs at least one band", cur.Name)
+		}
+		if strings.Join(bands, ",") == strings.Join(cur.Bands, ",") {
+			ch.Bands = nil
+		} else {
+			ch.Bands = bands
+			next.Bands = bands
+			p.Changes = append(p.Changes, WiFiChangeLine{"Bands", bandList(cur.Bands), bandList(bands)})
+			if hasStr(bands, "6") {
+				switch next.Security {
+				case inventory.SecWPA3, inventory.SecEnterprise, inventory.SecOWE:
+				case inventory.SecWPA2WPA3:
+					p.Warnings = append(p.Warnings, "6 GHz only allows WPA3: devices that only know WPA2 keep joining on 2.4 or 5 GHz.")
+				default:
+					return nil, fmt.Errorf("6 GHz Wi-Fi requires WPA3; set %s to WPA2/WPA3 or WPA3 first", cur.Name)
+				}
+				has6 := false
+				for _, r := range snap.WiFi.Radios {
+					has6 = has6 || r.Band == "6"
+				}
+				if !has6 {
+					p.Warnings = append(p.Warnings, "None of your access points has a 6 GHz radio, so this changes nothing until you add one.")
+				}
+			}
+			counts := map[string]int{}
+			for _, c := range snap.Clients {
+				if !c.Wired && c.SSID == cur.Name {
+					counts[c.Band]++
+				}
+			}
+			for _, b := range cur.Bands {
+				if !hasStr(bands, b) && counts[b] > 0 {
+					msg := fmt.Sprintf("The %d device%s on %s at %s GHz must move to %s, or lose Wi-Fi if they can't.", counts[b], map[bool]string{true: "", false: "s"}[counts[b] == 1], cur.Name, b, bandList(bands))
+					if b == "2.4" {
+						msg += " Many smart plugs, bulbs and cameras only have 2.4 GHz."
+					}
+					p.Warnings = append(p.Warnings, msg)
+				}
+			}
+		}
+	}
 	if len(p.Changes) == 0 {
 		return nil, fmt.Errorf("nothing to change")
 	}
@@ -388,4 +442,11 @@ func PlanWiFiChange(snap *inventory.Snapshot, ssidID string, ch *drivers.WLANCha
 	}
 	p.SSID = next
 	return p, nil
+}
+
+func bandList(b []string) string {
+	if len(b) == 0 {
+		return "none"
+	}
+	return strings.Join(b, ", ") + " GHz"
 }

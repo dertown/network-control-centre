@@ -307,6 +307,8 @@ type rawDevice struct {
 	// Access points (and routers with built-in Wi-Fi): radio settings and live radio stats.
 	RadioTable      []rawRadio      `json:"radio_table"`
 	RadioTableStats []rawRadioStats `json:"radio_table_stats"`
+	// WLANOverrides switch Wi-Fi networks off (or rename them) on this access point only.
+	WLANOverrides []rawWLANOverride `json:"wlan_overrides"`
 }
 
 type rawClient struct {

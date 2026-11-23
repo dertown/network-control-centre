@@ -50,3 +50,68 @@ func TestApplyWLANChange(t *testing.T) {
 		t.Errorf("network: %v %v", err, w)
 	}
 }
+
+func TestApplyAPChange(t *testing.T) {
+	n := func(v int) *int { return &v }
+	s := func(v string) *string { return &v }
+	dev := map[string]any{"name": "Lounge AP",
+		"radio_table": []any{
+			map[string]any{"name": "wifi0", "radio": "ng", "channel": 6, "ht": "40", "tx_power_mode": "high", "min_rssi_enabled": true},
+			map[string]any{"name": "wifi1", "radio": "na", "channel": "auto", "ht": "80", "tx_power_mode": "auto"},
+		},
+		"wlan_overrides": []any{
+			map[string]any{"wlan_id": "wl_home", "radio": "na", "radio_name": "wifi1", "enabled": false},
+			map[string]any{"wlan_id": "wl_iot", "radio": "ng", "radio_name": "wifi0", "name": "IoT-Lounge"},
+		},
+	}
+	body, err := applyAPChange(dev, drivers.APChange{
+		Radios:   []drivers.RadioSetting{{Band: "2.4", Channel: n(1), WidthMHz: n(20)}, {Band: "5", TxPowerMode: s("custom"), TxPower: n(14)}},
+		SSIDsOff: map[string][]string{"5": {}, "2.4": {"wl_guest"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := body["radio_table"].([]any)
+	r0, r1 := rt[0].(map[string]any), rt[1].(map[string]any)
+	if r0["channel"] != 1 || r0["ht"] != 20 || r0["min_rssi_enabled"] != true || r0["tx_power_mode"] != "high" {
+		t.Errorf("2.4: %v", r0)
+	}
+	if r1["tx_power_mode"] != "custom" || r1["tx_power"] != 14 || r1["channel"] != "auto" {
+		t.Errorf("5: %v", r1)
+	}
+	// the device itself is not changed
+	if dev["radio_table"].([]any)[0].(map[string]any)["channel"] != 6 {
+		t.Error("device changed in place")
+	}
+	ov := body["wlan_overrides"].([]any)
+	if len(ov) != 3 {
+		t.Fatalf("overrides: %v", ov)
+	}
+	home, iot, guest := ov[0].(map[string]any), ov[1].(map[string]any), ov[2].(map[string]any)
+	if home["enabled"] != true || iot["name"] != "IoT-Lounge" || iot["enabled"] != true {
+		t.Errorf("kept overrides: %v %v", home, iot)
+	}
+	if guest["wlan_id"] != "wl_guest" || guest["radio"] != "ng" || guest["radio_name"] != "wifi0" || guest["enabled"] != false {
+		t.Errorf("new override: %v", guest)
+	}
+	if _, err := applyAPChange(dev, drivers.APChange{Radios: []drivers.RadioSetting{{Band: "6", Channel: n(37)}}}); err == nil {
+		t.Error("no 6 GHz radio")
+	}
+	auto, _ := applyAPChange(dev, drivers.APChange{Radios: []drivers.RadioSetting{{Band: "2.4", Channel: n(0)}}})
+	if auto["radio_table"].([]any)[0].(map[string]any)["channel"] != "auto" || auto["wlan_overrides"] != nil {
+		t.Errorf("auto: %v", auto)
+	}
+}
+
+func TestWLANBandsChange(t *testing.T) {
+	w := map[string]any{"name": "Home", "security": "wpapsk", "x_passphrase": "long enough", "wlan_band": "both"}
+	if err := applyWLANChange(w, drivers.WLANChange{Bands: []string{"5", "6"}}); err != nil {
+		t.Fatal(err)
+	}
+	if b := w["wlan_bands"].([]string); len(b) != 2 || b[0] != "5g" || b[1] != "6g" || w["wlan_band"] != "5g" {
+		t.Errorf("bands: %v", w)
+	}
+	if err := applyWLANChange(w, drivers.WLANChange{Bands: []string{}}); err == nil {
+		t.Error("no bands")
+	}
+}

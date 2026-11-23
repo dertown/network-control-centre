@@ -96,6 +96,17 @@ This first release (the MVP) covers:
   disconnected. NCC never makes a network open or weaker than WPA2. Passphrases NCC sets, or reads from the router
   with "Show current passphrase", are kept in the vault under `wifi/<connection>/<ssid id>`; the audit log records
   the change without the passphrase. Needs a UniFi account that can change settings.
+  Each SSID's bands (2.4, 5 and 6 GHz) can be changed too; 6 GHz needs WPA3.
+  **Access point settings**: per access point and per radio, admins set the channel (auto or fixed), channel
+  width and transmit power (auto, high, medium, low or a custom dBm), switch a band's broadcasting off, and pick
+  which Wi-Fi networks that access point broadcasts on each band. NCC suggests the quietest channel for every radio
+  (the "→ try N" links and finding "Fix" buttons) from your own access points' channels and channel use and the
+  neighbouring networks they hear; suggestions are worked out together, busiest radio first, so two access points are
+  never sent to the same channel. The preview warns who drops off and for how long, and about DFS (radar) channels,
+  12/13 on 2.4 GHz, 40 MHz on 2.4 GHz and lower power. NCC refuses changes that would cut off your own connection or
+  NCC's when either is on Wi-Fi through that access point, a fixed 5 GHz channel on a mesh access point other than its
+  parent's, and switching 5 GHz off on a mesh access point or its parent. "Off" for a band switches every network off
+  there for that access point (UniFi's per-AP WLAN overrides). Changes are audited as `wifi.ap.update`.
 - **IoT devices** (Configure → IoT devices): an inventory of the company's IoT gear, found among the router's
   clients by vendor and name: IP cameras and NVRs, door and badge controllers, printers, desk and conference
   phones, meeting-room systems, displays and signage, building (HVAC/BMS) controllers, UPSs, PDUs, sensors,

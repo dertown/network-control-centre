@@ -244,10 +244,16 @@ func sortStrings(a []string) {
 func (s *uState) updateDevice(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		PortOverrides []map[string]any `json:"port_overrides"`
+		RadioTable    []map[string]any `json:"radio_table"`
+		WLANOverrides []map[string]any `json:"wlan_overrides"`
 	}
 	raw, _ := readAll(r)
-	if err := json.Unmarshal(raw, &in); err != nil || in.PortOverrides == nil {
+	if err := json.Unmarshal(raw, &in); err != nil || (in.PortOverrides == nil && in.RadioTable == nil && in.WLANOverrides == nil) {
 		apiErr(w, 400, "api.err.InvalidPayload")
+		return
+	}
+	if in.PortOverrides == nil {
+		s.updateRadios(w, r, raw, in.RadioTable, in.WLANOverrides)
 		return
 	}
 	s.mu.Lock()
@@ -405,4 +411,73 @@ func (s *uState) allUsers() []map[string]any {
 		}
 	}
 	return out
+}
+
+// updateRadios changes an access point's radio settings and per-AP Wi-Fi overrides. A radio
+// moved to a fixed channel reports it straight away, with the channel use measured afresh.
+func (s *uState) updateRadios(w http.ResponseWriter, r *http.Request, raw []byte, table, overrides []map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.writes = append(s.writes, "PUT rest/device/"+r.PathValue("id")+" "+string(raw))
+	var dev map[string]any
+	for _, d := range s.devices {
+		if str(d["_id"]) == r.PathValue("id") {
+			dev = d
+		}
+	}
+	if dev == nil {
+		apiErr(w, 400, "api.err.UnknownDevice")
+		return
+	}
+	if table != nil {
+		for _, rt := range table {
+			switch v := rt["channel"].(type) {
+			case string:
+				if v != "auto" {
+					apiErr(w, 400, "api.err.InvalidChannel")
+					return
+				}
+			case float64:
+				if v < 1 || v > 233 {
+					apiErr(w, 400, "api.err.InvalidChannel")
+					return
+				}
+			}
+		}
+		old := map[string]map[string]any{}
+		if list, ok := dev["radio_table"].([]any); ok {
+			for _, x := range list {
+				if m, ok := x.(map[string]any); ok {
+					old[str(m["name"])] = m
+				}
+			}
+		}
+		list := make([]any, len(table))
+		for i, rt := range table {
+			list[i] = rt
+			if stats, ok := dev["radio_table_stats"].([]any); ok {
+				for _, x := range stats {
+					st, ok := x.(map[string]any)
+					if !ok || str(st["name"]) != str(rt["name"]) {
+						continue
+					}
+					if ch, ok := rt["channel"].(float64); ok {
+						if prev, _ := old[str(rt["name"])]["channel"].(float64); prev != ch {
+							st["channel"] = ch
+							st["cu_total"] = 14
+						}
+					}
+				}
+			}
+		}
+		dev["radio_table"] = list
+	}
+	if overrides != nil {
+		list := make([]any, len(overrides))
+		for i, o := range overrides {
+			list[i] = o
+		}
+		dev["wlan_overrides"] = list
+	}
+	_, _ = w.Write(envelope([]any{}))
 }
