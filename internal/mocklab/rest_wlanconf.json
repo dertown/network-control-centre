@@ -1,5 +1,6 @@
 {"meta":{"rc":"ok"},"data":[
- {"_id":"wl_home","name":"Home","networkconf_id":"net_default","enabled":true},
- {"_id":"wl_guest","name":"Home-Guest","networkconf_id":"net_guest","is_guest":true,"enabled":true},
- {"_id":"wl_iot","name":"Home-IoT","networkconf_id":"net_iot","enabled":true}
+ {"_id":"wl_home","name":"Home","networkconf_id":"net_default","enabled":true,"security":"wpapsk","wpa_mode":"wpa2","wpa_enc":"ccmp","wpa3_support":true,"wpa3_transition":true,"pmf_mode":"optional","wlan_bands":["2g","5g","6g"],"x_passphrase":"correct-horse-battery-staple"},
+ {"_id":"wl_guest","name":"Home-Guest","networkconf_id":"net_guest","is_guest":true,"enabled":true,"security":"open","wlan_bands":["2g","5g"],"l2_isolation":true},
+ {"_id":"wl_iot","name":"Home-IoT","networkconf_id":"net_iot","enabled":true,"security":"wpapsk","wpa_mode":"wpa2","wpa_enc":"auto","pmf_mode":"disabled","wlan_band":"2g","x_passphrase":"iot12345"},
+ {"_id":"wl_plugs","name":"Smart-Plugs","networkconf_id":"net_default","enabled":true,"security":"wpapsk","wpa_mode":"wpa1","wpa_enc":"tkip","pmf_mode":"disabled","wlan_band":"2g","hide_ssid":true,"x_passphrase":"plugs-2016-setup"}
 ]}

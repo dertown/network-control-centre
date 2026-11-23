@@ -303,6 +303,10 @@ type rawDevice struct {
 
 	PortOverrides []rawPortOverride `json:"port_overrides"`
 	WAN1          *rawWAN           `json:"wan1"`
+
+	// Access points (and routers with built-in Wi-Fi): radio settings and live radio stats.
+	RadioTable      []rawRadio      `json:"radio_table"`
+	RadioTableStats []rawRadioStats `json:"radio_table_stats"`
 }
 
 type rawClient struct {
@@ -320,6 +324,9 @@ type rawClient struct {
 	VLAN      int    `json:"vlan"`
 	ESSID     string `json:"essid"`
 	Uptime    int64  `json:"uptime"`
+	Signal    int    `json:"signal"`  // dBm, wireless only
+	Radio     string `json:"radio"`   // ng | na | 6e, wireless only
+	Channel   int    `json:"channel"` // wireless only
 
 	RxBytes      int64     `json:"rx_bytes"`
 	TxBytes      int64     `json:"tx_bytes"`

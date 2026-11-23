@@ -85,6 +85,17 @@ This first release (the MVP) covers:
   (QNAP, Synology; admins, typing the connection name to confirm). QNAP's public API has no share or
   snapshot calls, so those stay in QTS. Use a dedicated admin account without two-step verification for
   QNAP and Synology. Try it with `go run ./cmd/ncc-mock` (QNAP on :9050, Synology on :9051).
+- **Wi-Fi** (Configure → Wi-Fi): the router's Wi-Fi networks (name, on/off, security, bands, network/VLAN,
+  guest, hidden, clients), every access point's radios (channel, width, transmit power, clients, channel use;
+  a Dream Router's built-in Wi-Fi counts as an access point) and the wireless clients with the weakest signal.
+  NCC flags weak settings: open networks, WEP, WPA1 or WPA/WPA2 mixed mode, TKIP, passphrases under 12 characters,
+  an IoT Wi-Fi that isn't on an IoT VLAN, a guest Wi-Fi on your LAN, 40 MHz or overlapping channels on 2.4 GHz,
+  busy channels and access points sharing a channel; critical ones also show on the Dashboard. Admins can rename an
+  SSID, switch it on or off, hide it, put it on another network (VLAN), set WPA2, WPA2/WPA3 or WPA3 and change its
+  passphrase (or generate one), always through a preview that says what changes, which flags it fixes and who gets
+  disconnected. NCC never makes a network open or weaker than WPA2. Passphrases NCC sets, or reads from the router
+  with "Show current passphrase", are kept in the vault under `wifi/<connection>/<ssid id>`; the audit log records
+  the change without the passphrase. Needs a UniFi account that can change settings.
 - **IoT devices** (Configure → IoT devices): an inventory of the company's IoT gear, found among the router's
   clients by vendor and name: IP cameras and NVRs, door and badge controllers, printers, desk and conference
   phones, meeting-room systems, displays and signage, building (HVAC/BMS) controllers, UPSs, PDUs, sensors,
@@ -200,7 +211,8 @@ router hands them out as that network's DHCP domain.
 ### Dream Router 7 (or any UniFi OS console)
 
 1. In UniFi OS, go to **Admins & Users** and add an admin with **Restrict to local access only**
-   and Network role **View Only**. NCC only reads, so view-only is enough.
+   and Network role **View Only**. View-only is enough for everything NCC shows; give it **Site Admin**
+   instead if you want to change VLANs or Wi-Fi from NCC.
 2. In NCC, **Settings → Add UniFi console**: address `https://<router LAN IP>`, site `default`,
    that username and password. Leave **Certificate** on "Pin on first use": the console's
    self-signed certificate is pinned on the first connection, and NCC refuses to connect if it

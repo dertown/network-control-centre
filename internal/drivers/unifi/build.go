@@ -240,6 +240,7 @@ func Build(target string, devs []rawDevice, clients []rawClient, cfg *siteConfig
 			c.ParentID = inv.NormMAC(r.APMAC)
 			c.ParentPort = r.ESSID
 			c.APMAC = c.ParentID
+			c.Signal, c.Band, c.Channel = r.Signal, bandOf(r.Radio), r.Channel
 		}
 		snap.Clients = append(snap.Clients, c)
 	}
@@ -299,6 +300,7 @@ func Build(target string, devs []rawDevice, clients []rawClient, cfg *siteConfig
 	for _, id := range order {
 		snap.Devices = append(snap.Devices, *byMAC[id])
 	}
+	snap.WiFi = buildWiFi(target, devs, clients, cfg, ix)
 	return snap
 }
 

@@ -38,7 +38,8 @@ var StatSiteDPI []byte
 
 // RestNetworkConf, RestPortConf and RestWLANConf are recorded rest/networkconf,
 // rest/portconf and rest/wlanconf responses: a Default LAN, Guest (VLAN 20), IoT (VLAN 30),
-// DMZ (VLAN 50) and a WAN, a trunk and a DMZ port profile, and three SSIDs.
+// DMZ (VLAN 50) and a WAN, a trunk and a DMZ port profile, and four SSIDs (one open guest
+// network, a WPA2 IoT one with TKIP and a short passphrase, and a hidden WPA1 "Smart-Plugs").
 //
 //go:embed rest_networkconf.json
 var RestNetworkConf []byte
@@ -303,7 +304,8 @@ func unifiWithState(loops, office bool) (http.Handler, *uState) {
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/user", dyn(func(s *uState) []map[string]any { return s.allUsers() }))
 	mux.HandleFunc("POST /proxy/network/api/s/default/cmd/{mgr}", canWrite(st.command))
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/portconf", serve(RestPortConf))
-	mux.HandleFunc("GET /proxy/network/api/s/default/rest/wlanconf", serve(RestWLANConf))
+	mux.HandleFunc("GET /proxy/network/api/s/default/rest/wlanconf", dyn(func(s *uState) []map[string]any { return s.wlans }))
+	mux.HandleFunc("PUT /proxy/network/api/s/default/rest/wlanconf/{id}", canWrite(st.updateWLAN))
 	mux.HandleFunc("GET /proxy/network/v2/api/site/default/firewall/zone", serve(FirewallZones))
 	mux.HandleFunc("GET /proxy/network/v2/api/site/default/firewall-policies", serve(FirewallPolicies))
 	mux.HandleFunc("GET /proxy/network/api/s/default/rest/firewallgroup", serve(RestFirewallGroup))

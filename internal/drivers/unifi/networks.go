@@ -130,6 +130,21 @@ type rawWLAN struct {
 	NetworkID string `json:"networkconf_id"`
 	Enabled   *bool  `json:"enabled"`
 	IsGuest   bool   `json:"is_guest"`
+
+	Security       string   `json:"security"` // open | wpapsk | wpaeap | wep | osen
+	WPAMode        string   `json:"wpa_mode"` // wpa2 | wpa1 | auto
+	WPAEnc         string   `json:"wpa_enc"`  // ccmp | tkip | auto
+	WPA3Support    bool     `json:"wpa3_support"`
+	WPA3Transition bool     `json:"wpa3_transition"`
+	PMFMode        string   `json:"pmf_mode"`   // disabled | optional | required
+	WLANBand       string   `json:"wlan_band"`  // both | 2g | 5g (older firmware)
+	WLANBands      []string `json:"wlan_bands"` // 2g, 5g, 6g (newer firmware)
+	HideSSID       bool     `json:"hide_ssid"`
+	L2Isolation    bool     `json:"l2_isolation"`
+	VLANEnabled    bool     `json:"vlan_enabled"` // firmware before networkconf_id
+	VLAN           flexInt  `json:"vlan"`
+	// Passphrase is only read to tell whether it is short; it is never stored or sent on.
+	Passphrase string `json:"x_passphrase"`
 }
 
 type rawZone struct {

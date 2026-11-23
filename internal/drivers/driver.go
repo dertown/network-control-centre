@@ -136,3 +136,26 @@ type NetworkDomainSetter interface {
 	// domain has no trailing dot.
 	SetNetworkDomain(ctx context.Context, t Target, creds vault.Secret, networkID, domain string) error
 }
+
+// WLANChange is an edit to one Wi-Fi network (SSID). Nil fields are left as they are.
+type WLANChange struct {
+	Name    *string `json:"name,omitempty"`
+	Enabled *bool   `json:"enabled,omitempty"`
+	Hidden  *bool   `json:"hidden,omitempty"`
+	// NetworkID is the network (VLAN) the SSID puts its clients in.
+	NetworkID *string `json:"network_id,omitempty"`
+	// Security is inventory.SecWPA2, SecWPA2WPA3 or SecWPA3. NCC never makes a network
+	// open or weaker than WPA2.
+	Security *string `json:"security,omitempty"`
+	// Passphrase is the new Wi-Fi password. It is never marshalled, so a WLANChange can be
+	// written to the audit log or a log line without leaking it.
+	Passphrase *string `json:"-"`
+}
+
+// WiFiWriter is a driver that can change Wi-Fi networks.
+type WiFiWriter interface {
+	// UpdateWLAN changes the SSID with id ssidID.
+	UpdateWLAN(ctx context.Context, t Target, creds vault.Secret, ssidID string, ch WLANChange) error
+	// WLANPassphrase reads the current passphrase of the SSID with id ssidID.
+	WLANPassphrase(ctx context.Context, t Target, creds vault.Secret, ssidID string) (string, error)
+}

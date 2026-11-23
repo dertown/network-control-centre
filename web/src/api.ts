@@ -326,3 +326,35 @@ export interface AIPlan {
   steps: AIStep[]; source: "ai" | "rules"; ai_error?: string;
   status: "proposed" | "deploying" | "deployed" | "partial" | "failed" | "discarded"; deployed_at?: string; deployed_by?: string;
 }
+
+// ---- Wi-Fi ----
+export type WiFiSecurity = "open" | "wep" | "wpa1" | "wpa1-wpa2" | "wpa2" | "wpa2-wpa3" | "wpa3" | "enterprise" | "owe";
+export interface SSID {
+  id: string; name: string; enabled: boolean; hidden?: boolean; security: WiFiSecurity; tkip?: boolean; pmf?: string;
+  bands?: string[]; network_id?: string; network?: string; vlan?: number; guest?: boolean; client_isolation?: boolean;
+  short_passphrase?: boolean; clients: number; target: string;
+}
+export interface Radio {
+  device_id: string; device_name: string; online: boolean; band: string; channel?: number; channel_auto?: boolean;
+  width_mhz?: number; tx_power?: number; tx_power_mode?: string; clients: number; utilization?: number;
+}
+export interface WiFiFinding {
+  severity: "critical" | "warning" | "info"; kind: string; ssid_id?: string; ssid?: string; device_id?: string; device?: string;
+  summary: string; fix?: string; target: string;
+}
+export interface WiFiClient {
+  mac: string; name: string; ip?: string; ssid?: string; ap_id?: string; ap?: string; band?: string; channel?: number; signal?: number; network?: string;
+}
+export interface WiFiTarget {
+  id: number; name: string; kind: string; writable: boolean; taken_at?: string; last_error?: string;
+  ssids: SSID[]; radios: Radio[]; clients: WiFiClient[]; findings: WiFiFinding[]; saved: string[];
+  networks: { id: string; name: string; vlan?: number; purpose?: string; zone?: string; isolated?: boolean }[];
+}
+/** An SSID edit. Only set fields change; passphrase is sent to the router and the vault, never shown back. */
+export interface WiFiChange {
+  name?: string; enabled?: boolean; hidden?: boolean; network_id?: string; security?: "wpa2" | "wpa2-wpa3" | "wpa3"; passphrase?: string;
+}
+export interface WiFiPlan {
+  ssid: SSID; changes: { setting: string; from: string; to: string }[]; warnings: string[];
+  resolves: WiFiFinding[]; remaining: WiFiFinding[];
+}
