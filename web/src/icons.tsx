@@ -70,6 +70,7 @@ const paths: Record<string, string> = {
   printer: '<path d="M7 9V3.5h10V9"/><rect x="3" y="9" width="18" height="8" rx="1.5"/><path d="M7 14h10v6.5H7z"/><path d="M17.5 12h.01"/>',
   deskphone: '<rect x="3" y="8" width="18" height="12" rx="2"/><path d="M6 8V5.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 18 5.5V8"/><rect x="6" y="11" width="6" height="3.5" rx=".5"/><path d="M15 11.5h.01M17.5 11.5h.01M15 14.5h.01M17.5 14.5h.01M15 17.5h.01M17.5 17.5h.01"/>',
   building: '<path d="M4 21V4.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1V21M15 9h4a1 1 0 0 1 1 1v11M2.5 21h19M7.5 7.5h1M10.5 7.5h1M7.5 11h1M10.5 11h1M7.5 14.5h1M10.5 14.5h1M9 21v-3h1.5v3"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5h.01"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
 };
 

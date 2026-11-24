@@ -410,6 +410,7 @@ page, add Proxmox VE at `https://localhost:9006` (token `ncc@pve!monitor`, secre
 
 ```sh
 make test                  # go vet, go test, TypeScript check
+make licenses              # after changing Go or npm dependencies: refresh the About page's list
 cd web && npm run dev      # UI dev server on :5173, proxies /api to a local NCC
 ```
 

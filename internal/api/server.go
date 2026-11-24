@@ -84,9 +84,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	// public
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]string{"status": "ok", "version": s.Version})
-	})
+	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/ready", s.ready)
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
 		if !s.MetricsEnabled {
@@ -112,6 +110,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/events", v(s.events))
 	mux.Handle("GET /api/drivers", v(s.listDrivers))
 	mux.Handle("GET /api/catalog", v(s.listCatalog))
+	mux.Handle("GET /api/about", v(s.about))
 
 	mux.Handle("GET /api/vault/status", v(s.vaultStatus))
 	mux.Handle("POST /api/vault/unseal", a(s.vaultUnseal))
