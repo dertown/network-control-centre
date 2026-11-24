@@ -138,6 +138,26 @@ This first release (the MVP) covers:
   device from Google Home, Alexa or Apple Home with a pairing code (checked before pairing: format and check digit)
   so it stays in those apps too. Every change is audited. Setup: [deploy/homeassistant](deploy/homeassistant/README.md).
   Try it with `go run ./cmd/ncc-mock` (Home Assistant on :9123, token `demo-ha-token`).
+- **Adding connections** (Settings → Add connection): a wizard asks what you are connecting
+  (**Virtualization**, **DNS**, **Routers & Gateways**, **Firewalls**, **Switches & Access Points**,
+  **Storage**, **Smart Home**), then which platform, then shows that platform's setup steps and form. The
+  Virtual Machines, Storage and Smart Home pages open the same wizard at their own group.
+- **More platforms**:
+  - **DNS: BIND 9** (and Knot or any RFC 2136 server): zones are read with a TSIG-signed zone transfer
+    and changed with signed dynamic updates, all changes of one save in one update.
+  - **DNS: Active Directory / Windows Server DNS**: AD-integrated and file-backed zones on a domain
+    controller, read and changed with the DnsServer cmdlets over WinRM (HTTPS); creating and deleting
+    zones from **Zones & VLANs** works too.
+  - **DNS: Microsoft Entra ID (Azure DNS)**: Azure DNS and Azure Private DNS zones, signed in with an
+    Entra ID app registration (client credentials). Entra ID holds no DNS records itself; it is how NCC is
+    allowed to change your Azure zones. Sovereign clouds work by changing the two endpoints.
+  - **Virtualization: Microsoft Hyper-V**: VMs, host load, guest addresses and power, settings and delete
+    actions, over WinRM.
+  - **Routers, firewalls and switches of any vendor over SNMP**: name, model, ports and their state, LLDP
+    neighbours (drawn on the topology map, next to UniFi's), the MAC table (wired clients and the port they
+    are on) and the ARP table (their addresses). The wizard has entries with setup steps for Cisco, Juniper,
+    HPE Aruba, MikroTik, Fortinet, Palo Alto, pfSense/OPNsense, SonicWall, Sophos, Netgear, TP-Link, Dell and
+    Arista. Read only.
 - **Vault**: a built-in encrypted vault (AES-256-GCM envelope encryption, Argon2id-derived
   master key) or **HashiCorp Vault** (KV v2, token or AppRole). All device and DNS credentials
   live there; values never reach the browser unless an admin reveals them.
@@ -152,12 +172,17 @@ This first release (the MVP) covers:
   files as `.ncc-bak`, then checks that the server now serves the new certificate. See
   [Deploying certificates](#deploying-certificates).
 - **Security**: HTTPS by default, Argon2id passwords, TOTP two-factor sign-in, roles
-  (viewer, operator, admin), CSRF protection, login rate limiting, and a hash-chained audit log.
+  (viewer, operator, admin), CSRF protection, login rate limiting, and a hash-chained audit log
+  that admins can export as CSV or JSON Lines for a SIEM.
+- **Operations**: `/api/health` (liveness) and `/api/ready` (readiness), JSON logs with a request id
+  per request, optional Prometheus metrics, configuration checked at startup (`ncc -check-config`),
+  secrets from files, and correct client addresses behind a reverse proxy. See
+  [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
 - **Accounts**: anyone can change their own password under **Settings** (it asks for the current
   one and logs out every other browser). Admins can reset another user's password, which logs
   that user out everywhere, and delete users. The last admin cannot be deleted.
 
-How NCC is built is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Port profile editing, BIND (RFC 2136), ACME / Let's Encrypt and more vendors come in later phases.
+How NCC is built is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Port profile editing, ACME / Let's Encrypt, single sign-on and more vendors come in later phases.
 
 ## Quick start
 
@@ -406,9 +431,11 @@ internal/config/         config.yaml loading and defaults
 internal/core/           connections (targets), poller, snapshots, topology, VLAN moves, traffic
 internal/inventory/      vendor-neutral network model that device drivers produce
 internal/store/          SQLite database and migrations
-internal/drivers/        device driver interface; unifi/
-internal/dns/            DNS provider interface; powerdns/
-internal/hypervisor/     virtual machine provider interface; proxmox/, vmware/
+internal/drivers/        device driver interface; unifi/, snmpnet/
+internal/catalog/        what the Add connection wizard offers: groups, vendors, form fields
+internal/dns/            DNS provider interface; powerdns/, bind/, windowsdns/, azuredns/
+internal/hypervisor/     virtual machine provider interface; proxmox/, vmware/, hyperv/
+internal/winps/          PowerShell over WinRM for the Windows providers
 internal/storage/        NAS provider interface; qnap/, synology/, smb/, nfs/, snmpnas/
 internal/iot/            IoT inventory: device classification, locations, IoT network policy
 internal/smarthome/      smart home provider interface and Matter codes; homeassistant/
@@ -426,7 +453,9 @@ deploy/                  Docker Compose, Proxmox Terraform, Home Assistant setup
 
 Implement the interface for the category (`drivers.Driver`, `dns.Provider`,
 `hypervisor.Provider`, `storage.Provider` or `smarthome.Provider`), call `Register` from
-`init()`, and import the package in `cmd/ncc/main.go`. The steps for the UI side are in
+`init()` with its `catalog.Vendor` entry (label, wizard group, setup help, form fields), and
+import the package in `cmd/ncc/main.go`. The Add connection wizard and the edit form are built
+from the entry, so no UI code is needed. Details in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#adding-a-new-kind-of-connection).
 
 ## License
