@@ -146,6 +146,12 @@ for cidr in $NCC_ALLOWED_CIDRS; do
   ufw allow from "$cidr" to any port 22 proto tcp >/dev/null
   ufw allow from "$cidr" to any port "$NCC_PORT" proto tcp >/dev/null
 done
+# DNS query logs (dns_log): only the resolvers that send them may connect.
+if [ -n "${NCC_DNS_LOG_PORT:-}" ]; then
+  for src in ${NCC_DNS_LOG_ALLOW:-}; do
+    ufw allow from "$src" to any port "$NCC_DNS_LOG_PORT" proto tcp >/dev/null
+  done
+fi
 ufw --force enable >/dev/null
 
 # --- health check ----------------------------------------------------------

@@ -94,3 +94,42 @@ run "rejects_bad_ip" {
   }
   expect_failures = [var.vm_ipv4_cidr]
 }
+
+run "dns_log_off_by_default" {
+  command = plan
+  assert {
+    condition     = !can(yamldecode(local.ncc_config_yaml).dns_log)
+    error_message = "dns_log should be absent unless ncc_dns_log is set"
+  }
+  assert {
+    condition     = strcontains(local.deploy_bundle, "NCC_DNS_LOG_PORT=\n")
+    error_message = "no DNS log port should be opened by default"
+  }
+}
+
+run "dns_log_on" {
+  command = plan
+  variables {
+    ncc_dns_log = { allow = ["192.168.1.70"] }
+  }
+  assert {
+    condition = yamldecode(local.ncc_config_yaml).dns_log == {
+      listen = ":4242"
+      allow  = ["192.168.1.70"]
+      retain = "168h"
+    }
+    error_message = "dns_log config"
+  }
+  assert {
+    condition     = strcontains(local.deploy_bundle, "NCC_DNS_LOG_PORT=4242\nNCC_DNS_LOG_ALLOW='192.168.1.70'")
+    error_message = "firewall should open 4242 to the resolver only"
+  }
+}
+
+run "dns_log_needs_allow" {
+  command = plan
+  variables {
+    ncc_dns_log = { allow = [] }
+  }
+  expect_failures = [var.ncc_dns_log]
+}

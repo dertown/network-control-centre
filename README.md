@@ -300,7 +300,11 @@ type. It uses three sources, each optional beyond the first:
      allow: ["192.168.1.70"]   # the resolver's address; other senders are refused
    ```
 
-   then point the resolver at it. PowerDNS Recursor 5 (`recursor.yml`):
+   If you deployed NCC with `deploy/proxmox`, set this in `terraform.tfvars` instead and run
+   `terraform apply`; it writes the section and opens the port on the VM firewall to the
+   resolver only: `ncc_dns_log = { allow = ["192.168.1.70"] }`.
+
+   Then point the resolver at it. PowerDNS Recursor 5 (`recursor.yml`):
 
    ```yaml
    logging:

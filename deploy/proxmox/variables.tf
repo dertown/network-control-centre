@@ -194,6 +194,21 @@ variable "ncc_poll_interval" {
   default     = "30s"
 }
 
+variable "ncc_dns_log" {
+  description = "DNS query log receiver for the Traffic page's sites lists. Set allow to the PowerDNS Recursor or dnsdist addresses that send protobuf query logs; the VM firewall opens port only to them. Null leaves it off."
+  type = object({
+    port   = optional(number, 4242)
+    allow  = list(string)
+    retain = optional(string, "168h")
+  })
+  default = null
+
+  validation {
+    condition     = var.ncc_dns_log == null ? true : length(var.ncc_dns_log.allow) > 0
+    error_message = "ncc_dns_log.allow must list at least one resolver address: the receiver has no authentication."
+  }
+}
+
 variable "ncc_vault_backend" {
   description = "\"local\" (built-in encrypted vault) or \"hashicorp\"."
   type        = string
