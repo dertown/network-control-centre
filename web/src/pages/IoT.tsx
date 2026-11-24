@@ -10,7 +10,7 @@ import { Modal, PageHeader, PageLoading, Tile } from "../ui";
 import { pollNow } from "../connections";
 import { SmartHome } from "./SmartHome";
 
-const TITLE = "IoT devices";
+const TITLE = "IoT Devices";
 
 export const typeInfo: Record<string, { label: string; one: string; icon: IconName }> = {
   camera: { label: "Cameras", one: "Camera", icon: "camera" },

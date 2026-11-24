@@ -76,12 +76,12 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
   const hostsOnline = hosts.filter((h) => h.online).length;
   const multiSource = new Set(hosts.map((h) => h.target)).size > 1;
 
-  if (!view) return <PageLoading title="Virtual machines" err={err} />;
+  if (!view) return <PageLoading title="Virtual Machines" err={err} />;
 
   if (sources.length === 0) {
     return (
       <>
-        <h1>Virtual machines</h1>
+        <h1>Virtual Machines</h1>
         <p className="muted lede">See every virtual machine and container on your Proxmox VE cluster or VMware vCenter and ESXi hosts in one list.</p>
         <section className="card">
           <div className="empty" style={{ alignItems: "flex-start", textAlign: "left", padding: 0 }}>
@@ -99,7 +99,7 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
 
   return (
     <>
-      <PageHeader title="Virtual machines">
+      <PageHeader title="Virtual Machines">
         {adder.button}
         <RefreshButton user={user} busy={busy} onClick={refresh} />
       </PageHeader>

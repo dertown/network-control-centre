@@ -75,7 +75,7 @@ export function Vault({ user, vault, onVault }: { user: User; vault: VaultStatus
 
   return (
     <>
-      <h1>Vault &amp; certificates</h1>
+      <h1>Vault &amp; Certificates</h1>
       {err && <div className="error block">{err}</div>}
       {note && <div className="ok block">{note} <button className="link" onClick={() => setNote("")}>Dismiss</button></div>}
 

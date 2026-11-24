@@ -11,7 +11,7 @@ export function Audit() {
   }, []);
   return (
     <>
-      <h1>Audit log</h1>
+      <h1>Audit Log</h1>
       <p>
         Every login, vault access and change is recorded. Each entry includes a hash of the one before it, so edits or deletions are detectable.{" "}
         {intact === true && <span className="pill good">chain intact</span>}

@@ -428,3 +428,9 @@ Implement the interface for the category (`drivers.Driver`, `dns.Provider`,
 `hypervisor.Provider`, `storage.Provider` or `smarthome.Provider`), call `Register` from
 `init()`, and import the package in `cmd/ncc/main.go`. The steps for the UI side are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#adding-a-new-kind-of-connection).
+
+## License
+
+NCC is licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) for
+attribution. Unless required by applicable law or agreed to in writing, NCC is distributed on
+an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
