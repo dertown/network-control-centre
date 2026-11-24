@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +47,14 @@ type Server struct {
 	// SelfIPs lists NCC's own addresses (so Wi-Fi changes can't cut NCC off); nil reads the
 	// network interfaces.
 	SelfIPs func() []string
+	// TrustedProxies are reverse proxies whose X-Forwarded-For is believed (see realIP).
+	TrustedProxies []netip.Prefix
+	// Version is reported by /api/health and /metrics.
+	Version string
+	// MetricsEnabled serves Prometheus metrics at /metrics; MetricsToken, when set, is the
+	// bearer token scrapers must send.
+	MetricsEnabled bool
+	MetricsToken   string
 
 	limiter *loginLimiter
 	aiState assistantState
@@ -75,7 +84,17 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	// public
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]string{"status": "ok", "version": s.Version})
+	})
+	mux.HandleFunc("GET /api/ready", s.ready)
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		if !s.MetricsEnabled {
+			http.NotFound(w, r) // off unless metrics.enabled is set
+			return
+		}
+		s.serveMetrics(w, r)
+	})
 	mux.HandleFunc("GET /api/setup", s.getSetup)
 	mux.HandleFunc("POST /api/setup", s.postSetup)
 	mux.HandleFunc("POST /api/login", s.login)
@@ -202,6 +221,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.Handle("GET /api/audit", a(s.listAudit))
 	mux.Handle("GET /api/audit/verify", a(s.verifyAudit))
+	mux.Handle("GET /api/audit/export", a(s.exportAudit))
 	mux.Handle("GET /api/users", a(s.listUsers))
 	mux.Handle("POST /api/users", a(s.createUser))
 	mux.Handle("PUT /api/users/{id}/password", a(s.resetPassword))
@@ -209,7 +229,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeErr(w, 404, "no such endpoint") })
 	mux.Handle("/", s.static())
-	return s.secHeaders(withGzip(mux))
+	return s.observe(s.secHeaders(withGzip(mux)))
 }
 
 func (s *Server) secHeaders(next http.Handler) http.Handler {
@@ -248,6 +268,9 @@ func (s *Server) authed(role string, h http.HandlerFunc) http.Handler {
 		if !auth.Allows(sess.User.Role, role) {
 			writeErr(w, 403, "your role ("+sess.User.Role+") cannot do this; needs "+role)
 			return
+		}
+		if i := infoFrom(r); i != nil {
+			i.user = sess.User.Username
 		}
 		h(w, r.WithContext(context.WithValue(r.Context(), sessKey, sess)))
 	})
@@ -342,10 +365,21 @@ func (l *loginLimiter) allow(ip string) bool {
 		return false
 	}
 	l.hits[ip] = append(keep, time.Now())
+	if len(l.hits) > 10000 { // forget addresses with no recent attempts, so the map can't grow without bound
+		for k, ts := range l.hits {
+			if len(ts) == 0 || ts[len(ts)-1].Before(cut) {
+				delete(l.hits, k)
+			}
+		}
+	}
 	return true
 }
 
+// clientIP is the client's address, through trusted reverse proxies (see realIP).
 func clientIP(r *http.Request) string {
+	if i := infoFrom(r); i != nil && i.ip != "" {
+		return i.ip
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

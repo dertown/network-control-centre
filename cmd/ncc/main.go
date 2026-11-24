@@ -8,8 +8,8 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
-	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -51,17 +51,81 @@ import (
 var version = "dev"
 
 func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if len(os.Args) > 1 && os.Args[1] == "version" {
 		fmt.Println(version)
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		// for container health checks (the image has no shell or curl)
+		os.Exit(healthcheck(os.Getenv("NCC_CONFIG")))
+	}
 	cfgPath := flag.String("config", os.Getenv("NCC_CONFIG"), "path to config.yaml")
+	checkOnly := flag.Bool("check-config", false, "check the configuration file and exit")
 	flag.Parse()
-	if err := run(log, *cfgPath); err != nil {
+	cfg, warnings, err := config.Load(*cfgPath)
+	log := newLogger(cfg.Log)
+	for _, w := range warnings {
+		log.Warn(w)
+	}
+	if err != nil {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
 	}
+	if *checkOnly {
+		fmt.Println("config OK")
+		return
+	}
+	if err := run(log, cfg); err != nil {
+		log.Error("fatal", "err", err)
+		os.Exit(1)
+	}
+}
+
+// newLogger builds NCC's log: text (default) or JSON lines, at the configured level.
+func newLogger(c config.LogConfig) *slog.Logger {
+	var level slog.Level
+	switch strings.ToLower(c.Level) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+	opts := &slog.HandlerOptions{Level: level}
+	if strings.EqualFold(c.Format, "json") {
+		return slog.New(slog.NewJSONHandler(os.Stderr, opts))
+	}
+	return slog.New(slog.NewTextHandler(os.Stderr, opts))
+}
+
+// healthcheck asks the local server whether it is ready; 0 means yes.
+func healthcheck(cfgPath string) int {
+	cfg, _, err := config.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	_, port, _ := net.SplitHostPort(cfg.Listen)
+	scheme := "https"
+	if cfg.PlainHTTP {
+		scheme = "http"
+	}
+	hc := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
+		// our own server on loopback, usually with its self-signed certificate
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+	}}
+	resp, err := hc.Get(scheme + "://127.0.0.1:" + port + "/api/ready")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintln(os.Stderr, "not ready:", resp.Status)
+		return 1
+	}
+	return 0
 }
 
 func buildVault(cfg config.Config, st *store.Store) (vault.Store, error) {
@@ -79,11 +143,7 @@ func buildVault(cfg config.Config, st *store.Store) (vault.Store, error) {
 	}
 }
 
-func run(log *slog.Logger, cfgPath string) error {
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return err
-	}
+func run(log *slog.Logger, cfg config.Config) error {
 	st, err := store.Open(cfg.DataDir)
 	if err != nil {
 		return err
@@ -121,7 +181,7 @@ func run(log *slog.Logger, cfgPath string) error {
 	poller := &core.Poller{DB: st.DB, Targets: targets, Vault: vs, Hub: hub, Interval: cfg.Poll, Log: log, Traffic: traffic}
 	var dnsLog *dnslog.Collector
 	if cfg.DNSLog.Listen != "" {
-		allow, err := parseAllow(cfg.DNSLog.Allow)
+		allow, err := config.ParsePrefixes(cfg.DNSLog.Allow)
 		if err != nil {
 			return err
 		}
@@ -134,6 +194,19 @@ func run(log *slog.Logger, cfgPath string) error {
 		log.Info("DNS query log receiver listening", "addr", cfg.DNSLog.Listen, "allow", cfg.DNSLog.Allow)
 	}
 	authSvc := auth.New(st.DB)
+	authSvc.SessionTTL = cfg.SessionTTL
+	proxies, err := config.ParsePrefixes(cfg.TrustedProxies)
+	if err != nil {
+		return err
+	}
+	metricsToken := ""
+	if cfg.Metrics.TokenFile != "" {
+		b, err := os.ReadFile(cfg.Metrics.TokenFile)
+		if err != nil {
+			return fmt.Errorf("metrics.token_file: %w", err)
+		}
+		metricsToken = strings.TrimSpace(string(b))
+	}
 	auditLog := audit.New(st.DB)
 	certs := &pki.Inventory{DB: st.DB, Vault: vs}
 	deploy := &certdeploy.Service{DB: st.DB, Vault: vs, Certs: certs, Audit: auditLog}
@@ -150,7 +223,9 @@ func run(log *slog.Logger, cfgPath string) error {
 		Traffic: traffic, DNSLog: dnsLog,
 		Assistant: &assistant.Service{DB: st.DB, Vault: vs, ToolsDir: toolsDir},
 		UI:        web.UI(), Log: log, SecureCookies: !cfg.PlainHTTP || cfg.BehindTLSProxy,
+		TrustedProxies: proxies, Version: version, MetricsEnabled: cfg.Metrics.Enabled, MetricsToken: metricsToken,
 	}
+	poller.Observe = srv.ObservePoll
 
 	go poller.Run(ctx)
 	go func() {
@@ -194,22 +269,4 @@ func run(log *slog.Logger, cfgPath string) error {
 		return nil
 	}
 	return err
-}
-
-// parseAllow reads dns_log.allow: plain addresses or CIDR prefixes.
-func parseAllow(in []string) ([]netip.Prefix, error) {
-	var out []netip.Prefix
-	for _, s := range in {
-		s = strings.TrimSpace(s)
-		if p, err := netip.ParsePrefix(s); err == nil {
-			out = append(out, p.Masked())
-			continue
-		}
-		a, err := netip.ParseAddr(s)
-		if err != nil {
-			return nil, fmt.Errorf("dns_log.allow: %q is not an address or CIDR", s)
-		}
-		out = append(out, netip.PrefixFrom(a, a.BitLen()))
-	}
-	return out, nil
 }

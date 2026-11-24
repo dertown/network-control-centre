@@ -68,6 +68,8 @@ type Poller struct {
 	Keep     int // snapshots kept per target
 	Traffic  *Traffic
 	Log      *slog.Logger
+	// Observe, when set, is told about every finished poll (for metrics).
+	Observe func(category, kind string, err error, took time.Duration)
 
 	mu      sync.Mutex
 	running map[int64]bool
@@ -128,7 +130,7 @@ func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, er
 
 // poll is PollOne for a target already loaded (PollAll has just listed them all, so it
 // doesn't read each one again).
-func (p *Poller) poll(ctx context.Context, t *Target) (*inventory.Snapshot, error) {
+func (p *Poller) poll(ctx context.Context, t *Target) (_ *inventory.Snapshot, err error) {
 	id := t.ID
 	p.mu.Lock()
 	if p.running == nil {
@@ -141,6 +143,9 @@ func (p *Poller) poll(ctx context.Context, t *Target) (*inventory.Snapshot, erro
 	p.running[id] = true
 	p.mu.Unlock()
 	defer func() { p.mu.Lock(); delete(p.running, id); p.mu.Unlock() }()
+	if p.Observe != nil {
+		defer func(start time.Time) { p.Observe(t.Category, t.Kind, err, time.Since(start)) }(time.Now())
+	}
 
 	switch t.Category {
 	case CategoryDNS:

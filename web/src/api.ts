@@ -201,7 +201,7 @@ export interface VMHost {
   version?: string; model?: string; target: string; platform: "proxmox" | "vmware" | "hyperv";
 }
 export interface VMSource {
-  id: number; name: string; kind: "proxmox" | "vmware"; address: string; enabled: boolean; version?: string; taken_at?: string;
+  id: number; name: string; kind: "proxmox" | "vmware" | "hyperv"; address: string; enabled: boolean; version?: string; taken_at?: string;
   last_error?: string; warnings?: string[];
 }
 export interface VMView { sources: VMSource[]; hosts: VMHost[]; vms: VM[] }

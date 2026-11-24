@@ -1,4 +1,5 @@
-// Audit log page (admins): the newest 500 entries and whether the hash chain is intact.
+// Audit log page (admins): the newest 500 entries, whether the hash chain is intact, and the
+// whole log as CSV or JSON Lines.
 import { useEffect, useState } from "react";
 import { api, AuditEntry } from "../api";
 
@@ -16,6 +17,10 @@ export function Audit() {
         Every login, vault access and change is recorded. Each entry includes a hash of the one before it, so edits or deletions are detectable.{" "}
         {intact === true && <span className="pill good">chain intact</span>}
         {intact === false && <span className="pill bad">chain broken: entries were altered</span>}
+      </p>
+      <p className="row small">
+        <a className="button" href="/api/audit/export?format=csv" download>Download CSV</a>
+        <a className="button" href="/api/audit/export?format=jsonl" download>Download JSON Lines (for a SIEM)</a>
       </p>
       <div className="card flush">
         <table>
