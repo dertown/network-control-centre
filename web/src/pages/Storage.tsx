@@ -9,7 +9,6 @@ import { Icon, IconName } from "../icons";
 import { Meter, Sparkline } from "../charts";
 import { AlertList, PageHeader, PageLoading, SourceBanners, Tile } from "../ui";
 import { ConnectionPicker, RefreshButton, useConnectionAdder, useSourceData } from "../connections";
-import { StorageKind } from "./Settings";
 
 const healthTone: Record<string, "good" | "warn" | "bad" | ""> = { good: "good", warning: "warn", critical: "bad", unknown: "" };
 const healthWord: Record<string, string> = { good: "Healthy", warning: "Warning", critical: "Critical", unknown: "Unknown" };
@@ -26,16 +25,14 @@ function tempTone(c: number | undefined, ssd?: boolean): "good" | "warn" | "bad"
   return c >= b ? "bad" : c >= w ? "warn" : "good";
 }
 
-const addKinds: [StorageKind, string][] = [
-  ["qnap", "Add QNAP NAS"], ["synology", "Add Synology"], ["smb", "Add SMB server"], ["nfs", "Add NFS server"], ["snmp", "Add over SNMP"],
-];
+const addGroup = "storage";
 
 export function Storage({ tick, user }: { tick: number; user: User }) {
   const { data: sources, err, busy, refetch, refresh } = useSourceData<{ sources: StorageSource[] }, StorageSource[]>(
     "/api/storage", tick, (d) => d, (r) => r.sources);
   const [pick, setPick] = useState<number | null>(null);
   const isAdmin = user.role === "admin";
-  const adder = useConnectionAdder(addKinds, user, refetch);
+  const adder = useConnectionAdder(addGroup, user, refetch);
 
   const live = useMemo(() => (sources ?? []).filter((s) => s.enabled && s.inventory), [sources]);
   const invs = live.map((s) => s.inventory!);
@@ -65,7 +62,7 @@ export function Storage({ tick, user }: { tick: number; user: User }) {
               SMB or NFS server shows its shares; anything else that speaks SNMP shows its disks and file systems. Logins are kept in the vault.
             </p>
           </div>
-          {isAdmin ? <ConnectionPicker kinds={addKinds} onDone={refetch} primary /> : <p className="muted small">Ask an admin to add your NAS.</p>}
+          {isAdmin ? <ConnectionPicker group={addGroup} onDone={refetch} primary /> : <p className="muted small">Ask an admin to add your NAS.</p>}
         </section>
       </>
     );

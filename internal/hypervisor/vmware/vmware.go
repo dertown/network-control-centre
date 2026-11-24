@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"net"
 	"net/url"
 	"strings"
@@ -27,7 +28,19 @@ import (
 	"github.com/dertown/network-control-centre/internal/netutil"
 )
 
-func init() { hv.Register(Provider{}) }
+func init() {
+	up := catalog.UserPassword("ncc@vsphere.local", nil)
+	up[0].Default = "ncc@vsphere.local"
+	hv.Register(Provider{}, catalog.Vendor{
+		Label: "VMware vCenter / ESXi", Groups: []string{catalog.GroupVirtualization}, Order: 20,
+		Summary: "vCenter Server or a standalone ESXi host.",
+		Help: "Use your vCenter Server address, or a standalone ESXi host's address. A user with the Read-only role is enough to " +
+			"read (vCenter: ncc@vsphere.local; ESXi: a local user); power and edit actions need a role that allows them. Guest IP " +
+			"addresses come from VMware Tools. The self-signed certificate is pinned on first connection.",
+		NameDefault: "vcenter", AddressDefault: "https://vcenter.lan",
+		Fields: append(up, catalog.TLSField("pin")),
+	})
+}
 
 // Provider implements hypervisor.Provider for vCenter and ESXi.
 type Provider struct{}

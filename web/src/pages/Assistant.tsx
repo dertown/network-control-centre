@@ -12,7 +12,7 @@ import { Icon, IconName } from "../icons";
 import { Modal, PageHeader, PageLoading } from "../ui";
 import { typeInfo } from "./IoT";
 
-const TITLE = "AI assistant";
+const TITLE = "AI Assistant";
 
 interface Home { providers: AIProvider[]; plans: AIPlan[] }
 

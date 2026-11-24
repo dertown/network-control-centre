@@ -60,6 +60,9 @@ var migrations = []string{
 		data TEXT NOT NULL
 	)`,
 	`CREATE INDEX IF NOT EXISTS snapshots_target ON snapshots(target_id, taken_at)`,
+	// the newest snapshot per target (MAX(id) GROUP BY target_id) and trimming old ones
+	// (ORDER BY id DESC) read this index alone instead of scanning the table
+	`CREATE INDEX IF NOT EXISTS snapshots_target_id ON snapshots(target_id, id)`,
 	`CREATE TABLE IF NOT EXISTS local_secrets (
 		path TEXT PRIMARY KEY,
 		version INTEGER NOT NULL,
@@ -224,7 +227,10 @@ func Open(dataDir string) (*Store, error) {
 func OpenPath(path string) (*Store, error) {
 	dsn := path
 	if path != ":memory:" {
-		dsn = "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+		// synchronous(NORMAL) is the usual setting with WAL: still crash-safe (a power cut can
+		// lose the last commits, never corrupt the file) without an fsync on every commit,
+		// which matters when every poll writes snapshots and samples.
+		dsn = "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
 	} else {
 		dsn = "file::memory:?_pragma=foreign_keys(1)"
 	}

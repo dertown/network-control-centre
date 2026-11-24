@@ -7,7 +7,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { api, User } from "./api";
 import { Icon } from "./icons";
-import { AddTarget, Kind } from "./pages/Settings";
+import { AddConnection, ConnectionForm, useCatalog, vendorsIn } from "./connectionWizard";
 import { SourceStatus } from "./ui";
 
 /**
@@ -55,17 +55,22 @@ export function RefreshButton({ user, busy, onClick }: { user: User; busy: boole
 }
 
 /**
- * ConnectionPicker offers one button per connection kind; picking one opens the add form.
- * primary highlights the first button (used on empty pages, where adding is the next step).
+ * ConnectionPicker offers one button per vendor of a wizard group (e.g. "storage"); picking one
+ * opens its form. primary highlights the first button (used on empty pages, where adding is the
+ * next step).
  */
-export function ConnectionPicker({ kinds, onDone, primary, footer }: {
-  kinds: [Kind, string][]; onDone: () => void; primary?: boolean; footer?: ReactNode;
+export function ConnectionPicker({ group, onDone, primary, footer }: {
+  group: string; onDone: () => void; primary?: boolean; footer?: ReactNode;
 }) {
-  const [kind, setKind] = useState<Kind | null>(null);
-  if (kind) return <AddTarget kind={kind} onDone={() => { setKind(null); onDone(); }} />;
+  const { catalog, err } = useCatalog();
+  const [id, setId] = useState<string | null>(null);
+  const vendors = catalog ? vendorsIn(catalog, group) : [];
+  const picked = vendors.find((v) => v.id === id);
+  if (picked) return <ConnectionForm vendor={picked} onDone={() => { setId(null); onDone(); }} onBack={vendors.length > 1 ? () => setId(null) : undefined} />;
   return (
     <div className="row">
-      {kinds.map(([k, label], i) => <button key={k} className={primary && i === 0 ? "primary" : ""} onClick={() => setKind(k)}>{label}</button>)}
+      {err && <span className="error">{err}</span>}
+      {vendors.map((v, i) => <button key={v.id} className={primary && i === 0 ? "primary" : ""} onClick={() => setId(v.id)}>Add {v.label}</button>)}
       {footer}
     </div>
   );
@@ -73,26 +78,22 @@ export function ConnectionPicker({ kinds, onDone, primary, footer }: {
 
 /**
  * useConnectionAdder gives a page an admin-only "Add connection" button for its header and
- * the panel it opens (place it under the header). With a single kind the button opens that
- * kind's form directly. onAdded runs after the form closes, saved or cancelled.
+ * the panel it opens (place it under the header): the Add connection wizard for the page's
+ * group, starting at the vendor question. onAdded runs after the wizard closes, saved or
+ * cancelled.
  */
-export function useConnectionAdder(kinds: [Kind, string][], user: User, onAdded: () => void): { button: ReactNode; panel: ReactNode } {
+export function useConnectionAdder(group: string, user: User, onAdded: () => void): { button: ReactNode; panel: ReactNode } {
   const [open, setOpen] = useState(false);
   if (user.role !== "admin") return { button: null, panel: null };
   const done = () => { setOpen(false); onAdded(); };
   const button = (
     <button onClick={() => setOpen(!open)} aria-expanded={open}><Icon name="plus" size={15} />Add connection</button>
   );
-  const manage = <a href="#/settings" className="small">Edit or remove connections in Settings →</a>;
-  const panel = open && (kinds.length === 1
-    ? <AddTarget kind={kinds[0][0]} onDone={done} />
-    : (
-      <div className="subcard">
-        <ConnectionPicker kinds={kinds} onDone={done} footer={<>
-          <button type="button" onClick={() => setOpen(false)}>Cancel</button>
-          {manage}
-        </>} />
-      </div>
-    ));
+  const panel = open && (
+    <>
+      <AddConnection groups={[group]} onDone={done} />
+      <p className="small"><a href="#/settings">Edit or remove connections in Settings →</a></p>
+    </>
+  );
   return { button, panel };
 }

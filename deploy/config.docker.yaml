@@ -1,0 +1,12 @@
+# NCC configuration for the container image (see config.example.yaml for every setting).
+# docker-compose.yml mounts this file; edit it and run `docker compose up -d` again.
+listen: ":8443"
+data_dir: "/data"
+poll: 30s
+
+log:
+  format: json   # one JSON object per line, for log collectors
+  level: info
+
+vault:
+  backend: local

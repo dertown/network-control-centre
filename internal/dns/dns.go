@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"net/netip"
 	"sort"
 	"strings"
@@ -99,8 +100,13 @@ var (
 	providers = map[string]Provider{}
 )
 
-// Register adds a provider.
-func Register(p Provider) { mu.Lock(); providers[p.Kind()] = p; mu.Unlock() }
+// Register adds a provider and its entries for the Settings wizard (see package catalog).
+func Register(p Provider, entries ...catalog.Vendor) {
+	mu.Lock()
+	providers[p.Kind()] = p
+	mu.Unlock()
+	catalog.Register(p.Kind(), "dns", entries...)
+}
 
 // Get returns a provider by kind.
 func Get(kind string) (Provider, error) {

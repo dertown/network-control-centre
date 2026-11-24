@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"io"
 	"math/rand/v2"
 	"net"
@@ -23,7 +24,15 @@ import (
 	"github.com/dertown/network-control-centre/internal/storage"
 )
 
-func init() { storage.Register(Provider{}) }
+func init() {
+	storage.Register(Provider{}, catalog.Vendor{
+		Label: "NFS server", Groups: []string{catalog.GroupStorage}, Order: 40,
+		Summary:     "Any NFS server: versions and export list.",
+		Help:        "NCC asks the server's portmapper and mountd for its NFS versions and export list (like showmount -e). No login is needed and nothing is mounted.",
+		NameDefault: "nfs", AddressKind: catalog.AddressHost, AddressDefault: "192.168.1.80", NoLogin: true,
+		Fields: []catalog.Field{},
+	})
+}
 
 // Provider implements storage.Provider for NFS servers.
 type Provider struct{}

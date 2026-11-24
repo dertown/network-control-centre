@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"io"
 	"net"
 	"net/http"
@@ -26,7 +27,27 @@ import (
 	"github.com/dertown/network-control-centre/internal/netutil"
 )
 
-func init() { hv.Register(Provider{}) }
+func init() {
+	tok, pw := map[string]string{"auth": "token"}, map[string]string{"auth": "password"}
+	hv.Register(Provider{}, catalog.Vendor{
+		Label: "Proxmox VE", Groups: []string{catalog.GroupVirtualization}, Order: 10,
+		Summary: "Proxmox VE nodes and clusters: VMs and LXC containers.",
+		Help: "Use any node's address on port 8006; in a cluster one node lists every VM. To only read, a read-only API token is best. " +
+			"On a node shell: pveum user add ncc@pve, pveum acl modify / --users ncc@pve --roles PVEAuditor, then " +
+			"pveum user token add ncc@pve monitor --privsep 0 and paste the secret it prints (use PVEVMAdmin to start, stop and edit VMs). " +
+			"Guest IP addresses need the QEMU guest agent in each VM. The node's self-signed certificate is pinned on first connection.",
+		NameDefault: "proxmox", AddressDefault: "https://192.168.1.10:8006",
+		Fields: []catalog.Field{
+			{Key: "auth", Label: "Sign in with", Type: catalog.Select, Store: catalog.StoreForm, Default: "token",
+				Choices: []catalog.Choice{{Value: "token", Label: "API token (recommended)"}, {Value: "password", Label: "Username + password"}}},
+			catalog.TLSField("pin"),
+			{Key: "token_id", Label: "Token id", Type: catalog.Token, Store: catalog.StoreSecret, Default: "ncc@pve!monitor", Placeholder: "ncc@pve!monitor", Required: true, ShowIf: tok},
+			{Key: "token_secret", Label: "Token secret", Type: catalog.Token, Store: catalog.StoreSecret, Required: true, ShowIf: tok},
+			{Key: "username", Label: "Username", Type: catalog.Text, Store: catalog.StoreSecret, Default: "root@pam", Placeholder: "root@pam", Required: true, ShowIf: pw},
+			{Key: "password", Label: "Password", Type: catalog.Password, Store: catalog.StoreSecret, Required: true, ShowIf: pw},
+		},
+	})
+}
 
 // Provider implements hypervisor.Provider for Proxmox VE.
 type Provider struct{}

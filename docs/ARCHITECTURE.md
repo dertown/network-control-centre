@@ -33,11 +33,20 @@ database (plus the local vault, which lives in the same database, encrypted).
 
    | Interface | Package | Implementations |
    |---|---|---|
-   | `drivers.Driver` (network devices) | `internal/drivers` | `unifi` |
-   | `dns.Provider` | `internal/dns` | `powerdns` |
-   | `hypervisor.Provider` | `internal/hypervisor` | `proxmox`, `vmware` |
+   | `drivers.Driver` (network devices) | `internal/drivers` | `unifi`, `snmpnet` (any vendor over SNMP) |
+   | `dns.Provider` | `internal/dns` | `powerdns`, `bind`, `windowsdns` (AD), `azuredns` (Entra ID) |
+   | `hypervisor.Provider` | `internal/hypervisor` | `proxmox`, `vmware`, `hyperv` |
    | `storage.Provider` | `internal/storage` | `qnap`, `synology`, `smb`, `nfs`, `snmpnas` |
    | `smarthome.Provider` | `internal/smarthome` | `homeassistant` |
+
+   Each `Register` call also takes the provider's **catalog entries** (`internal/catalog`): the
+   wizard group(s) it appears in (Virtualization, DNS, Routers & Gateways, Firewalls, Switches &
+   Access Points, Storage, Smart Home), its label and setup help, and its form fields with where
+   each value is kept (an option in the database, a secret in the vault, or only on the form).
+   One provider can have several entries: the SNMP driver has one per vendor, each with its own
+   setup steps and preset options. `GET /api/catalog` serves them; the server checks new and
+   edited connections against them. The Windows providers (`windowsdns`, `hyperv`) share
+   `internal/winps`, which runs PowerShell over certificate deployment's WinRM client.
 
    Device drivers return a vendor-neutral `inventory.Snapshot` (devices, ports, clients, links,
    networks, firewall, loops); the other providers return their own inventory types.
@@ -122,6 +131,7 @@ web/src/
   format.ts        bytes, rate, pct, ago, uptime
   ui.tsx           shared pieces: Tile, Modal, PageHeader, PageLoading, SourceBanners, AlertList
   connections.tsx  shared logic for connection pages: useSourceData, Refresh now, Add connection
+  connectionWizard.tsx  the Add connection wizard and the connection forms, built from /api/catalog
   charts.tsx       Donut, Sparkline, Meter
   icons.tsx        the icon set
   loops.tsx        switching-loop list and helpers (Topology and Dashboard)
@@ -168,8 +178,22 @@ on local ports so you can try the whole UI without a real network (see the READM
 ## Adding a new kind of connection
 
 1. Implement the interface for its category (table above) in a new package under that
-   category, and call `Register` from `init()`.
-2. Import the package for side effects in `cmd/ncc/main.go`.
-3. In the UI, add the kind to `Kind` and the add/edit forms in `pages/Settings.tsx`, and to the
-   `addKinds` list of the page that shows it.
-4. Add a pretend version to `internal/mocklab` so it can be tested and demoed.
+   category, and call `Register` from `init()` with its `catalog.Vendor` entry: label, summary,
+   setup help, wizard group(s), address kind (URL or host) and fields. Reuse the shared field
+   helpers (`catalog.TLSField`, `catalog.UserPassword`, `catalog.SNMPFields`, `winps.Fields`).
+2. Import the package for side effects in `cmd/ncc/main.go` (and in
+   `internal/catalog/catalog_test.go`, which checks every entry makes a usable form).
+3. Nothing in the UI: the wizard (`web/src/connectionWizard.tsx`) and the edit form are built
+   from the entry. Only pages that show a platform by name (e.g. `platformLabel` on the Virtual
+   Machines page) may want its label.
+4. Add a pretend version to `internal/mocklab`, or a fake server in the package's tests, so it
+   can be tested and demoed.
+
+## Operations
+
+`internal/api/middleware.go` gives every request an id (`X-Request-ID`), works out the client's
+address through `trusted_proxies`, counts it for `/metrics` and writes one access-log line
+(`slog`, text or JSON). `internal/api/ops.go` has `/api/ready`, the hand-written Prometheus
+exposition and the audit export. `internal/api/gzip.go` compresses large answers.
+`core.LatestSnapshots` caches decoded snapshots by id (they never change once written), so
+callers must treat the snapshots it returns as read-only.

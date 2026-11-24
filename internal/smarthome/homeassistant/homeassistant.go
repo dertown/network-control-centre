@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"io"
 	"math"
 	"net/http"
@@ -29,7 +30,20 @@ import (
 	"github.com/dertown/network-control-centre/internal/smarthome"
 )
 
-func init() { smarthome.Register(Provider{}) }
+func init() {
+	smarthome.Register(Provider{}, catalog.Vendor{
+		Label: "Home Assistant", Groups: []string{catalog.GroupSmartHome}, Order: 10,
+		Summary: "Devices, rooms and alerts from Home Assistant, and Matter pairing.",
+		Help: "Use the address you open Home Assistant at (usually port 8123). In Home Assistant open your profile → Security → " +
+			"Long-lived access tokens → Create token, and paste it here. Use an administrator's token so NCC can read rooms and pair " +
+			"Matter devices. An HTTPS certificate is pinned on first connection.",
+		NameDefault: "home-assistant", AddressDefault: "http://192.168.1.40:8123",
+		Fields: []catalog.Field{
+			{Key: "token", Label: "Access token", Type: catalog.Token, Store: catalog.StoreSecret, Required: true},
+			catalog.TLSField("pin"),
+		},
+	})
+}
 
 // Provider implements smarthome.Provider for Home Assistant.
 type Provider struct{}

@@ -8,6 +8,19 @@ poll: 30s                # how often device targets are polled
 # tls_key: /etc/ncc/tls.key
 # plain_http: true        # only behind a reverse proxy that terminates HTTPS
 # behind_tls_proxy: true  # with plain_http, keeps the Secure flag on cookies
+# trusted_proxies: ["10.0.0.5", "10.1.0.0/24"]  # proxies whose X-Forwarded-For is believed
+
+# session_ttl: 12h         # how long a sign-in lasts (5m to 720h)
+
+# NCC's own log on stderr; NCC_LOG_FORMAT / NCC_LOG_LEVEL override these.
+# log:
+#   format: text           # text or json (json for Loki, Elastic, Splunk...)
+#   level: info            # debug, info, warn or error
+
+# Prometheus metrics at /metrics (counts only, never names or secrets).
+# metrics:
+#   enabled: true
+#   token_file: /etc/ncc/metrics-token  # scrapers send "Authorization: Bearer <token>"
 
 # DNS query logs from PowerDNS Recursor or dnsdist, for the Traffic page's "sites" lists.
 # dns_log:
@@ -28,4 +41,6 @@ vault:
   # prefix: ncc            # secrets live under secret/ncc/...
   # role_id: "..."         # AppRole (recommended), or token: / NCC_VAULT_TOKEN
   # secret_id: "..."
+  # secret_id_file: /run/secrets/ncc-secret-id  # or token_file:, instead of the value here
+  # namespace: admin       # Vault Enterprise namespace
   # ca_cert: /etc/ncc/vault-ca.pem

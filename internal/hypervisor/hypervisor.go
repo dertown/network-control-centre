@@ -5,6 +5,7 @@ package hypervisor
 import (
 	"context"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"sort"
 	"sync"
 	"time"
@@ -94,11 +95,13 @@ var (
 	providers = map[string]Provider{}
 )
 
-// Register adds a provider. Providers call it from init.
-func Register(p Provider) {
+// Register adds a provider and its entries for the Settings wizard (see package catalog).
+// Providers call it from init.
+func Register(p Provider, entries ...catalog.Vendor) {
 	mu.Lock()
-	defer mu.Unlock()
 	providers[p.Kind()] = p
+	mu.Unlock()
+	catalog.Register(p.Kind(), "hypervisor", entries...)
 }
 
 // Get returns a registered provider.

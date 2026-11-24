@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,7 +19,26 @@ import (
 	"github.com/dertown/network-control-centre/internal/netutil"
 )
 
-func init() { dns.Register(Provider{}) }
+func init() {
+	dns.Register(Provider{}, catalog.Vendor{
+		Label: "PowerDNS", Groups: []string{catalog.GroupDNS}, Order: 10,
+		Summary:     "PowerDNS Authoritative over its HTTP API, with the Recursor for the router DNS check.",
+		Help:        "Use the address of the PowerDNS webserver (webserver-address/webserver-port) and the api-key from pdns.conf.",
+		NameDefault: "powerdns", AddressDefault: "http://192.168.1.10:8081",
+		Fields: []catalog.Field{
+			{Key: "server_id", Label: "Server id", Type: catalog.Text, Store: catalog.StoreOption, Default: "localhost"},
+			{Key: "api_key", Label: "API key", Type: catalog.Token, Store: catalog.StoreSecret, Required: true},
+			catalog.TLSField("verify"),
+			{Key: "recursor_url", Label: "Recursor API URL", Type: catalog.Text, Store: catalog.StoreOption, Placeholder: "http://192.168.1.10:8082",
+				Section: "Router DNS check (optional)",
+				Help: "The Authoritative server never forwards; to check that internet queries go to your ISP, give the API of the " +
+					"PowerDNS Recursor your clients use (webserver=yes, api-key in recursor.conf)."},
+			{Key: "recursor_api_key", Label: "Recursor API key (if different)", Type: catalog.Token, Store: catalog.StoreSecret},
+			{Key: "resolver_ips", Label: "Address clients use", Type: catalog.Text, Store: catalog.StoreOption, Placeholder: "the Recursor's address"},
+			{Key: "isp_dns", Label: "ISP DNS servers", Type: catalog.Text, Store: catalog.StoreOption, Placeholder: "learned from the router's WAN"},
+		},
+	})
+}
 
 // Provider implements dns.Provider.
 //

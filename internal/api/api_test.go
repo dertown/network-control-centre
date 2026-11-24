@@ -74,6 +74,12 @@ func (c *client) do(method, path string, body any, out any) int {
 }
 
 func newNCC(t *testing.T) (*httptest.Server, *core.Poller) {
+	poller, srv := newNCCServer(t)
+	return httptest.NewServer(srv.Handler()), poller
+}
+
+// newNCCServer is newNCC before the handler is built, for tests that change settings.
+func newNCCServer(t *testing.T) (*core.Poller, *api.Server) {
 	st, err := store.OpenPath(":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +95,13 @@ func newNCC(t *testing.T) (*httptest.Server, *core.Poller) {
 	srv := &api.Server{Store: st, Auth: auth.New(st.DB), Audit: al, Vault: vs, Targets: targets,
 		Poller: poller, Hub: hub, Certs: certs, Log: log, Traffic: traffic,
 		Deploy: &certdeploy.Service{DB: st.DB, Vault: vs, Certs: certs, Audit: al}}
-	return httptest.NewServer(srv.Handler()), poller
+	return poller, srv
+}
+
+func httptestServer(t *testing.T, srv *api.Server) string {
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return ts.URL
 }
 
 func TestEndToEnd(t *testing.T) {

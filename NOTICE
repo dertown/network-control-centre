@@ -1,0 +1,9 @@
+Network Control Centre (NCC)
+Copyright 2026 The Network Control Centre authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software developed by third parties, each under its own
+license, and bundled into the NCC binary and web UI at build time. Their
+licenses are listed in go.mod / go.sum (Go modules) and web/package-lock.json
+(npm packages); each module's license text ships with its source.

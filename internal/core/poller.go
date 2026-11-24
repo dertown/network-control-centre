@@ -68,6 +68,8 @@ type Poller struct {
 	Keep     int // snapshots kept per target
 	Traffic  *Traffic
 	Log      *slog.Logger
+	// Observe, when set, is told about every finished poll (for metrics).
+	Observe func(category, kind string, err error, took time.Duration)
 
 	mu      sync.Mutex
 	running map[int64]bool
@@ -107,7 +109,7 @@ func (p *Poller) PollAll(ctx context.Context) {
 		wg.Add(1)
 		go func(t Target) {
 			defer wg.Done()
-			if _, err := p.PollOne(ctx, t.ID); err != nil && !errors.Is(err, vault.ErrSealed) {
+			if _, err := p.poll(ctx, &t); err != nil && !errors.Is(err, vault.ErrSealed) {
 				p.Log.Warn("poll failed", "target", t.Name, "err", err)
 			}
 		}(t)
@@ -119,6 +121,17 @@ func (p *Poller) PollAll(ctx context.Context) {
 // one DNS target, or reads the virtual machines of one hypervisor. DNS checks and
 // hypervisors return a nil snapshot.
 func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, error) {
+	t, err := p.Targets.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return p.poll(ctx, t)
+}
+
+// poll is PollOne for a target already loaded (PollAll has just listed them all, so it
+// doesn't read each one again).
+func (p *Poller) poll(ctx context.Context, t *Target) (_ *inventory.Snapshot, err error) {
+	id := t.ID
 	p.mu.Lock()
 	if p.running == nil {
 		p.running = map[int64]bool{}
@@ -130,11 +143,10 @@ func (p *Poller) PollOne(ctx context.Context, id int64) (*inventory.Snapshot, er
 	p.running[id] = true
 	p.mu.Unlock()
 	defer func() { p.mu.Lock(); delete(p.running, id); p.mu.Unlock() }()
-
-	t, err := p.Targets.Get(ctx, id)
-	if err != nil {
-		return nil, err
+	if p.Observe != nil {
+		defer func(start time.Time) { p.Observe(t.Category, t.Kind, err, time.Since(start)) }(time.Now())
 	}
+
 	switch t.Category {
 	case CategoryDNS:
 		err := p.checkDNS(ctx, t)
@@ -257,25 +269,85 @@ func SaveSnapshot(ctx context.Context, db *sql.DB, targetID int64, s *inventory.
 	return err
 }
 
-// LatestSnapshots returns the newest snapshot of every device target.
+// LatestSnapshots returns the newest snapshot of every enabled device target, ordered by
+// target id.
+//
+// Nearly every page (Dashboard, Topology, Devices, VLANs, Wi-Fi, IoT, DNS check...) is built
+// from these, and the Dashboard alone asks for six of them per live update, so decoded
+// snapshots are cached by snapshot id: a call costs one small index query plus decoding only
+// the snapshots that changed since the last call. The returned snapshots share their slices
+// with the cache, so callers must treat them as read-only (copy a slice before sorting or
+// appending to it, as the callers in this repository do).
 func LatestSnapshots(ctx context.Context, db *sql.DB) ([]inventory.Snapshot, error) {
-	rows, err := db.QueryContext(ctx, `SELECT s.data FROM snapshots s
-		JOIN (SELECT target_id, MAX(id) AS id FROM snapshots GROUP BY target_id) m ON m.id = s.id
-		JOIN targets t ON t.id = s.target_id WHERE t.enabled = 1`)
+	rows, err := db.QueryContext(ctx, `SELECT s.target_id, MAX(s.id) FROM snapshots s
+		JOIN targets t ON t.id = s.target_id WHERE t.enabled = 1
+		GROUP BY s.target_id ORDER BY s.target_id`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []inventory.Snapshot
+	var ids []int64
 	for rows.Next() {
-		var raw string
-		if err := rows.Scan(&raw); err != nil {
+		var tid, sid int64
+		if err := rows.Scan(&tid, &sid); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		var s inventory.Snapshot
-		if err := json.Unmarshal([]byte(raw), &s); err == nil {
-			out = append(out, s)
+		ids = append(ids, sid)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	c := snapCacheFor(db)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]inventory.Snapshot, 0, len(ids))
+	keep := make(map[int64]*inventory.Snapshot, len(ids))
+	for _, id := range ids {
+		sn, ok := c.byID[id]
+		if !ok {
+			var raw string
+			if err := db.QueryRowContext(ctx, `SELECT data FROM snapshots WHERE id = ?`, id).Scan(&raw); err != nil {
+				if errors.Is(err, sql.ErrNoRows) { // trimmed between the two queries
+					continue
+				}
+				return nil, err
+			}
+			var s inventory.Snapshot
+			if err := json.Unmarshal([]byte(raw), &s); err != nil {
+				sn = nil // undecodable: skipped, as before, and not retried until it changes
+			} else {
+				sn = &s
+			}
+		}
+		keep[id] = sn
+		if sn != nil {
+			out = append(out, *sn)
 		}
 	}
-	return out, rows.Err()
+	c.byID = keep // drops snapshots that were replaced, trimmed or belong to disabled targets
+	return out, nil
+}
+
+// snapCache holds the decoded newest snapshots of one database, by snapshot id. A snapshot
+// row never changes once written, so an id is a safe cache key.
+type snapCache struct {
+	mu   sync.Mutex
+	byID map[int64]*inventory.Snapshot
+}
+
+var (
+	snapCachesMu sync.Mutex
+	snapCaches   = map[*sql.DB]*snapCache{}
+)
+
+func snapCacheFor(db *sql.DB) *snapCache {
+	snapCachesMu.Lock()
+	defer snapCachesMu.Unlock()
+	c := snapCaches[db]
+	if c == nil {
+		c = &snapCache{byID: map[int64]*inventory.Snapshot{}}
+		snapCaches[db] = c
+	}
+	return c
 }

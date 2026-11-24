@@ -67,7 +67,7 @@ export function CertDeploy({ user, tick }: { user: User; tick: number }) {
 
   return (
     <>
-      <h1>Certificate deployment</h1>
+      <h1>Certificate Deployment</h1>
       <p className="muted">
         Install certificates from the vault on your servers: nginx, Apache, Tomcat, Splunk Enterprise, Splunk SOAR, Foundry VTT and other
         Linux services over SSH, and IIS over WinRM. Every deployment is previewed first, the old files are kept as <span className="mono">.ncc-bak</span>,
