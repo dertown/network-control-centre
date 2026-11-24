@@ -1,4 +1,4 @@
-.PHONY: all web build test demo
+.PHONY: all web build test demo licenses
 
 all: build
 
@@ -12,6 +12,13 @@ test:
 	go vet ./...
 	go test ./...
 	cd web && npm run typecheck
+
+# Regenerate third_party_licenses.json (shown on the About page) after changing Go or npm
+# dependencies. go test fails while it is out of date.
+licenses:
+	cd web && npm ci
+	go mod download
+	go run ./cmd/ncc-licenses
 
 # Run NCC against a pretend UniFi console and PowerDNS server (see README).
 demo: build

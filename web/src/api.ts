@@ -177,6 +177,10 @@ export interface Cert {
   status: "ok" | "expiring" | "critical" | "expired"; chain_length: number;
   chain?: string[]; chain_complete?: boolean; dropped?: string[];
 }
+export interface ServerHealth { status: string; version: string; commit?: string; commit_time?: string; modified?: boolean; go_version: string }
+export interface LicenseFile { name: string; text: string }
+export interface ThirdParty { name: string; version: string; ecosystem: "go" | "npm"; license: string; url?: string; files: LicenseFile[] }
+export interface About { name: string; license_id: string; license: string; notice: string; third_party: ThirdParty[] }
 export interface AuditEntry { id: number; ts: string; actor: string; action: string; target: string; detail: string }
 export interface AppUsage { cat: number; app: number; category: string; name: string; down_bytes: number; up_bytes: number }
 export interface SiteCount { site: string; service?: string; count: number }
