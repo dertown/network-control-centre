@@ -15,7 +15,8 @@ What `terraform apply` does:
    - writes `/etc/ncc/config.yaml` (and the vault passphrase / CA files if you set them), readable
      only by root and the `ncc` service user;
    - installs and starts `ncc.service` as the unprivileged `ncc` user, data in `/var/lib/ncc`;
-   - enables a `ufw` firewall that allows SSH and the NCC port only from `ssh_allowed_cidrs`;
+   - enables a `ufw` firewall that allows SSH and the NCC port only from `ssh_allowed_cidrs`
+     (and, with `ncc_dns_log`, the DNS query log port only from the resolvers in its `allow`);
    - waits for `https://127.0.0.1:8443/api/health` and fails the apply (with logs) if NCC does not start.
 
 Changing `ncc_git_ref` (or any NCC setting) and running `terraform apply` again rebuilds and

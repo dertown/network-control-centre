@@ -19,6 +19,13 @@ locals {
       data_dir = "/var/lib/ncc"
       poll     = var.ncc_poll_interval
     },
+    var.ncc_dns_log == null ? {} : {
+      dns_log = {
+        listen = ":${var.ncc_dns_log.port}"
+        allow  = var.ncc_dns_log.allow
+        retain = var.ncc_dns_log.retain
+      }
+    },
     {
       vault = local.use_hashicorp ? {
         for k, v in {
@@ -52,6 +59,8 @@ locals {
     "NCC_VAULT_CA_B64=${base64encode(coalesce(local.hc_ca_pem, " "))}",
     "NCC_PORT=${var.ncc_port}",
     "NCC_ALLOWED_CIDRS='${join(" ", var.ssh_allowed_cidrs)}'",
+    "NCC_DNS_LOG_PORT=${var.ncc_dns_log == null ? "" : var.ncc_dns_log.port}",
+    "NCC_DNS_LOG_ALLOW='${var.ncc_dns_log == null ? "" : join(" ", var.ncc_dns_log.allow)}'",
     "",
   ])
 }
