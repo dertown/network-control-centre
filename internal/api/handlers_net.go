@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -42,8 +43,51 @@ func (s *Server) listTargets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, ts)
 }
 
+// listCatalog is what the Settings wizard offers: the groups (Virtualization, DNS, Routers...)
+// and every vendor entry with its form fields.
+func (s *Server) listCatalog(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{"groups": catalog.Groups, "vendors": catalog.List()})
+}
+
+// providerRegistered checks that a provider of kind is compiled in for category.
+func providerRegistered(category, kind string) error {
+	var err error
+	switch category {
+	case core.CategoryDevice:
+		_, err = drivers.Get(kind)
+	case core.CategoryDNS:
+		_, err = dns.Get(kind)
+	case core.CategoryHypervisor:
+		_, err = hypervisor.Get(kind)
+	case core.CategoryStorage:
+		_, err = storage.Get(kind)
+	case core.CategorySmartHome:
+		_, err = smarthome.Get(kind)
+	default:
+		err = errors.New("category must be device, dns, hypervisor, storage or smarthome")
+	}
+	return err
+}
+
+// checkAddress validates a connection address for its catalog entry: a http(s) URL, or a
+// bare host (optionally with a port) for providers that don't speak HTTP.
+func checkAddress(v catalog.Vendor, addr string) error {
+	if addr == "" || len(addr) > 2048 || strings.ContainsAny(addr, " \t\r\n") {
+		return errors.New("give the server's address, e.g. 192.168.1.20")
+	}
+	if v.AddressKind == catalog.AddressHost {
+		return nil // SMB, NFS, SNMP, WinRM and DNS connections take a host (a smb://, nfs:// or snmp:// URL also works)
+	}
+	if !strings.HasPrefix(addr, "https://") && !strings.HasPrefix(addr, "http://") {
+		return errors.New("address must be a URL, e.g. https://192.168.1.1")
+	}
+	return nil
+}
+
 func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 	var in struct {
+		// Vendor is the catalog entry picked in the wizard; it sets kind and category.
+		Vendor      string            `json:"vendor"`
 		Kind        string            `json:"kind"`
 		Category    string            `json:"category"`
 		Name        string            `json:"name"`
@@ -54,49 +98,46 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
-	switch in.Category {
-	case core.CategoryDevice:
-		if _, err := drivers.Get(in.Kind); err != nil {
+	var entry catalog.Vendor
+	var ok bool
+	if in.Vendor != "" {
+		if entry, ok = catalog.Get(in.Vendor); !ok {
+			writeErr(w, 400, "unknown connection type "+strconv.Quote(in.Vendor))
+			return
+		}
+		in.Kind, in.Category = entry.Kind, entry.Category
+	} else if entry, ok = catalog.ForTarget(in.Kind, in.Options); !ok || entry.Category != in.Category {
+		if err := providerRegistered(in.Category, in.Kind); err != nil {
 			writeErr(w, 400, err.Error())
 			return
 		}
-	case core.CategoryDNS:
-		if _, err := dns.Get(in.Kind); err != nil {
-			writeErr(w, 400, err.Error())
-			return
-		}
-	case core.CategoryHypervisor:
-		if _, err := hypervisor.Get(in.Kind); err != nil {
-			writeErr(w, 400, err.Error())
-			return
-		}
-	case core.CategoryStorage:
-		if _, err := storage.Get(in.Kind); err != nil {
-			writeErr(w, 400, err.Error())
-			return
-		}
-	case core.CategorySmartHome:
-		if _, err := smarthome.Get(in.Kind); err != nil {
-			writeErr(w, 400, err.Error())
-			return
-		}
-	default:
-		writeErr(w, 400, "category must be device, dns, hypervisor, storage or smarthome")
+		writeErr(w, 400, fmt.Sprintf("%s is not a %s connection", in.Kind, in.Category))
+		return
+	}
+	if err := providerRegistered(in.Category, in.Kind); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if in.Options == nil {
+		in.Options = map[string]string{}
+	}
+	for k, v := range entry.Preset {
+		in.Options[k] = v
+	}
+	if entry.ID != entry.Kind {
+		in.Options["vendor"] = entry.ID
+	}
+	if err := entry.CheckOptions(in.Options); err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	in.Address = strings.TrimSpace(in.Address)
-	if hostAddress(in.Category, in.Kind) {
-		// SMB, NFS and SNMP connections take a host name or address (a smb://, nfs:// or snmp:// URL also works)
-		if in.Address == "" || strings.ContainsAny(in.Address, " \t") {
-			writeErr(w, 400, "give the server's address, e.g. 192.168.1.20")
-			return
-		}
-	} else if !strings.HasPrefix(in.Address, "https://") && !strings.HasPrefix(in.Address, "http://") {
-		writeErr(w, 400, "address must be a URL, e.g. https://192.168.1.1")
+	if err := checkAddress(entry, in.Address); err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
-	if in.Category == core.CategoryStorage && in.Kind == "nfs" && len(in.Credentials) == 0 {
-		in.Credentials = vault.Secret{"auth": "none"} // NFS export lists need no login
+	if entry.NoLogin && len(in.Credentials) == 0 {
+		in.Credentials = vault.Secret{"auth": "none"} // e.g. NFS export lists need no login
 	}
 	if len(in.Credentials) == 0 {
 		writeErr(w, 400, "credentials are required")
@@ -113,18 +154,13 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.Audit.Record(r.Context(), actor(r), "target.create", "target/"+t.Name,
-		map[string]string{"kind": t.Kind, "address": t.Address})
+		map[string]string{"kind": t.Kind, "vendor": entry.ID, "address": t.Address})
 	go func() { _, _ = s.Poller.PollOne(s.bg(), t.ID) }()
 	writeJSON(w, 201, t)
 }
 
 func pathID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(r.PathValue("id"), 10, 64)
-}
-
-// hostAddress reports whether a connection kind takes a bare host instead of an http(s) URL.
-func hostAddress(category, kind string) bool {
-	return category == core.CategoryStorage && (kind == "smb" || kind == "nfs" || kind == "snmp")
 }
 
 func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request) {
@@ -146,10 +182,30 @@ func (s *Server) updateTarget(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	entry, known := catalog.ForTarget(t.Kind, t.Options)
 	if in.Address != nil {
-		t.Address = *in.Address
+		addr := strings.TrimSpace(*in.Address)
+		if known {
+			if err := checkAddress(entry, addr); err != nil {
+				writeErr(w, 400, err.Error())
+				return
+			}
+		}
+		t.Address = addr
 	}
 	if in.Options != nil {
+		if known {
+			for k, v := range entry.Preset { // fixed by the connection type
+				in.Options[k] = v
+			}
+			if v, ok := t.Options["vendor"]; ok {
+				in.Options["vendor"] = v
+			}
+			if err := entry.CheckOptions(in.Options); err != nil {
+				writeErr(w, 400, err.Error())
+				return
+			}
+		}
 		t.Options = in.Options
 	}
 	if in.Enabled != nil {

@@ -64,6 +64,20 @@ export interface Target {
   id: number; kind: string; category: "device" | "dns" | "hypervisor" | "storage" | "smarthome"; name: string; address: string;
   options: Record<string, string>; secret_path: string; enabled: boolean; last_poll?: string; last_error: string;
 }
+/** One input of a connection form, described by the server (see internal/catalog). */
+export interface CatalogField {
+  key: string; label: string; type: "text" | "password" | "token" | "select" | "checkbox"; store: "option" | "secret" | "form";
+  default?: string; placeholder?: string; help?: string; choices?: { value: string; label: string }[];
+  required?: boolean; show_if?: Record<string, string>; section?: string;
+}
+/** A product NCC can connect to: one card of the Add connection wizard. */
+export interface CatalogVendor {
+  id: string; kind: string; category: Target["category"]; groups: string[]; label: string; summary: string; help: string;
+  preset?: Record<string, string>; name_default: string; address_kind: "url" | "host"; address_label?: string;
+  address_default?: string; address_placeholder?: string; no_login?: boolean; fields: CatalogField[];
+}
+export interface CatalogGroup { id: string; label: string; summary: string }
+export interface Catalog { groups: CatalogGroup[]; vendors: CatalogVendor[] }
 /** One finding of the DNS chain check (router hands out the internal DNS server, which forwards to the ISP). */
 export interface DNSCheck {
   id: string; kind: "dhcp" | "forwarders" | "setup" | "live"; status: "pass" | "skip" | "unknown" | "warn" | "fail";
@@ -180,11 +194,11 @@ export interface VM {
   id: string; name: string; type: "qemu" | "lxc" | "vm"; state: "running" | "stopped" | "suspended" | "unknown"; host: string;
   template?: boolean; cpus: number; cpu_usage: number; mem_bytes: number; mem_used: number; disk_bytes: number; disk_used: number;
   ips?: string[]; os?: string; uptime_s: number; tags?: string[]; notes?: string; guest_tools?: string; target: string;
-  platform: "proxmox" | "vmware";
+  platform: "proxmox" | "vmware" | "hyperv";
 }
 export interface VMHost {
   name: string; online: boolean; cpus: number; cpu_usage: number; mem_bytes: number; mem_used: number; uptime_s: number;
-  version?: string; model?: string; target: string; platform: "proxmox" | "vmware";
+  version?: string; model?: string; target: string; platform: "proxmox" | "vmware" | "hyperv";
 }
 export interface VMSource {
   id: number; name: string; kind: "proxmox" | "vmware"; address: string; enabled: boolean; version?: string; taken_at?: string;

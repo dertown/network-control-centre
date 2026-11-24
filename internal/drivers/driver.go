@@ -4,6 +4,7 @@ package drivers
 import (
 	"context"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"sort"
 	"sync"
 
@@ -42,11 +43,13 @@ var (
 	registry = map[string]Driver{}
 )
 
-// Register adds a driver. Drivers call it from init.
-func Register(d Driver) {
+// Register adds a driver and its entries for the Settings wizard (see package catalog).
+// Drivers call it from init.
+func Register(d Driver, entries ...catalog.Vendor) {
 	mu.Lock()
-	defer mu.Unlock()
 	registry[d.Kind()] = d
+	mu.Unlock()
+	catalog.Register(d.Kind(), "device", entries...)
 }
 
 // Get returns a registered driver.

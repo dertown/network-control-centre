@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"net"
 	"net/url"
 	"strconv"
@@ -22,7 +23,16 @@ import (
 	"github.com/dertown/network-control-centre/internal/storage"
 )
 
-func init() { storage.Register(Provider{}) }
+func init() {
+	storage.Register(Provider{}, catalog.Vendor{
+		Label: "Storage over SNMP", Groups: []string{catalog.GroupStorage}, Order: 50,
+		Summary: "TrueNAS, Unraid, ASUSTOR and anything else that speaks SNMP.",
+		Help: "For storage NCC has no API driver for (TrueNAS, Unraid, ASUSTOR…) or when you'd rather not give NCC an admin login. " +
+			"QNAP's and Synology's own MIBs give disk temperatures, SMART and RAID state; other devices show their file systems. Read only.",
+		NameDefault: "nas-snmp", AddressKind: catalog.AddressHost, AddressDefault: "192.168.1.50",
+		Fields: catalog.SNMPFields("", ""),
+	})
+}
 
 // Config is how to reach a device over SNMP.
 type Config struct {

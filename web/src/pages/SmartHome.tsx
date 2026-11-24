@@ -6,9 +6,8 @@ import { ago } from "../format";
 import { Icon, IconName } from "../icons";
 import { AlertList, PageHeader, PageLoading, SourceBanners, Tile } from "../ui";
 import { ConnectionPicker, RefreshButton, useConnectionAdder, useSourceData } from "../connections";
-import { Kind } from "./Settings";
 
-const addKinds: [Kind, string][] = [["homeassistant", "Connect Home Assistant"]];
+const addGroup = "smarthome";
 
 // Controls people use; sensors are shown as readings.
 const controlDomains = new Set(["light", "switch", "fan", "input_boolean", "humidifier", "media_player", "cover", "valve", "lock",
@@ -113,7 +112,7 @@ export function SmartHome({ tick, user, title = "Smart home", nav }: { tick: num
   const [pairing, setPairing] = useState(false);
   const isAdmin = user.role === "admin";
 
-  const adder = useConnectionAdder(addKinds, user, refetch);
+  const adder = useConnectionAdder(addGroup, user, refetch);
   useEffect(() => { try { localStorage.setItem("ncc-iot-group", group); } catch { /* storage blocked */ } }, [group]);
 
   const live = useMemo(() => (sources ?? []).filter((s) => s.enabled && s.inventory), [sources]);
@@ -143,7 +142,7 @@ export function SmartHome({ tick, user, title = "Smart home", nav }: { tick: num
             </div>
           </div>
           {isAdmin
-            ? <ConnectionPicker kinds={addKinds} onDone={refetch} primary />
+            ? <ConnectionPicker group={addGroup} onDone={refetch} primary />
             : <p className="muted small">Ask an admin to connect Home Assistant.</p>}
         </section>
       </>

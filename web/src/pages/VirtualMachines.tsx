@@ -7,13 +7,12 @@ import { Icon, IconName } from "../icons";
 import { Meter } from "../charts";
 import { PageHeader, PageLoading, SourceBanners, Tile } from "../ui";
 import { ConnectionPicker, RefreshButton, useConnectionAdder, useSourceData } from "../connections";
-import { Kind } from "./Settings";
 
-const platformLabel: Record<string, string> = { proxmox: "Proxmox VE", vmware: "VMware" };
+const platformLabel: Record<string, string> = { proxmox: "Proxmox VE", vmware: "VMware", hyperv: "Hyper-V" };
 const typeLabel: Record<string, string> = { qemu: "VM", lxc: "Container", vm: "VM" };
 const stateTone: Record<string, string> = { running: "good", suspended: "warn", stopped: "", unknown: "warn" };
 
-const addKinds: [Kind, string][] = [["proxmox", "Add Proxmox VE"], ["vmware", "Add VMware vCenter or ESXi"]];
+const addGroup = "virtualization";
 
 // load grades a CPU or memory fraction: amber from 75%, red from 90%.
 function load(n: number): "good" | "warn" | "bad" {
@@ -32,7 +31,7 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
   const [pending, setPending] = useState<Record<string, string>>({});
   const [note, setNote] = useState<{ id: string; ok: boolean; text: string } | null>(null);
 
-  const adder = useConnectionAdder(addKinds, user, refetch);
+  const adder = useConnectionAdder(addGroup, user, refetch);
 
   const power = async (v: VM, action: Action) => {
     const ask: Partial<Record<Action, string>> = {
@@ -91,7 +90,7 @@ export function VirtualMachines({ tick, user }: { tick: number; user: User }) {
               login is kept in the vault like your other credentials.
             </p>
           </div>
-          {isAdmin ? <ConnectionPicker kinds={addKinds} onDone={refetch} primary /> : <p className="muted small">Ask an admin to add a Proxmox VE or VMware connection.</p>}
+          {isAdmin ? <ConnectionPicker group={addGroup} onDone={refetch} primary /> : <p className="muted small">Ask an admin to add a virtualization connection.</p>}
         </section>
       </>
     );
@@ -303,6 +302,8 @@ function VMActions({ vm, isAdmin, pending, power, onDone, onError, templateOnly 
           <label>Notes<textarea rows={3} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} maxLength={8192} /></label>
           {running && <p className="muted small">This machine is running. {vm.platform === "vmware"
             ? "VMware only changes CPU or memory on a running machine when hot-add is turned on; otherwise shut it down first."
+            : vm.platform === "hyperv"
+            ? "Hyper-V only changes vCPUs and startup memory while the machine is off; shut it down first."
             : "Proxmox applies CPU and memory changes at the next restart unless hotplug is enabled for them."}</p>}
           <div className="row">
             <button className="primary" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button>

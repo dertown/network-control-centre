@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"io"
 	"net"
 	"net/http"
@@ -25,7 +26,17 @@ import (
 	"github.com/dertown/network-control-centre/internal/storage"
 )
 
-func init() { storage.Register(Provider{}) }
+func init() {
+	storage.Register(Provider{}, catalog.Vendor{
+		Label: "Synology", Groups: []string{catalog.GroupStorage}, Order: 20,
+		Summary: "Synology DSM: pools, volumes, disks, shares and Btrfs snapshots.",
+		Help: "Use the DSM address (HTTPS is port 5001). Make a DSM user for NCC in the administrators group without two-factor sign-in. " +
+			"NCC reads pools, volumes, disks, shares and Btrfs snapshots, and can create shares and snapshots, and restart or shut down " +
+			"the NAS when you ask.",
+		NameDefault: "synology", AddressDefault: "https://192.168.1.60:5001",
+		Fields: append(catalog.UserPassword("", nil), catalog.TLSField("pin")),
+	})
+}
 
 // Provider implements storage.Provider and storage.Controller for Synology DSM.
 type Provider struct{}

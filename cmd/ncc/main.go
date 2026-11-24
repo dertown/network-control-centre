@@ -31,8 +31,13 @@ import (
 	"github.com/dertown/network-control-centre/web"
 
 	// drivers and providers register themselves
+	_ "github.com/dertown/network-control-centre/internal/dns/azuredns"
+	_ "github.com/dertown/network-control-centre/internal/dns/bind"
 	_ "github.com/dertown/network-control-centre/internal/dns/powerdns"
+	_ "github.com/dertown/network-control-centre/internal/dns/windowsdns"
+	_ "github.com/dertown/network-control-centre/internal/drivers/snmpnet"
 	_ "github.com/dertown/network-control-centre/internal/drivers/unifi"
+	_ "github.com/dertown/network-control-centre/internal/hypervisor/hyperv"
 	_ "github.com/dertown/network-control-centre/internal/hypervisor/proxmox"
 	_ "github.com/dertown/network-control-centre/internal/hypervisor/vmware"
 	_ "github.com/dertown/network-control-centre/internal/smarthome/homeassistant"

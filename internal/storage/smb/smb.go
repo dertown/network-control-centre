@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"net"
 	"net/url"
 	"strings"
@@ -18,7 +19,17 @@ import (
 	"github.com/dertown/network-control-centre/internal/storage"
 )
 
-func init() { storage.Register(Provider{}) }
+func init() {
+	storage.Register(Provider{}, catalog.Vendor{
+		Label: "SMB file server", Groups: []string{catalog.GroupStorage}, Order: 30,
+		Summary: "Windows, Samba, or any SMB 2/3 share: size and free space.",
+		Help: "Any SMB 2/3 server: Windows, Samba, a NAS without an API driver or a router's USB share. NCC signs in, lists the shares " +
+			"and reads each one's size and free space. A read-only account is enough to monitor; creating folders needs write access.",
+		NameDefault: "fileserver", AddressKind: catalog.AddressHost, AddressDefault: "192.168.1.70",
+		Fields: append(catalog.UserPassword("", nil),
+			catalog.Field{Key: "domain", Label: "Domain (optional)", Type: catalog.Text, Store: catalog.StoreSecret, Placeholder: "WORKGROUP"}),
+	})
+}
 
 // Provider implements storage.Provider and storage.Controller for SMB servers.
 type Provider struct{}

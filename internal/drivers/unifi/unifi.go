@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -29,7 +30,23 @@ import (
 	"github.com/dertown/network-control-centre/internal/vault"
 )
 
-func init() { drivers.Register(Driver{}) }
+func init() {
+	drivers.Register(Driver{}, catalog.Vendor{
+		Label: "Ubiquiti UniFi", Groups: []string{catalog.GroupRouter, catalog.GroupFirewall, catalog.GroupSwitch},
+		Summary: "UniFi OS consoles (Dream Router, Dream Machine, Cloud Gateway) with their switches and access points.",
+		Help: "For a Dream Router 7, use its LAN address and a local admin account (UniFi OS → Admins → add a local-access-only " +
+			"user with a Network role of View Only). View Only is enough to read; VLAN, Wi-Fi and DNS domain changes need Site Admin. " +
+			"Its self-signed certificate is pinned on first connection.",
+		NameDefault: "dream-router", AddressDefault: "https://192.168.1.1", Order: 10,
+		Fields: append([]catalog.Field{
+			{Key: OptSite, Label: "Site", Type: catalog.Text, Store: catalog.StoreOption, Default: "default"},
+			{Key: "auth", Label: "Sign in with", Type: catalog.Select, Store: catalog.StoreForm, Default: "password",
+				Choices: []catalog.Choice{{Value: "password", Label: "Local username + password"}, {Value: "apikey", Label: "API key"}}},
+			catalog.TLSField("pin"),
+			{Key: "api_key", Label: "API key", Type: catalog.Token, Store: catalog.StoreSecret, Required: true, ShowIf: map[string]string{"auth": "apikey"}},
+		}, catalog.UserPassword("", map[string]string{"auth": "password"})...),
+	})
+}
 
 // Driver implements drivers.Driver for UniFi.
 type Driver struct{}

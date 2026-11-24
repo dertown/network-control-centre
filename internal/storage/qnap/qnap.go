@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dertown/network-control-centre/internal/catalog"
 	"io"
 	"net"
 	"net/http"
@@ -33,7 +34,19 @@ import (
 	"github.com/dertown/network-control-centre/internal/storage/snmpnas"
 )
 
-func init() { storage.Register(Provider{}) }
+func init() {
+	storage.Register(Provider{}, catalog.Vendor{
+		Label: "QNAP", Groups: []string{catalog.GroupStorage}, Order: 10,
+		Summary: "QNAP NAS on QTS or QuTS hero, optionally with SNMP for RAID state.",
+		Help: "Use the NAS address as you open it in a browser (QTS 5 serves HTTPS on 443; older firmware uses http://…:8080). Sign in " +
+			"with an administrator account without two-step verification; QTS only answers health and SMART calls for admins, so a " +
+			"dedicated ncc admin user is best. The NAS certificate is pinned on first connection.",
+		NameDefault: "qnap", AddressDefault: "https://192.168.1.50",
+		Fields: append(append(catalog.UserPassword("", nil), catalog.TLSField("pin")),
+			catalog.SNMPFields("snmp", "Also read volume and RAID state over SNMP (QNAP's API doesn't report a degraded or rebuilding volume). "+
+				"Turn SNMP on in Control Panel → Network & File Services → SNMP.")...),
+	})
+}
 
 // Provider implements storage.Provider and storage.Controller for QNAP.
 type Provider struct{}

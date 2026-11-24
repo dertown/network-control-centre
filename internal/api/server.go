@@ -92,6 +92,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/me/password", v(s.changePassword))
 	mux.Handle("GET /api/events", v(s.events))
 	mux.Handle("GET /api/drivers", v(s.listDrivers))
+	mux.Handle("GET /api/catalog", v(s.listCatalog))
 
 	mux.Handle("GET /api/vault/status", v(s.vaultStatus))
 	mux.Handle("POST /api/vault/unseal", a(s.vaultUnseal))
