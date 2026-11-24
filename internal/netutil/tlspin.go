@@ -48,11 +48,62 @@ func NormFingerprint(s string) string {
 }
 
 // NewClient builds an HTTP client for a target. mode "pin" with an empty pin means trust-on-first-use.
+//
+// Drivers build a client on every poll, so the transport (and with it the pool of open
+// connections and TLS sessions) is shared between clients with the same certificate settings:
+// a poll every 30 seconds reuses the previous poll's connection instead of a new TCP and TLS
+// handshake, and old transports don't pile up idle connections. Trust-on-first-use clients
+// (mode "pin" with no pin yet) always get a fresh transport, because their Pinner must report
+// the certificate of this target's server and not another one's. Each call returns a new
+// http.Client, so callers may set Jar or other client fields freely.
 func NewClient(mode, pin string, timeout time.Duration) (*http.Client, *Pinner) {
-	cfg, p := TLSConfig(mode, pin)
+	if mode == "pin" && NormFingerprint(pin) == "" {
+		cfg, p := TLSConfig(mode, pin)
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.TLSClientConfig = cfg
+		return &http.Client{Timeout: timeout, Transport: tr}, p
+	}
+	tr, p := sharedTransport(mode, pin)
+	return &http.Client{Timeout: timeout, Transport: tr}, p
+}
+
+type transportKey struct{ mode, pin string }
+
+type sharedTr struct {
+	tr *http.Transport
+	p  *Pinner
+}
+
+var (
+	trMu       sync.Mutex
+	transports = map[transportKey]sharedTr{}
+)
+
+// sharedTransport returns the one transport for these certificate settings. With a pin set,
+// the Pinner reports the pinned certificate (any other is refused), so sharing it is safe.
+func sharedTransport(mode, pin string) (*http.Transport, *Pinner) {
+	if mode != "pin" {
+		mode = "" // "verify", "" and anything else all mean normal CA checks
+		pin = ""
+	}
+	k := transportKey{mode, NormFingerprint(pin)}
+	trMu.Lock()
+	defer trMu.Unlock()
+	if s, ok := transports[k]; ok {
+		return s.tr, s.p
+	}
+	cfg, p := TLSConfig(k.mode, k.pin)
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.TLSClientConfig = cfg
-	return &http.Client{Timeout: timeout, Transport: tr}, p
+	tr.MaxIdleConnsPerHost = 4
+	if len(transports) >= 256 { // pins change rarely; never let a long-running server grow without bound
+		for key, s := range transports {
+			s.tr.CloseIdleConnections()
+			delete(transports, key)
+		}
+	}
+	transports[k] = sharedTr{tr, p}
+	return tr, p
 }
 
 // TLSConfig builds the TLS settings NewClient uses, for clients that bring their own transport.

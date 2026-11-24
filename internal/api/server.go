@@ -208,7 +208,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeErr(w, 404, "no such endpoint") })
 	mux.Handle("/", s.static())
-	return s.secHeaders(mux)
+	return s.secHeaders(withGzip(mux))
 }
 
 func (s *Server) secHeaders(next http.Handler) http.Handler {
