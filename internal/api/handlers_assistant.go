@@ -692,7 +692,7 @@ func (e *aiEnv) MoveClients(ctx context.Context, routerID int64, networkID strin
 	mctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 	results, err := nw.MoveClients(mctx, devTarget(t), creds, plan.Network.ID, moves, true)
-	okN, failed := 0, []string{}
+	okN, failed, stuck := 0, []string{}, []string{}
 	for _, res := range results {
 		detail := map[string]any{"network": plan.Network.Name, "vlan": plan.Network.VLAN, "result": "ok", "via": "assistant"}
 		for _, st := range plan.Steps {
@@ -700,9 +700,13 @@ func (e *aiEnv) MoveClients(ctx context.Context, routerID int64, networkID strin
 				detail["from"], detail["method"] = st.FromName, st.Method
 			}
 		}
-		if res.OK {
+		switch {
+		case res.OK && res.Warning != "":
+			detail["result"] = "saved, not applied: " + res.Warning
+			stuck = append(stuck, res.Name+": "+res.Warning)
+		case res.OK:
 			okN++
-		} else {
+		default:
 			detail["result"] = "failed: " + res.Error
 			failed = append(failed, res.Name+" ("+res.Error+")")
 		}
@@ -713,6 +717,9 @@ func (e *aiEnv) MoveClients(ctx context.Context, routerID int64, networkID strin
 		return "", err
 	}
 	msg := fmt.Sprintf("Moved %d device%s to %s", okN, map[bool]string{true: "", false: "s"}[okN == 1], plan.Network.Name)
+	if len(stuck) > 0 {
+		msg += "; not moved yet: " + strings.Join(stuck, "; ")
+	}
 	if len(failed) > 0 {
 		return "", fmt.Errorf("%s; failed: %s", msg, strings.Join(failed, ", "))
 	}

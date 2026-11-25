@@ -118,6 +118,9 @@ type MoveResult struct {
 	OK    bool     `json:"ok"`
 	Error string   `json:"error,omitempty"`
 	Notes []string `json:"notes,omitempty"`
+	// Warning is set when the change was saved but the client did not end up where it should,
+	// e.g. a Wi-Fi client that rejoined on its old network.
+	Warning string `json:"warning,omitempty"`
 }
 
 // NetworkWriter is a driver that can create networks and move clients between them.

@@ -108,6 +108,18 @@ func NewUniFi() *UniFiLab {
 // Writes returns every change request the console received, as "METHOD path body".
 func (u *UniFiLab) Writes() []string { return u.state.Writes() }
 
+// IgnoreOverride makes the access points ignore a Virtual Network Override for this Wi-Fi
+// client, as happens with a private (random) Wi-Fi address: when it rejoins it is back on its
+// Wi-Fi network's VLAN.
+func (u *UniFiLab) IgnoreOverride(mac string) {
+	u.state.mu.Lock()
+	defer u.state.mu.Unlock()
+	if u.state.noOverride == nil {
+		u.state.noOverride = map[string]bool{}
+	}
+	u.state.noOverride[strings.ToLower(mac)] = true
+}
+
 // UniFiWithLoops is UniFi with two switching loops cabled in: Rack switch ports 14 and 15
 // are patched to each other (nothing blocks it), and a second cable from Dream Router port 2
 // to Mystery switch port 2 closes a ring that spanning tree is holding shut. The event log

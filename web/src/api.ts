@@ -232,7 +232,7 @@ export interface PortChange {
   clients: string[]; offline?: boolean;
 }
 export interface MovePlan { target: string; network: Network; steps: MoveStep[]; ports: PortChange[]; warnings?: string[] }
-export interface MoveResult { mac: string; name: string; ok: boolean; error?: string; notes?: string[] }
+export interface MoveResult { mac: string; name: string; ok: boolean; error?: string; notes?: string[]; warning?: string }
 export interface DeployField { key: string; label: string; default?: string; help?: string; type?: "text" | "select" | "bool"; choices?: string[] }
 export interface DeployKind {
   id: string; label: string; description: string; transport: "ssh" | "winrm"; default_port: number;
