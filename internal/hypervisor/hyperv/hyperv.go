@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -42,7 +43,7 @@ $load=(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage
 $vms=@(Get-VM | ForEach-Object {
 $disk=0;$used=0
 foreach($d in @(Get-VMHardDiskDrive -VM $_)){ try{ $v=Get-VHD -Path $d.Path; $disk+=$v.Size; $used+=$v.FileSize }catch{} }
-[pscustomobject]@{id=[string]$_.VMId;n=$_.Name;s=[string]$_.State;c=$_.ProcessorCount;cpu=$_.CPUUsage;mem=$_.MemoryStartup;used=$_.MemoryAssigned;up=[int64]$_.Uptime.TotalSeconds;notes=$_.Notes;ip=@($_.NetworkAdapters | ForEach-Object { $_.IPAddresses });disk=$disk;du=$used;ic=[string]$_.IntegrationServicesState}})
+[pscustomobject]@{id=[string]$_.VMId;n=$_.Name;s=[string]$_.State;c=$_.ProcessorCount;cpu=$_.CPUUsage;mem=$_.MemoryStartup;used=$_.MemoryAssigned;up=[int64]$_.Uptime.TotalSeconds;notes=$_.Notes;ip=@($_.NetworkAdapters | ForEach-Object { $_.IPAddresses });mac=@($_.NetworkAdapters | ForEach-Object { $_.MacAddress });disk=$disk;du=$used;ic=[string]$_.IntegrationServicesState}})
 ConvertTo-Json -Compress -Depth 4 -InputObject ([pscustomobject]@{host=$h.ComputerName;cpus=$h.LogicalProcessorCount;mem=$h.MemoryCapacity;free=[int64]$os.FreePhysicalMemory*1024;load=$load;up=[int64]((Get-Date)-$os.LastBootUpTime).TotalSeconds;ver=($os.Caption+' '+$os.Version);model=($cs.Manufacturer+' '+$cs.Model);vms=$vms})`
 
 type hostOut struct {
@@ -68,6 +69,7 @@ type vmOut struct {
 	Up    int64    `json:"up"`
 	Notes string   `json:"notes"`
 	IPs   []string `json:"ip"`
+	MACs  []string `json:"mac"` // "00155D0A0B0C"
 	Disk  int64    `json:"disk"`
 	DU    int64    `json:"du"`
 	IC    string   `json:"ic"`
@@ -97,13 +99,34 @@ func toInventory(t hv.Target, h hostOut) *hv.Inventory {
 				ips = append(ips, ip)
 			}
 		}
+		var macs []string
+		for _, m := range v.MACs {
+			if hw, err := net.ParseMAC(colons(m)); err == nil && m != "000000000000" {
+				macs = append(macs, hw.String())
+			}
+		}
 		inv.VMs = append(inv.VMs, hv.VM{
-			ID: "hyperv/" + v.ID, Name: v.Name, Type: "vm", State: state(v.State), Host: h.Host,
+			MACs: macs, ID: "hyperv/" + v.ID, Name: v.Name, Type: "vm", State: state(v.State), Host: h.Host,
 			CPUs: v.CPUs, CPUUsage: v.CPU / 100, MemBytes: v.Mem, MemUsed: v.Used, DiskBytes: v.Disk, DiskUsed: v.DU,
 			IPs: ips, UptimeS: v.Up, Notes: v.Notes, GuestTools: v.IC, Target: t.Name, Platform: "hyperv",
 		})
 	}
 	return inv
+}
+
+// colons turns Hyper-V's "00155D0A0B0C" into "00:15:5D:0A:0B:0C".
+func colons(m string) string {
+	if len(m) != 12 || strings.Contains(m, ":") {
+		return m
+	}
+	var b strings.Builder
+	for i := 0; i < 12; i += 2 {
+		if i > 0 {
+			b.WriteByte(':')
+		}
+		b.WriteString(m[i : i+2])
+	}
+	return b.String()
 }
 
 // Collect implements hypervisor.Provider.

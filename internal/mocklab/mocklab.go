@@ -218,20 +218,56 @@ func officeClient(mac, host, oui, ip, network string, port int, ap string) map[s
 	return c
 }
 
+// UniFiHomelab is UniFi with the mock Proxmox cluster's machines plugged in: host pve1 and
+// three of its guests share Rack switch port 9, and host pve2 with two guests shares Mystery
+// switch port 3. The router can only see several MACs on one port, so it draws each as an
+// unmanaged switch; NCC's topology works out from the Proxmox connection that they are hosts.
+func UniFiHomelab() http.Handler {
+	h, _ := unifiWithClients(false, HomelabClients)
+	return h
+}
+
+// HomelabClients are the extra clients of UniFiHomelab, in stat/sta form. The guests' MACs
+// are the ones the mock Proxmox gives them (BC:24:11:00 + VM id).
+var HomelabClients = []map[string]any{
+	labClient("58:47:ca:70:00:01", "pve1", "Intel Corporate", "192.168.1.12", "aa:bb:cc:00:00:04", 9),
+	labClient("bc:24:11:00:00:64", "ncc", "", "192.168.1.247", "aa:bb:cc:00:00:04", 9),
+	labClient("bc:24:11:00:00:65", "home-assistant", "", "192.168.1.110", "aa:bb:cc:00:00:04", 9),
+	labClient("bc:24:11:00:00:c8", "pihole", "", "192.168.1.53", "aa:bb:cc:00:00:04", 9),
+	labClient("58:47:ca:70:00:02", "pve2", "Intel Corporate", "192.168.1.13", "aa:bb:cc:00:00:05", 3),
+	labClient("bc:24:11:00:00:66", "DESKTOP-7Q2K1", "", "192.168.1.120", "aa:bb:cc:00:00:05", 3),
+	labClient("bc:24:11:00:00:c9", "unifi-backup", "", "192.168.1.62", "aa:bb:cc:00:00:05", 3),
+}
+
+func labClient(mac, host, oui, ip, sw string, port int) map[string]any {
+	c := map[string]any{"mac": mac, "hostname": host, "ip": ip, "network_id": "net_default", "uptime": 86000,
+		"tx_bytes": 1048576, "rx_bytes": 524288, "is_wired": true, "sw_mac": sw, "sw_port": port}
+	if oui != "" {
+		c["oui"] = oui
+	}
+	return c
+}
+
 func unifiWithState(loops, office bool) (http.Handler, *uState) {
+	var extra []map[string]any
+	if office {
+		extra = OfficeClients
+	}
+	return unifiWithClients(loops, extra)
+}
+
+func unifiWithClients(loops bool, extra []map[string]any) (http.Handler, *uState) {
 	devices := StatDevice
 	if loops {
 		devices = LoopDevices()
 	}
 	st := newUState(devices)
-	if office {
-		for _, c := range OfficeClients {
-			cp := map[string]any{}
-			for k, v := range c {
-				cp[k] = v
-			}
-			st.clients = append(st.clients, cp)
+	for _, c := range extra {
+		cp := map[string]any{}
+		for k, v := range c {
+			cp[k] = v
 		}
+		st.clients = append(st.clients, cp)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
@@ -373,8 +409,11 @@ func NewPowerDNS(apiKey string) *PowerDNS {
 	add("home.lan.", "ns1.home.lan.", "A", 3600, "192.168.1.10")
 	add("home.lan.", "router.home.lan.", "A", 3600, "192.168.1.1")
 	add("home.lan.", "old.home.lan.", "A", 300, "192.168.1.9")
+	add("home.lan.", "pve1.home.lan.", "A", 3600, "192.168.1.12")
+	add("home.lan.", "pve2.home.lan.", "A", 3600, "192.168.1.13")
 	add("1.168.192.in-addr.arpa.", "1.168.192.in-addr.arpa.", "SOA", 3600, "ns1.home.lan. hostmaster.home.lan. 1 10800 3600 604800 3600")
 	add("1.168.192.in-addr.arpa.", "1.1.168.192.in-addr.arpa.", "PTR", 3600, "router.home.lan.")
+	add("1.168.192.in-addr.arpa.", "12.1.168.192.in-addr.arpa.", "PTR", 3600, "pve1.home.lan.")
 	return p
 }
 

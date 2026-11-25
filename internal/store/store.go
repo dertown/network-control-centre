@@ -289,6 +289,24 @@ var migrations = []string{
 		last_error TEXT NOT NULL DEFAULT '',
 		info TEXT NOT NULL DEFAULT ''
 	)`,
+	// dns_names caches the address records (A, AAAA, PTR) each DNS server holds, read every
+	// few polls, so the topology map can put names to addresses without asking every server
+	// on every page load.
+	`CREATE TABLE IF NOT EXISTS dns_names (
+		target_id INTEGER PRIMARY KEY REFERENCES targets(id) ON DELETE CASCADE,
+		taken_at TIMESTAMP NOT NULL,
+		data TEXT NOT NULL
+	)`,
+	// topology_identity is what people said a map node really is (a Proxmox host, a NAS,
+	// another switch...), by node id: a device MAC, a client MAC or an inferred switch id.
+	`CREATE TABLE IF NOT EXISTS topology_identity (
+		node_id TEXT PRIMARY KEY,
+		role TEXT NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
+		confirmed INTEGER NOT NULL DEFAULT 0,
+		updated_by TEXT NOT NULL DEFAULT '',
+		updated_at TIMESTAMP NOT NULL
+	)`,
 }
 
 // Open opens (and migrates) the database in dataDir.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	hv "github.com/dertown/network-control-centre/internal/hypervisor"
@@ -39,6 +40,15 @@ func TestCollectWithToken(t *testing.T) {
 	ncc := by["ncc"]
 	if ncc.State != hv.StateRunning || ncc.Host != "pve1" || ncc.CPUs != 2 || ncc.MemBytes != 2<<30 || ncc.OS != "Linux" {
 		t.Errorf("ncc: %+v", ncc)
+	}
+	if len(inv.Hosts[0].IPs) != 1 || inv.Hosts[0].IPs[0] != "192.168.1.12" || inv.Hosts[1].IPs[0] != "192.168.1.13" {
+		t.Errorf("host addresses from cluster status: %+v", inv.Hosts)
+	}
+	if len(ncc.MACs) != 1 || ncc.MACs[0] != "bc:24:11:00:00:64" {
+		t.Errorf("ncc MACs %v", ncc.MACs)
+	}
+	if p := by["pihole"]; len(p.MACs) != 1 || p.MACs[0] != "bc:24:11:00:00:c8" {
+		t.Errorf("pihole MACs %v", p.MACs)
 	}
 	if len(ncc.IPs) != 1 || ncc.IPs[0] != "192.168.1.247" || ncc.GuestTools != "agent running" {
 		t.Errorf("ncc guest: %v %q", ncc.IPs, ncc.GuestTools)
@@ -79,5 +89,20 @@ func TestBadCredentials(t *testing.T) {
 	}
 	if _, err := collect(t, map[string]string{"token_id": "ncc@pve", "token_secret": "x"}); err == nil {
 		t.Error("token id without ! accepted")
+	}
+}
+
+func TestConfigMACs(t *testing.T) {
+	got := configMACs(map[string]any{
+		"net1":   "e1000=52:54:00:AA:BB:CC,bridge=vmbr1,tag=30",
+		"net0":   "virtio=BC:24:11:00:00:01,bridge=vmbr0,firewall=1",
+		"net2":   "name=eth0,bridge=vmbr0,hwaddr=BC:24:11:00:02:01,ip=dhcp",
+		"netx":   "virtio=00:00:00:00:00:01",
+		"net3":   "bridge=vmbr0", // no MAC yet
+		"ostype": "l26",
+	})
+	want := []string{"bc:24:11:00:00:01", "52:54:00:aa:bb:cc", "bc:24:11:00:02:01"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("got %v want %v", got, want)
 	}
 }

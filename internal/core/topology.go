@@ -28,6 +28,10 @@ type Node struct {
 	Ports   []NodePort `json:"ports,omitempty"`
 	// Loops lists the ids of the loops this device has a port in.
 	Loops []string `json:"loops,omitempty"`
+	// Identity is what NCC (or a person) found the node really is; see Enrich.
+	Identity *Identity `json:"identity,omitempty"`
+	// Related is what NCC's other sources know about the node: VMs, storage, DNS names.
+	Related *Related `json:"related,omitempty"`
 }
 
 // NodePort is a switch or router port's VLAN setup, for ports with VLAN detail.
