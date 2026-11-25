@@ -29,6 +29,11 @@ import (
 //   - Wireless: UniFi's per-client "Virtual Network Override" (PUT rest/user/{id}). The client
 //     stays on the same Wi-Fi name and password, which matters for IoT devices that are a pain
 //     to set up again, and the access point tags its traffic with the new VLAN.
+//     The access points only apply it when the client next joins, and only once the console
+//     has pushed it to them, so NCC waits ProvisionWait before disconnecting the client, then
+//     checks it came back with an address in the new network (retrying once). A client whose
+//     access point ignores the override (for example one using a private, random Wi-Fi
+//     address) rejoins on its old network; the result says so in Warning.
 //
 // A fixed IP address reserved in the old network would no longer fit, so it is cleared.
 //
@@ -318,15 +323,24 @@ func (d Driver) MoveClients(ctx context.Context, t drivers.Target, creds vault.S
 		if reconnect {
 			var done []drivers.ClientMove
 			var idx []int
+			wifi := false
 			for i, m := range moves {
 				if results[i].OK {
 					done, idx = append(done, m), append(idx, i)
+					wifi = wifi || m.Method == drivers.MoveClient
 				}
+			}
+			// The console pushes the override to the access points a few seconds after it is
+			// saved. A client disconnected before that rejoins on its old network, renews its
+			// old address and stays there until it next reconnects.
+			if wifi {
+				wait(ctx, ProvisionWait)
 			}
 			notes := reconnectWith(ctx, c, done)
 			for j, i := range idx {
 				results[i].Notes = append(results[i].Notes, notes[j])
 			}
+			verifyWireless(ctx, c, target, moves, results)
 		}
 		return nil
 	})
@@ -586,6 +600,100 @@ func rehomeFixedIP(ctx context.Context, c *client, mac string, fixed *fixedIPs) 
 	}
 	_, err = write[json.RawMessage](ctx, c, http.MethodPut, "rest/user/"+url.PathEscape(u.ID), ch)
 	return note, err
+}
+
+// ProvisionWait is how long NCC waits after saving Wi-Fi overrides before disconnecting the
+// clients, so the access points have the override when the clients rejoin. VerifyWait is how
+// long it then waits for each moved Wi-Fi client to come back with an address in the new
+// network. Tests shorten both.
+var (
+	ProvisionWait = 8 * time.Second
+	VerifyWait    = 25 * time.Second
+	verifyEvery   = 2 * time.Second
+)
+
+func wait(ctx context.Context, d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	}
+}
+
+// landed reports whether a connected client is in the target network: its address is in the
+// target's subnet, or, for a VLAN-only network, the console reports it there.
+func landed(cl rawClient, target *rawNetwork) bool {
+	if p, err := netip.ParsePrefix(strings.TrimSpace(target.IPSubnet)); err == nil {
+		a, err := netip.ParseAddr(cl.IP)
+		return err == nil && p.Masked().Contains(a)
+	}
+	return cl.NetworkID == target.ID
+}
+
+// verifyWireless checks that Wi-Fi clients moved with an override came back in the target
+// network. A client that rejoined on its old network is disconnected once more; if it still
+// comes back there, the result says so instead of claiming the move worked.
+func verifyWireless(ctx context.Context, c *client, target *rawNetwork, moves []drivers.ClientMove, results []drivers.MoveResult) {
+	pending := map[string]int{}
+	for i, m := range moves {
+		if m.Method == drivers.MoveClient && results[i].OK {
+			pending[results[i].MAC] = i
+		}
+	}
+	if len(pending) == 0 {
+		return
+	}
+	last := map[string]rawClient{}
+	check := func() {
+		deadline := time.Now().Add(VerifyWait)
+		for len(pending) > 0 && ctx.Err() == nil {
+			if sta, err := getList[rawClient](ctx, c, "stat/sta"); err == nil {
+				for _, cl := range sta {
+					mac := inv.NormMAC(cl.MAC)
+					i, ok := pending[mac]
+					if !ok {
+						continue
+					}
+					last[mac] = cl
+					if landed(cl, target) {
+						results[i].Notes = append(results[i].Notes, fmt.Sprintf("rejoined with %s in %s", cl.IP, target.Name))
+						delete(pending, mac)
+					}
+				}
+			}
+			if len(pending) == 0 || !time.Now().Before(deadline) {
+				return
+			}
+			wait(ctx, verifyEvery)
+		}
+	}
+	check()
+	if len(pending) == 0 || ctx.Err() != nil {
+		return
+	}
+	// a second try: the first disconnect may still have raced the access points
+	for mac := range pending {
+		_, _ = write[json.RawMessage](ctx, c, http.MethodPost, "cmd/stamgr", map[string]string{"cmd": "kick-sta", "mac": mac})
+	}
+	check()
+	for mac, i := range pending {
+		cl, seen := last[mac]
+		switch {
+		case !seen:
+			results[i].Warning = "it has not reconnected yet, so NCC could not check it landed in " + target.Name +
+				". If it shows up on its old network, its Wi-Fi did not take the change: see the note on the VLANs page"
+		default:
+			results[i].Warning = fmt.Sprintf("it rejoined on its old address %s, not in %s, even after a second reconnect. ", cl.IP, target.Name) +
+				"The override is saved, but the access point is not applying it to this device. Common causes: the device uses a " +
+				"private (random) Wi-Fi address, so the override is on a MAC it no longer uses; or the access point firmware " +
+				"does not support per-device network override. The reliable fix is a separate IoT Wi-Fi network (SSID) bound to " + target.Name +
+				", and joining the device to that"
+		}
+	}
 }
 
 // BounceDown is how long a wired port is switched off so the device on it notices and asks

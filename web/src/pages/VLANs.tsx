@@ -290,15 +290,16 @@ function MoveDialog({ target, network, macs, canApply, onClose }: {
 
   const title = `Move ${macs.length === 1 ? plan?.steps[0]?.name ?? "1 client" : `${macs.length} clients`} to ${network.name} (${vlanTag(network)})`;
   if (results) {
-    const ok = results.filter((r) => r.ok).length;
+    const ok = results.filter((r) => r.ok && !r.warning).length;
     return (
       <Modal title={title} onClose={() => onClose(`${ok} of ${results.length} clients moved to ${network.name}. The map updates after the next refresh.`)}>
         <ul className="vlan-steps">
           {results.map((r) => (
             <li key={r.mac}>
-              <span className={`dot ${r.ok ? "good" : "bad"}`} /><strong>{r.name}</strong>
-              {r.ok ? <span className="muted"> moved</span> : <span className="error"> {r.error}</span>}
+              <span className={`dot ${r.ok && !r.warning ? "good" : r.ok ? "warn" : "bad"}`} /><strong>{r.name}</strong>
+              {!r.ok ? <span className="error"> {r.error}</span> : r.warning ? <span className="muted"> saved, but not moved yet</span> : <span className="muted"> moved</span>}
               {(r.notes ?? []).map((n) => <div key={n} className="muted small">{n}</div>)}
+              {r.warning && <div className="error small">{r.warning}</div>}
             </li>
           ))}
         </ul>

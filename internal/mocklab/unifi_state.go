@@ -21,7 +21,10 @@ type uState struct {
 	clients  []map[string]any
 	users    map[string]map[string]any // by MAC
 	down     map[string]bool           // switch ports switched off, "mac#port"
-	nextID   int
+	// noOverride lists Wi-Fi clients (by MAC) whose access point ignores a Virtual Network
+	// Override: when they rejoin they land back on their Wi-Fi network's VLAN.
+	noOverride map[string]bool
+	nextID     int
 	// Writes records every change request, for tests: "METHOD path body".
 	writes []string
 }
@@ -378,6 +381,13 @@ func (s *uState) command(w http.ResponseWriter, r *http.Request) {
 	case "kick-sta": // the client rejoins and asks for an address
 		for _, c := range s.clients {
 			if strings.EqualFold(str(c["mac"]), str(in["mac"])) {
+				if s.noOverride[strings.ToLower(str(c["mac"]))] {
+					for _, w := range s.wlans {
+						if str(w["name"]) == str(c["essid"]) {
+							s.readdress(c, str(w["networkconf_id"]))
+						}
+					}
+				}
 				s.renew(c)
 			}
 		}

@@ -280,6 +280,8 @@ func (s *Server) moveVLANClients(w http.ResponseWriter, r *http.Request) {
 		}
 		if !res.OK {
 			detail["result"] = "failed: " + res.Error
+		} else if res.Warning != "" {
+			detail["result"] = "saved, not applied: " + res.Warning
 		}
 		if len(res.Notes) > 0 {
 			detail["notes"] = res.Notes

@@ -76,6 +76,7 @@ func clientNet(v vlanView, name string) vlanClient {
 
 func TestVLANs(t *testing.T) {
 	unifi.BounceDown = 50 * time.Millisecond
+	unifi.ProvisionWait, unifi.VerifyWait = 0, time.Second
 	c, lab, id, done := vlanSetup(t, "ncc")
 	defer done()
 
@@ -176,7 +177,7 @@ func TestVLANs(t *testing.T) {
 		notes[r.Name] = strings.Join(r.Notes, "; ")
 	}
 	if len(res.Results) != 6 || !strings.Contains(notes["nas"], "fixed IP moved from 192.168.1.50 to 192.168.10.50") ||
-		!strings.Contains(notes["web-dmz"], `port profile "DMZ servers"`) || !strings.Contains(notes["thermostat"], "disconnected") ||
+		!strings.Contains(notes["web-dmz"], `port profile "DMZ servers"`) || !strings.Contains(notes["thermostat"], "disconnected") || !strings.Contains(notes["thermostat"], "rejoined with 192.168.10.") ||
 		!strings.Contains(notes["Printer"], "turned off") || !strings.Contains(notes["garage-cam"], "power-cycled") {
 		t.Fatalf("results: %+v", res.Results)
 	}
@@ -249,6 +250,7 @@ func TestVLANsViewOnlyAccount(t *testing.T) {
 
 func TestVLANsStaleAddressReconnect(t *testing.T) {
 	unifi.BounceDown = 50 * time.Millisecond
+	unifi.ProvisionWait, unifi.VerifyWait = 0, time.Second
 	c, _, id, done := vlanSetup(t, "ncc")
 	defer done()
 	macs := []string{"de:ad:00:00:00:09", "de:ad:00:00:00:02"} // kitchen-plug (Wi-Fi), Printer (port shared with tv)
@@ -286,5 +288,48 @@ func TestVLANsStaleAddressReconnect(t *testing.T) {
 		if cl := clientNet(v, n); cl.Stale || !strings.HasPrefix(cl.IP, "192.168.30.") {
 			t.Errorf("%s still on its old address: %+v", n, cl)
 		}
+	}
+}
+
+// A Wi-Fi client whose access point ignores the override (e.g. it uses a private Wi-Fi
+// address) rejoins on its old network. NCC must say so, not report it as moved.
+func TestVLANsWifiOverrideNotApplied(t *testing.T) {
+	unifi.BounceDown = 50 * time.Millisecond
+	unifi.ProvisionWait, unifi.VerifyWait = 0, 300*time.Millisecond
+	c, lab, id, done := vlanSetup(t, "ncc")
+	defer done()
+	lab.IgnoreOverride("de:ad:00:00:00:09") // kitchen-plug on Wi-Fi "Home"
+	var res struct {
+		Results []struct {
+			Name    string `json:"name"`
+			OK      bool   `json:"ok"`
+			Warning string `json:"warning"`
+		} `json:"results"`
+	}
+	if code := c.do("POST", "/api/vlans/move", map[string]any{"target_id": id, "network_id": "net_iot",
+		"macs": []string{"de:ad:00:00:00:09", "de:ad:00:00:00:0a"}, "reconnect": true}, &res); code != 200 {
+		t.Fatalf("move: %d", code)
+	}
+	got := map[string]string{}
+	for _, r := range res.Results {
+		if !r.OK {
+			t.Fatalf("%s: override not saved: %+v", r.Name, r)
+		}
+		got[r.Name] = r.Warning
+	}
+	if w := got["kitchen-plug"]; !strings.Contains(w, "old address 192.168.1.101") || !strings.Contains(w, "IoT Wi-Fi network") {
+		t.Errorf("kitchen-plug warning: %q", w)
+	}
+	if w := got["lounge-speaker"]; w != "" {
+		t.Errorf("lounge-speaker moved fine but has a warning: %q", w)
+	}
+	kicks := 0
+	for _, w := range lab.Writes() {
+		if strings.Contains(w, `"kick-sta"`) && strings.Contains(w, "de:ad:00:00:00:09") {
+			kicks++
+		}
+	}
+	if kicks != 2 {
+		t.Errorf("kitchen-plug disconnected %d times, want 2 (one retry)", kicks)
 	}
 }

@@ -14,6 +14,7 @@ import (
 
 func TestAssistant(t *testing.T) {
 	unifi.BounceDown = 50 * time.Millisecond
+	unifi.ProvisionWait, unifi.VerifyWait = 0, time.Second
 	c, lab, _, done := vlanSetup(t, "ncc")
 	defer done()
 
@@ -145,6 +146,7 @@ func TestAssistant(t *testing.T) {
 
 func TestAssistantDNSZones(t *testing.T) {
 	unifi.BounceDown = 50 * time.Millisecond
+	unifi.ProvisionWait, unifi.VerifyWait = 0, time.Second
 	c, lab, routerID, done := vlanSetup(t, "ncc")
 	defer done()
 	pdns := httptest.NewServer(mocklab.NewPowerDNS("pdns-key"))
