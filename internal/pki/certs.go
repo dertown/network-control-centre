@@ -30,9 +30,11 @@ type Cert struct {
 	NotAfter    time.Time `json:"not_after"`
 	Fingerprint string    `json:"fingerprint"`
 	HasKey      bool      `json:"has_key"`
-	DaysLeft    int       `json:"days_left"`
-	Status      string    `json:"status"` // ok | expiring | critical | expired
-	ChainLength int       `json:"chain_length"`
+	// IsCA is set for CA certificates (they go to trust stores, not to web servers).
+	IsCA        bool   `json:"is_ca"`
+	DaysLeft    int    `json:"days_left"`
+	Status      string `json:"status"` // ok | expiring | critical | expired
+	ChainLength int    `json:"chain_length"`
 	// Chain names the CA certificates stored after the leaf, issuer first; ChainComplete
 	// is true when it ends at a self-signed root.
 	Chain         []string `json:"chain"`
@@ -283,6 +285,7 @@ func (inv *Inventory) List(ctx context.Context) ([]Cert, error) {
 		c.ChainLength = strings.Count(pemText, "BEGIN CERTIFICATE")
 		c.Chain = []string{}
 		if all, err := ParseChain(pemText); err == nil {
+			c.IsCA = all[0].IsCA
 			for _, ca := range all[1:] {
 				c.Chain = append(c.Chain, displayName(ca))
 			}

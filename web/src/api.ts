@@ -175,8 +175,31 @@ export interface Cert {
   id: number; name: string; subject: string; issuer: string; sans: string[]; serial: string;
   not_before: string; not_after: string; fingerprint: string; has_key: boolean; days_left: number;
   status: "ok" | "expiring" | "critical" | "expired"; chain_length: number;
-  chain?: string[]; chain_complete?: boolean; dropped?: string[];
+  chain?: string[]; chain_complete?: boolean; dropped?: string[]; is_ca?: boolean;
 }
+/** CertAuthority is one of NCC's own CAs (internal/ca). Its private key never leaves the vault. */
+export interface CertAuthority {
+  id: number; name: string; parent_id: number; parent?: string; root: boolean; common_name: string; subject: string;
+  key_type: string; not_before: string; not_after: string; days_left: number; fingerprint: string; thumbprint: string;
+  serial: string; max_path_len: number; permitted_domains: string[]; crl_url: string; crl_number: number;
+  inventory_name: string; inventory_id: number; active: number; revoked: number; created_by: string; issuing: boolean;
+}
+export interface CAList {
+  cas: CertAuthority[]; key_types: string[]; max_leaf_days: number; default_leaf_days: number;
+  reasons: Record<string, string>; base: string;
+}
+export interface IssuedCert {
+  id: number; ca_id: number; ca_name: string; serial: string; cert_name: string; common_name: string; sans: string[];
+  usage: string; key_type: string; days: number; not_before: string; not_after: string; days_left: number;
+  fingerprint: string; issued_by: string; issued_at: string; replaced_by: number; revoked_at?: string; revoke_reason?: number;
+  status: "active" | "expiring" | "expired" | "revoked" | "replaced"; inventory_id: number;
+}
+export interface IssueResult { issued: IssuedCert; cert: Cert; notes: string[] }
+export interface CertSuggestion {
+  name: string; zone: string; server: string; ips: string[]; alias?: string; kind: "host" | "wildcard"; hosts?: number;
+  covered_by?: string; covered_days?: number; outside?: boolean;
+}
+export interface TrustPlatform { id: string; label: string; steps: string[]; commands?: string[]; pushable?: string }
 export interface ServerHealth { status: string; version: string; commit?: string; commit_time?: string; modified?: boolean; go_version: string }
 export interface LicenseFile { name: string; text: string }
 export interface ThirdParty { name: string; version: string; ecosystem: "go" | "npm"; license: string; url?: string; files: LicenseFile[] }
@@ -236,7 +259,7 @@ export interface MoveResult { mac: string; name: string; ok: boolean; error?: st
 export interface DeployField { key: string; label: string; default?: string; help?: string; type?: "text" | "select" | "bool"; choices?: string[] }
 export interface DeployKind {
   id: string; label: string; description: string; transport: "ssh" | "winrm"; default_port: number;
-  fields: DeployField[]; secrets?: DeployField[]; verify_wait_s: number;
+  fields: DeployField[]; secrets?: DeployField[]; verify_wait_s: number; trust?: boolean;
 }
 export interface DeployStepResult { title: string; op: string; path?: string; status: "pending" | "running" | "ok" | "unchanged" | "failed" | "skipped"; output?: string }
 export interface Deployment {

@@ -24,6 +24,7 @@ const DNS = named(() => import("./pages/DNS"), "DNS");
 const Traffic = named(() => import("./pages/Traffic"), "Traffic");
 const Firewall = named(() => import("./pages/Firewall"), "Firewall");
 const Vault = named(() => import("./pages/Vault"), "Vault");
+const CertAuthority = named(() => import("./pages/CertAuthority"), "CertAuthority");
 const CertDeploy = named(() => import("./pages/CertDeploy"), "CertDeploy");
 const Settings = named(() => import("./pages/Settings"), "Settings");
 const Audit = named(() => import("./pages/Audit"), "Audit");
@@ -45,6 +46,7 @@ const pages = [
   { id: "assistant", label: "AI Assistant", icon: "sparkle", group: "Configure" },
   { id: "dns", label: "DNS", icon: "dns", group: "Services" },
   { id: "vault", label: "Vault & Certificates", icon: "vault", group: "Services" },
+  { id: "ca", label: "Certificate Authority", icon: "shield", group: "Services" },
   { id: "deploy", label: "Certificate Deployment", icon: "upload", group: "Services" },
   { id: "settings", label: "Settings", icon: "settings", group: "Administration" },
   { id: "audit", label: "Audit Log", icon: "audit", group: "Administration", admin: true },
@@ -181,6 +183,7 @@ export default function App() {
           {page === "assistant" && <Assistant tick={tick} user={user} />}
           {page === "dns" && <DNS user={user} tick={tick} />}
           {page === "vault" && <Vault user={user} vault={vault} onVault={setVault} />}
+          {page === "ca" && <CertAuthority user={user} tick={tick} />}
           {page === "deploy" && <CertDeploy user={user} tick={tick} />}
           {page === "settings" && <Settings user={user} tick={tick} />}
           {page === "audit" && <Audit />}

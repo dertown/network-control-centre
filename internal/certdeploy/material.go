@@ -34,6 +34,34 @@ type Material struct {
 	FullChainPEM string
 	CABundlePEM  string
 	Roots        []*x509.Certificate
+	// Trust and TrustPEM are the CA certificates a trust-store deployment installs.
+	Trust    []*x509.Certificate
+	TrustPEM string
+}
+
+// NewTrustMaterial picks the CA certificates to install into a trust store from a stored
+// chain: the root(s) in it, or the certificate itself when it is a CA without its root.
+func NewTrustMaterial(name, certPEM string) (*Material, error) {
+	chain, err := pki.ParseChain(certPEM)
+	if err != nil {
+		return nil, err
+	}
+	m := &Material{Name: name, Leaf: chain[0], Chain: chain[1:]}
+	for _, c := range chain {
+		if c.IsCA && c.Subject.String() == c.Issuer.String() && c.CheckSignatureFrom(c) == nil {
+			m.Trust = append(m.Trust, c)
+		}
+	}
+	if len(m.Trust) == 0 && chain[0].IsCA {
+		m.Trust = chain[:1]
+	}
+	if len(m.Trust) == 0 {
+		return nil, errors.New(name + " is not a CA certificate and its chain holds no root, so there is nothing to trust. Pick the CA certificate (for NCC's own CA, the one named after the CA).")
+	}
+	m.Leaf = m.Trust[0]
+	m.TrustPEM = encodeCerts(m.Trust)
+	m.Roots = m.Trust
+	return m, nil
 }
 
 // NewMaterial parses a stored chain and key.
