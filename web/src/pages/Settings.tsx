@@ -1,5 +1,5 @@
 // Settings page: the one place connections (network devices, DNS servers, virtualization,
-// storage, smart home) are listed by group, added with the wizard, edited, polled, disabled and
+// storage, smart home, SIEM) are listed by group, added with the wizard, edited, polled, disabled and
 // removed; plus password, two-factor sign-in and user management. The connection forms come
 // from the server's catalog (connectionWizard.tsx).
 import { Fragment, useEffect, useState } from "react";
@@ -11,6 +11,7 @@ import { Icon } from "../icons";
 // The connection table is grouped by what the connections are, in this order.
 const categories: [Target["category"], string][] = [
   ["device", "Routers, Firewalls & Switches"], ["dns", "DNS"], ["hypervisor", "Virtualization"], ["storage", "Storage"], ["smarthome", "Smart Home"],
+  ["siem", "SIEM"],
 ];
 
 export function Settings({ user, tick }: { user: User; tick: number }) {
@@ -67,7 +68,7 @@ export function Settings({ user, tick }: { user: User; tick: number }) {
                 <td>{!t.enabled ? <span className="pill">disabled</span> : t.last_error ? <span className="pill bad" title={t.last_error}>error</span> : !t.last_poll ? <span className="pill">not checked</span> : <span className="pill good">ok</span>}
                   {t.last_error && <div className="error small">{t.last_error}</div>}</td>
                 <td className="actions">
-                  {user.role !== "viewer" && <button className="link" disabled={busy === t.id} onClick={() => poll(t)}>{busy === t.id ? (t.category === "dns" ? "Checking…" : "Polling…") : (t.category === "dns" ? "Check now" : t.category === "device" ? "Poll now" : "Refresh")}</button>}
+                  {user.role !== "viewer" && <button className="link" disabled={busy === t.id} onClick={() => poll(t)}>{busy === t.id ? (t.category === "dns" || t.category === "siem" ? "Checking…" : "Polling…") : (t.category === "dns" ? "Check now" : t.category === "siem" ? "Test connection" : t.category === "device" ? "Poll now" : "Refresh")}</button>}
                   {isAdmin && <button className="link" onClick={() => setEditing(editing === t.id ? null : t.id)}>Edit</button>}
                   {isAdmin && <button className="link" onClick={() => toggle(t)}>{t.enabled ? "Disable" : "Enable"}</button>}
                   {isAdmin && <button className="link danger" onClick={() => del(t)}>Remove</button>}

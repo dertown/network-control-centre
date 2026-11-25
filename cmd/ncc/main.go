@@ -26,6 +26,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/core"
 	"github.com/dertown/network-control-centre/internal/dnslog"
 	"github.com/dertown/network-control-centre/internal/pki"
+	"github.com/dertown/network-control-centre/internal/siem"
 	"github.com/dertown/network-control-centre/internal/store"
 	"github.com/dertown/network-control-centre/internal/vault"
 	"github.com/dertown/network-control-centre/web"
@@ -40,6 +41,11 @@ import (
 	_ "github.com/dertown/network-control-centre/internal/hypervisor/hyperv"
 	_ "github.com/dertown/network-control-centre/internal/hypervisor/proxmox"
 	_ "github.com/dertown/network-control-centre/internal/hypervisor/vmware"
+	_ "github.com/dertown/network-control-centre/internal/siem/elastic"
+	_ "github.com/dertown/network-control-centre/internal/siem/graylog"
+	_ "github.com/dertown/network-control-centre/internal/siem/sentinel"
+	_ "github.com/dertown/network-control-centre/internal/siem/splunk"
+	_ "github.com/dertown/network-control-centre/internal/siem/syslog"
 	_ "github.com/dertown/network-control-centre/internal/smarthome/homeassistant"
 	_ "github.com/dertown/network-control-centre/internal/storage/nfs"
 	_ "github.com/dertown/network-control-centre/internal/storage/qnap"
@@ -226,8 +232,11 @@ func run(log *slog.Logger, cfg config.Config) error {
 		TrustedProxies: proxies, Version: version, MetricsEnabled: cfg.Metrics.Enabled, MetricsToken: metricsToken,
 	}
 	poller.Observe = srv.ObservePoll
+	siem.Version = version
+	srv.SIEM = &core.SIEMForwarder{DB: st.DB, Targets: targets, Vault: vs, Log: log}
 
 	go poller.Run(ctx)
+	go srv.SIEM.Run(ctx)
 	go func() {
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()

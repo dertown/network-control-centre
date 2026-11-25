@@ -21,6 +21,8 @@ const (
 	CategoryStorage = "storage"
 	// CategorySmartHome is a smart home hub (Home Assistant).
 	CategorySmartHome = "smarthome"
+	// CategorySIEM is a SIEM NCC forwards its audit log and network events to.
+	CategorySIEM = "siem"
 )
 
 // Target is a stored controller, device or DNS server.
@@ -75,7 +77,7 @@ func (r *Targets) Create(ctx context.Context, t *Target) error {
 		return errors.New("name may use letters, digits, dot, dash and underscore (max 63)")
 	}
 	if t.Category != CategoryDevice && t.Category != CategoryDNS && t.Category != CategoryHypervisor && t.Category != CategoryStorage &&
-		t.Category != CategorySmartHome {
+		t.Category != CategorySmartHome && t.Category != CategorySIEM {
 		return fmt.Errorf("unknown category %q", t.Category)
 	}
 	if t.Options == nil {

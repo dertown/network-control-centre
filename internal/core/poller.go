@@ -161,6 +161,13 @@ func (p *Poller) poll(ctx context.Context, t *Target) (_ *inventory.Snapshot, er
 		p.finish(ctx, t, err, "storage", func() map[string]any {
 			return map[string]any{"health": inv.System.Health, "alerts": len(inv.Alerts)}
 		})
+		if err == nil {
+			p.noteStorage(ctx, t, inv)
+		}
+		return nil, err
+	case CategorySIEM:
+		err := p.checkSIEM(ctx, t)
+		p.finish(ctx, t, err, "siem_status", func() map[string]any { return map[string]any{} })
 		return nil, err
 	case CategorySmartHome:
 		inv, err := p.collectSmartHome(ctx, t)
@@ -176,6 +183,7 @@ func (p *Poller) poll(ctx context.Context, t *Target) (_ *inventory.Snapshot, er
 	if err != nil {
 		return nil, err
 	}
+	p.noteLoops(ctx, t, snap)
 	return snap, nil
 }
 
@@ -185,6 +193,7 @@ func (p *Poller) poll(ctx context.Context, t *Target) (_ *inventory.Snapshot, er
 // event carries the target's name.
 func (p *Poller) finish(ctx context.Context, t *Target, err error, kind string, detail func() map[string]any) {
 	_ = p.Targets.RecordPoll(ctx, t.ID, err)
+	p.noteConnection(ctx, t, err)
 	if p.Hub == nil {
 		return
 	}

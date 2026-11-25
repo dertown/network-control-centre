@@ -40,6 +40,9 @@ type Server struct {
 	Deploy  *certdeploy.Service // certificate deployment to servers; nil disables it
 	Traffic *core.Traffic       // per-client traffic; nil disables the Traffic page data
 	DNSLog  *dnslog.Collector   // DNS query log receiver; nil when dns_log is not configured
+	// SIEM forwards the audit log and network events to SIEM connections; nil makes one on
+	// the server's database and vault (the API still works, nothing forwards in the background).
+	SIEM *core.SIEMForwarder
 	// Assistant is the AI assistant; nil makes one on the server's database and vault.
 	Assistant *assistant.Service
 	UI        fs.FS // built web UI; nil serves a placeholder
@@ -234,6 +237,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/certdeploy/deploy", a(s.deployRun))
 	mux.Handle("GET /api/certdeploy/deployments", v(s.deployHistory))
 	mux.Handle("GET /api/certdeploy/deployments/{id}", v(s.deployment))
+
+	mux.Handle("GET /api/siem", a(s.listSIEM))
+	mux.Handle("POST /api/siem/{id}/test", a(s.siemTest))
 
 	mux.Handle("GET /api/audit", a(s.listAudit))
 	mux.Handle("GET /api/audit/verify", a(s.verifyAudit))

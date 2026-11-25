@@ -2,15 +2,20 @@
 // BIND, Active Directory DNS, Proxmox, Hyper-V, QNAP...) is described by the server's catalog
 // (GET /api/catalog, internal/catalog): which group it belongs to, its setup help and its form
 // fields. The wizard asks for the group first (Virtualization, DNS, Routers, Firewalls,
-// Switches...), then the vendor, then shows that vendor's form, so adding a vendor on the server
+// Switches, SIEM...), then the vendor, then shows that vendor's form, so adding a vendor on the server
 // needs no change here.
 import { Fragment, ReactNode, useEffect, useState } from "react";
 import { api, Catalog, CatalogField, CatalogVendor, Target } from "./api";
 import { Icon, IconName } from "./icons";
 
 const groupIcons: Record<string, IconName> = {
-  virtualization: "vm", dns: "dns", router: "gateway", firewall: "firewall", switch: "switch", storage: "nas", smarthome: "home",
+  virtualization: "vm", dns: "dns", router: "gateway", firewall: "firewall", switch: "switch", storage: "nas", smarthome: "home", siem: "shield",
 };
+
+/** platformWord is a group's label for "Which … platform?": lower case, but acronyms (DNS, SIEM) kept. */
+export function platformWord(label: string): string {
+  return label.replace(/ & .*/, "").split(" ").map((w) => (w === w.toUpperCase() ? w : w.toLowerCase())).join(" ");
+}
 
 let catalogLoad: Promise<Catalog> | null = null;
 
@@ -193,7 +198,7 @@ export function AddConnection({ groups, onDone }: { groups?: string[]; onDone: (
         </>
       ) : (
         <>
-          <h3>Which {g.label.toLowerCase().replace(/ & .*/, "")} platform?</h3>
+          <h3>Which {platformWord(g.label)} platform?</h3>
           <div className="choices">
             {vendors.map((v) => (
               <button type="button" key={v.id} className="choice" onClick={() => setVendor(v)}>

@@ -28,6 +28,7 @@ const CertAuthority = named(() => import("./pages/CertAuthority"), "CertAuthorit
 const CertDeploy = named(() => import("./pages/CertDeploy"), "CertDeploy");
 const Settings = named(() => import("./pages/Settings"), "Settings");
 const Audit = named(() => import("./pages/Audit"), "Audit");
+const SIEM = named(() => import("./pages/SIEM"), "SIEM");
 const Assistant = named(() => import("./pages/Assistant"), "Assistant");
 const About = named(() => import("./pages/About"), "About");
 
@@ -50,6 +51,7 @@ const pages = [
   { id: "deploy", label: "Certificate Deployment", icon: "upload", group: "Services" },
   { id: "settings", label: "Settings", icon: "settings", group: "Administration" },
   { id: "audit", label: "Audit Log", icon: "audit", group: "Administration", admin: true },
+  { id: "siem", label: "SIEM Forwarding", icon: "shield", group: "Administration", admin: true },
   { id: "about", label: "About", icon: "info", group: "Administration" },
 ] as const;
 
@@ -187,6 +189,7 @@ export default function App() {
           {page === "deploy" && <CertDeploy user={user} tick={tick} />}
           {page === "settings" && <Settings user={user} tick={tick} />}
           {page === "audit" && <Audit />}
+          {page === "siem" && <SIEM tick={tick} user={user} />}
           {page === "about" && <About />}
         </Suspense></PageBoundary></main>
       </div>

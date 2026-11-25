@@ -252,6 +252,43 @@ var migrations = []string{
 		revoke_reason INTEGER NOT NULL DEFAULT 0
 	)`,
 	`CREATE INDEX IF NOT EXISTS ca_issued_name ON ca_issued(cert_name)`,
+	// siem_events is the journal of network events NCC noticed while polling (a connection
+	// down or back, a loop, storage health), forwarded to SIEM connections like the audit log.
+	`CREATE TABLE IF NOT EXISTS siem_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		ts TIMESTAMP NOT NULL,
+		type TEXT NOT NULL,
+		severity INTEGER NOT NULL,
+		target TEXT NOT NULL DEFAULT '',
+		message TEXT NOT NULL,
+		fields TEXT NOT NULL DEFAULT '{}'
+	)`,
+	// siem_state is the last value seen for each watched condition (connection up or down,
+	// loops, storage health), so an event is raised when it changes, once.
+	`CREATE TABLE IF NOT EXISTS siem_state (
+		target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+		key TEXT NOT NULL,
+		value TEXT NOT NULL,
+		PRIMARY KEY (target_id, key)
+	)`,
+	// siem_cursors is how far each SIEM connection has got in each source (audit log id,
+	// network event id).
+	`CREATE TABLE IF NOT EXISTS siem_cursors (
+		target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+		source TEXT NOT NULL,
+		last_id INTEGER NOT NULL,
+		PRIMARY KEY (target_id, source)
+	)`,
+	// siem_status counts what each SIEM connection delivered and the last delivery error.
+	`CREATE TABLE IF NOT EXISTS siem_status (
+		target_id INTEGER PRIMARY KEY REFERENCES targets(id) ON DELETE CASCADE,
+		sent INTEGER NOT NULL DEFAULT 0,
+		failed INTEGER NOT NULL DEFAULT 0,
+		last_sent_at TIMESTAMP,
+		last_attempt_at TIMESTAMP,
+		last_error TEXT NOT NULL DEFAULT '',
+		info TEXT NOT NULL DEFAULT ''
+	)`,
 }
 
 // Open opens (and migrates) the database in dataDir.

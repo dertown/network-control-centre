@@ -160,10 +160,37 @@ func (s *Server) serveMetrics(w http.ResponseWriter, r *http.Request) {
 			}
 			count[[2]string{t.Category, state}]++
 		}
-		for _, c := range []string{core.CategoryDevice, core.CategoryDNS, core.CategoryHypervisor, core.CategoryStorage, core.CategorySmartHome} {
+		for _, c := range []string{core.CategoryDevice, core.CategoryDNS, core.CategoryHypervisor, core.CategoryStorage, core.CategorySmartHome, core.CategorySIEM} {
 			for _, st := range []string{"ok", "error", "unchecked", "disabled"} {
 				fmt.Fprintf(&b, "ncc_connections{category=%q,state=%q} %d\n", c, st, count[[2]string{c, st}])
 			}
+		}
+		var sent, failed, pending strings.Builder
+		f := s.siemForwarder()
+		for i := range ts {
+			t := &ts[i]
+			if t.Category != core.CategorySIEM {
+				continue
+			}
+			st, err := f.StatusOf(ctx, t)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(&sent, "ncc_siem_events_sent_total{connection=%q} %d\n", t.Name, st.Sent)
+			fmt.Fprintf(&failed, "ncc_siem_events_failed_total{connection=%q} %d\n", t.Name, st.Failed)
+			var n int64
+			for _, v := range st.Pending {
+				n += v
+			}
+			fmt.Fprintf(&pending, "ncc_siem_events_pending{connection=%q} %d\n", t.Name, n)
+		}
+		if sent.Len() > 0 {
+			head("ncc_siem_events_sent_total", "counter", "Events delivered to each SIEM connection.")
+			b.WriteString(sent.String())
+			head("ncc_siem_events_failed_total", "counter", "Events a SIEM connection refused or could not be reached for (they are retried).")
+			b.WriteString(failed.String())
+			head("ncc_siem_events_pending", "gauge", "Events waiting to be delivered to each SIEM connection.")
+			b.WriteString(pending.String())
 		}
 	}
 	vs := s.Vault.Status(ctx)
