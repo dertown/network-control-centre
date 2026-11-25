@@ -1,6 +1,6 @@
 // Package certdeploy installs certificates from NCC's inventory (keys from the vault) on
 // servers: nginx, Apache, Tomcat, Splunk Enterprise, Splunk SOAR, Foundry VTT, other Linux
-// services over SSH, and IIS over WinRM. Every deployment is previewed first, runs as a list
+// services over SSH, and IIS over WinRM; and CA certificates into Linux and Windows trust stores. Every deployment is previewed first, runs as a list
 // of steps, is checked by connecting to the server afterwards, and is kept in a history.
 package certdeploy
 
@@ -354,6 +354,9 @@ func (s *Service) build(ctx context.Context, t *Target, certID int64) (*Plan, *p
 		return nil, nil, errors.New("certificate not found")
 	}
 	plan := &Plan{Target: *t, Cert: cert, Steps: []Step{}, Notes: []string{}, Warnings: []string{}}
+	if k.Trust {
+		return s.buildTrust(ctx, t, k, cert, plan)
+	}
 	if !cert.HasKey {
 		plan.Blocked = "This certificate was imported without its private key, so it cannot be installed. Import it again with the key."
 		return plan, nil, nil
@@ -401,6 +404,49 @@ func (s *Service) build(ctx context.Context, t *Target, certID int64) (*Plan, *p
 		}
 	}
 	return plan, p, nil
+}
+
+// buildTrust makes the steps for putting a CA certificate into a trust store.
+func (s *Service) buildTrust(ctx context.Context, t *Target, k *Kind, cert *pki.Cert, plan *Plan) (*Plan, *planner, error) {
+	certPEM, err := s.Certs.PEM(ctx, cert.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	m, err := NewTrustMaterial(cert.Name, certPEM)
+	if err != nil {
+		plan.Blocked = err.Error()
+		return plan, nil, nil
+	}
+	sec, err := s.secrets(ctx, t)
+	if err != nil {
+		return nil, nil, err
+	}
+	p := &planner{t: t, transport: k.Transport, m: m, opts: effectiveOptions(t), secrets: sec}
+	if err := k.build(p); err != nil {
+		plan.Blocked = "Settings problem: " + err.Error()
+		return plan, nil, nil
+	}
+	plan.Steps = p.steps
+	plan.Notes = append(plan.Notes, p.notes...)
+	plan.Warnings = append(plan.Warnings, p.warnings...)
+	for _, c := range m.Trust {
+		if c.NotAfter.Before(time.Now()) {
+			plan.Warnings = append(plan.Warnings, c.Subject.CommonName+" has expired.")
+		}
+	}
+	if first := firstOf(certPEM); first != nil && !first.Equal(m.Trust[0]) {
+		// trusting the root of a server certificate's chain is fine, but say what goes in
+		plan.Notes = append(plan.Notes, "Installs the root of "+cert.Name+"'s chain ("+trustNames(m)+"), not "+cert.Name+" itself.")
+	}
+	return plan, p, nil
+}
+
+func firstOf(certPEM string) *x509.Certificate {
+	c, err := pki.ParseChain(certPEM)
+	if err != nil {
+		return nil
+	}
+	return c[0]
 }
 
 // checkName is the host name the served certificate is checked against.
@@ -648,6 +694,9 @@ func trimOutput(s string) string {
 
 // verify connects to the service until it serves the new certificate or the kind's wait runs out.
 func (s *Service) verify(ctx context.Context, t *Target, p *planner, want string) string {
+	if t.kind().Trust {
+		return "ok: the trust store check passed"
+	}
 	port := p.opt("https_port")
 	if port == "" {
 		return "skipped: no port to check"

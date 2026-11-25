@@ -1,6 +1,7 @@
 package certdeploy
 
 import (
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"regexp"
@@ -30,6 +31,9 @@ type Kind struct {
 	Secrets []Field `json:"secrets,omitempty"`
 	// VerifyWait is how long to keep checking that the server serves the new certificate.
 	VerifyWait int `json:"verify_wait_s"`
+	// Trust kinds install a CA certificate into the server's trust store instead of a server
+	// certificate and key: pick a CA (or a certificate whose chain holds its root).
+	Trust bool `json:"trust,omitempty"`
 
 	build func(p *planner) error
 }
@@ -600,6 +604,106 @@ var kinds = []*Kind{
 		},
 	},
 }
+
+// trustKinds put a CA certificate into a server's system trust store, so the server (and
+// everything on it that uses the system store: curl, package managers, most services) trusts
+// certificates the CA signs.
+var trustKinds = []*Kind{
+	{
+		ID: "linux-trust", Label: "Linux trust store", Transport: "ssh", DefaultPort: 22, Trust: true,
+		Description: "Adds a CA certificate (such as NCC's internal root) to a Linux server's system trust store over SSH: Debian, Ubuntu, Alpine, Fedora, RHEL, SUSE and Arch.",
+		Fields: append([]Field{
+			checkField("file_name", "File name", "ncc-{cert}", "Name of the file in the trust store folder (.crt is added)."),
+		}, sshFields...),
+		build: func(p *planner) error {
+			base := safeName(p.opt("file_name"))
+			if base == "" {
+				return errors.New("set the file name")
+			}
+			stage := "/usr/local/share/ncc-ca/" + base + ".crt"
+			p.write("Upload CA certificate", stage, []byte(p.m.TrustPEM), "0644", "", fmt.Sprintf("%d CA certificate(s): %s", len(p.m.Trust), trustNames(p.m)))
+			p.run("Add it to the system trust store", linuxTrustScript(stage, base+".crt"))
+			p.run("Check the system bundle holds it", linuxTrustCheck(p.m))
+			p.notes = append(p.notes, "Firefox and Java keep their own trust stores; see the install instructions on the Certificate Authority page for those.")
+			return nil
+		},
+	},
+	{
+		ID: "windows-trust", Label: "Windows trust store", Transport: "winrm", DefaultPort: 5986, Trust: true,
+		Description: "Over WinRM (HTTPS): imports a CA certificate into Local Machine\\Trusted Root Certification Authorities (intermediates into Intermediate Certification Authorities).",
+		Fields: []Field{
+			{Key: "auth", Label: "WinRM authentication", Default: "ntlm", Type: "select", Choices: []string{"ntlm", "basic"}, Help: "NTLM works with local and domain accounts. Basic needs Basic auth turned on in WinRM."},
+			{Key: "verify_tls", Label: "Check WinRM certificate against CAs", Default: "false", Type: "bool", Help: "Off: pin the WinRM listener's certificate on first use (right for the usual self-signed listener)."},
+			checkField("tls_pin", "WinRM certificate pin", "", "SHA-256 fingerprint of the WinRM listener's certificate. Set when you confirm it in the first preview."),
+		},
+		build: func(p *planner) error {
+			for _, c := range p.m.Trust {
+				thumb := Thumbprint(c)
+				store, label := "Root", "Trusted Root Certification Authorities"
+				if c.Subject.String() != c.Issuer.String() {
+					store, label = "CA", "Intermediate Certification Authorities"
+				}
+				tmp := `C:\Windows\Temp\ncc-ca-` + strings.ToLower(thumb[:12]) + `.cer`
+				p.write("Upload "+c.Subject.CommonName+" (temporary file)", tmp, c.Raw, "", "", fmt.Sprintf("%d bytes, deleted after import", len(c.Raw)))
+				p.run("Import "+c.Subject.CommonName+" into "+label,
+					"try{Import-Certificate -FilePath "+psQuote(tmp)+" -CertStoreLocation Cert:\\LocalMachine\\"+store+"|Out-Null}finally{Remove-Item -LiteralPath "+psQuote(tmp)+" -ErrorAction SilentlyContinue}\n"+
+						"if(Test-Path Cert:\\LocalMachine\\"+store+"\\"+thumb+"){'trusted "+thumb+"'}else{throw 'not found in LocalMachine\\"+store+" after import'}")
+			}
+			p.notes = append(p.notes, "For every computer in an Active Directory domain at once, publish the root with certutil -dspublish instead (see the install instructions).")
+			return nil
+		},
+	},
+}
+
+func trustNames(m *Material) string {
+	var n []string
+	for _, c := range m.Trust {
+		n = append(n, c.Subject.CommonName)
+	}
+	return strings.Join(n, ", ")
+}
+
+// linuxTrustScript copies the staged file into whichever trust store the distribution uses and
+// rebuilds the system bundle.
+func linuxTrustScript(stage, file string) string {
+	return strings.Join([]string{
+		"set -e",
+		"src=" + shQuote(stage) + "; f=" + shQuote(file),
+		`if [ -d /usr/local/share/ca-certificates ] && command -v update-ca-certificates >/dev/null 2>&1; then`,
+		`  install -m 0644 "$src" "/usr/local/share/ca-certificates/$f"; update-ca-certificates; echo "added with update-ca-certificates"`,
+		`elif [ -d /etc/pki/ca-trust/source/anchors ]; then`,
+		`  install -m 0644 "$src" "/etc/pki/ca-trust/source/anchors/$f"; update-ca-trust extract; echo "added with update-ca-trust"`,
+		`elif [ -d /etc/pki/trust/anchors ]; then`,
+		`  install -m 0644 "$src" "/etc/pki/trust/anchors/$f"; update-ca-certificates; echo "added with update-ca-certificates (SUSE)"`,
+		`elif [ -d /etc/ca-certificates/trust-source/anchors ]; then`,
+		`  install -m 0644 "$src" "/etc/ca-certificates/trust-source/anchors/$f"; (update-ca-trust extract 2>/dev/null || trust extract-compat); echo "added with update-ca-trust"`,
+		`else`,
+		`  echo "NCC does not recognise this system's trust store (no update-ca-certificates or update-ca-trust); install the ca-certificates package" >&2; exit 1`,
+		`fi`,
+	}, "\n")
+}
+
+// linuxTrustCheck looks for each CA certificate in the rebuilt system bundle.
+func linuxTrustCheck(m *Material) string {
+	lines := []string{"set -e", "found=0", "for b in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /var/lib/ca-certificates/ca-bundle.pem /etc/ssl/cert.pem; do [ -f \"$b\" ] && bundle=$b && break; done",
+		`[ -n "$bundle" ] || { echo "no system CA bundle found" >&2; exit 1; }`}
+	for _, c := range m.Trust {
+		line := pemLine(c)
+		lines = append(lines, "grep -qF "+shQuote(line)+` "$bundle" || { echo `+shQuote(c.Subject.CommonName+" is not in")+` "$bundle" >&2; exit 1; }`)
+	}
+	lines = append(lines, `echo "in $bundle"`)
+	return strings.Join(lines, "\n")
+}
+
+// pemLine is a line from the middle of a certificate's PEM body: unique to it, and the same in
+// every bundle since they all wrap base64 at 64 characters.
+func pemLine(c *x509.Certificate) string {
+	body := strings.Split(strings.TrimSpace(encodeCerts([]*x509.Certificate{c})), "\n")
+	body = body[1 : len(body)-1]
+	return body[len(body)/2]
+}
+
+func init() { kinds = append(kinds, trustKinds...) }
 
 // Kinds lists the server types.
 func Kinds() []*Kind { return kinds }

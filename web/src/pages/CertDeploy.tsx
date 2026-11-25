@@ -15,6 +15,12 @@ function certPill(c?: Cert) {
   return <span className={`pill ${tone}`}>{c.days_left < 0 ? "expired" : `${c.days_left}d`}</span>;
 }
 
+/** deployable: server types need a certificate with its key; trust-store types need a CA
+ *  certificate, or one whose stored chain reaches a root. */
+function deployable(kind: DeployKind | undefined, c: Cert): boolean {
+  return kind?.trust ? !!c.is_ca || !!(c.chain_complete && c.chain?.length) : c.has_key && !c.is_ca;
+}
+
 function wantedCert(): number {
   const q = window.location.hash.split("?")[1];
   return Number(new URLSearchParams(q ?? "").get("cert") ?? 0);
@@ -76,7 +82,9 @@ export function CertDeploy({ user, tick }: { user: User; tick: number }) {
       {err && <div className="error block">{err}</div>}
       {presetCert && (
         <div className="banner warn block">
-          <Icon name="cert" size={16} /> Choose a server to deploy <b>{presetCert.name}</b> to.
+          <Icon name="cert" size={16} /> {presetCert.is_ca
+            ? <>Choose a server whose trust store should hold <b>{presetCert.name}</b>, or add one with <b>Add server</b> (Linux or Windows trust store).</>
+            : <>Choose a server to deploy <b>{presetCert.name}</b> to.</>}
           <button className="link" onClick={() => { setPreset(0); window.location.hash = "#/deploy"; }}>Clear</button>
         </div>
       )}
@@ -312,10 +320,10 @@ function TargetDialog({ kinds, certs, target, presetCert, onClose }: {
           <label className="grow2">Host name or IP<input value={host} onChange={(e) => setHost(e.target.value)} placeholder="splunk.home.lan" required /></label>
           <label className="port-field">{kind.transport === "winrm" ? "WinRM port" : "SSH port"}<input value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" /></label>
         </div>
-        <label>Certificate to deploy here
+        <label>{kind.trust ? "CA certificate to trust here" : "Certificate to deploy here"}
           <select value={certID} onChange={(e) => setCertID(Number(e.target.value))}>
             <option value={0}>Choose later</option>
-            {certs.map((c) => <option key={c.id} value={c.id} disabled={!c.has_key}>{c.name}{c.has_key ? "" : " (no key)"} · {c.sans?.slice(0, 3).join(", ")}</option>)}
+            {certs.map((c) => { const ok = deployable(kind, c); return <option key={c.id} value={c.id} disabled={!ok}>{c.name}{ok ? "" : kind.trust ? " (not a CA)" : " (no key)"}{c.is_ca ? " · CA" : ` · ${c.sans?.slice(0, 3).join(", ")}`}</option>; })}
           </select>
         </label>
 
@@ -357,7 +365,7 @@ function TargetDialog({ kinds, certs, target, presetCert, onClose }: {
 function DeployDialog({ target, kind, certs, initialCert, onClose }: {
   target: DeployTarget; kind?: DeployKind; certs: Cert[]; initialCert: number; onClose: () => void;
 }) {
-  const usable = useMemo(() => certs.filter((c) => c.has_key), [certs]);
+  const usable = useMemo(() => certs.filter((c) => deployable(kind, c)), [certs, kind]);
   const [certID, setCertID] = useState(initialCert || usable[0]?.id || 0);
   const [plan, setPlan] = useState<DeployPlan | null>(null);
   const [loading, setLoading] = useState(false);

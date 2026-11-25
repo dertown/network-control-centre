@@ -213,6 +213,45 @@ var migrations = []string{
 		updated_at TIMESTAMP NOT NULL,
 		UNIQUE (router_id, network_id)
 	)`,
+	// cas are NCC's own certificate authorities (an internal root and optional intermediates).
+	// The private key lives in the vault at key_secret_path and is never handed out; crl_der is
+	// the last signed revocation list, kept so it can be served while the vault is sealed.
+	`CREATE TABLE IF NOT EXISTS cas (
+		id INTEGER PRIMARY KEY,
+		name TEXT NOT NULL UNIQUE,
+		parent_id INTEGER NOT NULL DEFAULT 0,
+		cert_pem TEXT NOT NULL,
+		key_secret_path TEXT NOT NULL,
+		key_type TEXT NOT NULL,
+		inventory_name TEXT NOT NULL DEFAULT '',
+		crl_url TEXT NOT NULL DEFAULT '',
+		crl_number INTEGER NOT NULL DEFAULT 0,
+		crl_der BLOB,
+		crl_next TEXT NOT NULL DEFAULT '',
+		created_by TEXT NOT NULL DEFAULT '',
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
+	// ca_issued lists every certificate an NCC CA signed, for renewal, revocation and the CRL.
+	`CREATE TABLE IF NOT EXISTS ca_issued (
+		id INTEGER PRIMARY KEY,
+		ca_id INTEGER NOT NULL REFERENCES cas(id) ON DELETE CASCADE,
+		serial TEXT NOT NULL UNIQUE,
+		cert_name TEXT NOT NULL,
+		common_name TEXT NOT NULL,
+		sans TEXT NOT NULL,
+		usage TEXT NOT NULL,
+		key_type TEXT NOT NULL,
+		days INTEGER NOT NULL,
+		not_before TEXT NOT NULL,
+		not_after TEXT NOT NULL,
+		fingerprint TEXT NOT NULL,
+		issued_by TEXT NOT NULL DEFAULT '',
+		issued_at TEXT NOT NULL,
+		replaced_by INTEGER NOT NULL DEFAULT 0,
+		revoked_at TEXT NOT NULL DEFAULT '',
+		revoke_reason INTEGER NOT NULL DEFAULT 0
+	)`,
+	`CREATE INDEX IF NOT EXISTS ca_issued_name ON ca_issued(cert_name)`,
 }
 
 // Open opens (and migrates) the database in dataDir.
