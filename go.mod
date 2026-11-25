@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/Azure/go-ntlmssp v0.1.1
-	github.com/coder/websocket v1.8.14
+	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
 	github.com/gosnmp/gosnmp v1.42.1
 	github.com/hirochachacha/go-smb2 v1.1.0
