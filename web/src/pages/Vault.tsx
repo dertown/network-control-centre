@@ -2,6 +2,7 @@
 // certificate inventory (import, CA bundles, expiry, delete).
 import { Fragment, useEffect, useState } from "react";
 import { api, Cert, User, VaultStatus } from "../api";
+import { Icon } from "../icons";
 
 export function Vault({ user, vault, onVault }: { user: User; vault: VaultStatus | null; onVault: (v: VaultStatus) => void }) {
   const isAdmin = user.role === "admin";
@@ -102,7 +103,9 @@ export function Vault({ user, vault, onVault }: { user: User; vault: VaultStatus
                   <td className="mono small">
                     {revealed[p] ? Object.entries(revealed[p]).map(([k, v]) => <div key={k}>{k}: {k.includes("private_key") ? v.split("\n")[0] + " …" : v}</div>) : "••••••"}
                   </td>
-                  <td className="actions"><button className="link" onClick={() => reveal(p)}>{revealed[p] ? "Hide" : "Reveal"}</button></td>
+                  <td className="actions">{p.startsWith("ca/")
+                    ? <span className="muted small" title="Internal CA keys never leave NCC">CA key, never shown</span>
+                    : <button className="link" onClick={() => reveal(p)}>{revealed[p] ? "Hide" : "Reveal"}</button>}</td>
                 </tr>
               ))}
               {paths.length === 0 && <tr><td colSpan={3} className="muted">No secrets stored yet.</td></tr>}
@@ -112,7 +115,10 @@ export function Vault({ user, vault, onVault }: { user: User; vault: VaultStatus
       </section>
 
       <section className="card">
-        <h2>Certificates</h2>
+        <div className="card-head">
+          <h2>Certificates</h2>
+          {isAdmin && <a className="button small-btn" href="#/ca?new=1"><Icon name="plus" size={14} /> New Internal Certificate</a>}
+        </div>
         <table>
           <thead><tr><th>Name</th><th>Names covered</th><th>Issuer</th><th>Expires</th><th>Key</th><th>CA chain</th><th /></tr></thead>
           <tbody>
@@ -128,7 +134,7 @@ export function Vault({ user, vault, onVault }: { user: User; vault: VaultStatus
                     {c.days_left < 0 ? "expired" : `${c.days_left}d`}
                   </span>
                 </td>
-                <td>{c.has_key ? "in vault" : "—"}</td>
+                <td>{c.has_key ? "in vault" : c.is_ca ? <span className="pill">CA</span> : "—"}</td>
                 <td className="small" title={c.chain?.join(" → ")}>
                   {c.chain && c.chain.length > 0
                     ? <>{c.chain.length} CA {c.chain_complete ? <span className="pill good">to root</span> : <span className="muted">(no root)</span>}</>

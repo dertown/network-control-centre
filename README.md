@@ -164,6 +164,12 @@ This first release (the MVP) covers:
 - **Certificates**: import certificates and keys (keys go into the vault) with an optional **CA bundle**
   (intermediates and root, in any order; NCC orders them and drops ones that did not issue the certificate),
   add or replace the CA bundle of a stored certificate later, and track expiry.
+- **Internal certificate authority**: create your network's own root CA (and an issuing intermediate) with a
+  wizard; the private keys are generated on the server, kept in the vault and never revealed or exported. Issue
+  server and client certificates (host names, IP addresses, wildcards; NCC suggests names from your DNS records
+  and skips ones already covered), renew and revoke them, and serve the CRL. Download the root as .crt, .pem or an
+  Apple profile, follow per-platform install steps, or push it to Linux and Windows trust stores. See
+  [Internal certificate authority](#internal-certificate-authority).
 - **Certificate deployment**: push a certificate from the vault to your servers: **nginx**, **Apache**,
   **Tomcat** (PKCS#12 keystore or PEM), **Splunk Enterprise** (Splunk Web and/or splunkd, web.conf and
   server.conf updated), **Splunk SOAR**, **Foundry VTT** (options.json updated), any **other Linux service**
@@ -402,6 +408,42 @@ certificate in **Vault & certificates** jumps here with that certificate chosen.
   bound to the site's HTTPS binding (added if missing; tick **Require SNI** for host-name bindings). The
   previous certificate stays in the store so you can switch back in IIS Manager.
 
+### Internal certificate authority
+
+Open **Certificate Authority** and choose **Create Internal CA**. The wizard asks for:
+
+1. **Root CA**: name, organisation, key type (RSA 4096 by default, for old devices) and lifetime (10 years).
+   Optionally limit it to your own domains (`home.arpa, lan`): X.509 name constraints then stop it from ever
+   signing for any other name, even if its key leaked. Optionally publish a CRL address in certificates.
+2. **Intermediate** (recommended): an issuing CA signed by the root, so the root key is used once.
+3. **Create**: both keys are generated on the NCC server and go straight into the vault under `ca/`. The vault
+   API refuses to reveal, replace or delete anything there; every action is in the audit log.
+4. **First certificates**: tick names read from your DNS servers' A, AAAA and CNAME records (names already
+   covered by a valid certificate are marked), or type names and IP addresses. One certificate per name, or one
+   with all of them. Up to 825 days (Apple's limit for server certificates).
+5. **Trust & deploy**: download the root and deploy the new certificates.
+
+Later, **New Certificate** (on the CA page, or **New Internal Certificate** on Vault & Certificates) issues more
+without rerunning the wizard. **Renew** signs a fresh certificate under the same name, so servers set up for it
+get the new one on their next deploy; **Revoke** puts it on the CA's CRL.
+
+Every device must trust the root once. The page has steps for Windows (including `certutil -dspublish` for a
+whole AD domain), macOS, iPhone and iPad (an Apple profile), Android, Linux, Firefox, Java and network gear.
+The root and the CRLs are public, with no login, so you can hand out the link:
+
+```
+https://ncc.example/pki/ca/1.crt            root, DER (Windows, Android)
+https://ncc.example/pki/ca/1.pem            root, PEM (Linux, apps)
+https://ncc.example/pki/ca/1.mobileconfig   Apple profile
+https://ncc.example/pki/ca/2.crl            CRL of CA 2
+https://ncc.example/pki/ca/1-install.txt    the install steps as text
+```
+
+For servers NCC can log in to, **Certificate Deployment** has two more server types: **Linux trust store**
+(SSH: Debian, Ubuntu, Alpine, Fedora, RHEL, SUSE and Arch; checks the rebuilt system bundle holds the root) and
+**Windows trust store** (WinRM: Local Machine\Trusted Root Certification Authorities). Deploy the CA's entry
+(named after the CA) to them.
+
 ## Try it without touching your network
 
 ```sh
@@ -457,6 +499,7 @@ internal/smarthome/      smart home provider interface and Matter codes; homeass
 internal/dnslog/         PowerDNS Recursor / dnsdist protobuf query-log receiver
 internal/vault/          secret store interface; local and HashiCorp backends
 internal/pki/            certificate inventory
+internal/ca/             internal certificate authority: root, intermediate, issue, renew, revoke, CRL
 internal/certdeploy/     certificate deployment over SSH and WinRM
 internal/netutil/        shared HTTP client helpers (certificate pinning)
 internal/mocklab/        recorded and emulated devices, used by tests and the demo

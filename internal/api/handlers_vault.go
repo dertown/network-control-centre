@@ -2,6 +2,9 @@ package api
 
 import (
 	"net/http"
+	"strings"
+
+	"github.com/dertown/network-control-centre/internal/ca"
 
 	"github.com/dertown/network-control-centre/internal/vault"
 )
@@ -65,12 +68,27 @@ func (s *Server) vaultGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"path": r.PathValue("path"), "values": vault.Redact(sec)})
 }
 
+// caKeyPath reports (and refuses) a path holding an internal CA's private key: those keys
+// never leave NCC, and replacing or deleting one would break the CA.
+func (s *Server) caKeyPath(w http.ResponseWriter, r *http.Request, path, what string) bool {
+	p, err := vault.CleanPath(path)
+	if err != nil || !strings.HasPrefix(p+"/", ca.SecretPrefix) {
+		return false
+	}
+	_ = s.Audit.Record(r.Context(), actor(r), "vault."+what+".refused", "secret/"+p, map[string]string{"why": "internal CA private key"})
+	writeErr(w, 403, "this is an internal CA private key; NCC never reveals, replaces or deletes it here (delete the CA on the Certificate Authority page instead)")
+	return true
+}
+
 // vaultReveal returns secret values; every call is audited.
 func (s *Server) vaultReveal(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Path string `json:"path"`
 	}
 	if !readJSON(w, r, &in) {
+		return
+	}
+	if s.caKeyPath(w, r, in.Path, "reveal") {
 		return
 	}
 	sec, err := s.Vault.Get(r.Context(), in.Path)
@@ -83,6 +101,9 @@ func (s *Server) vaultReveal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) vaultPut(w http.ResponseWriter, r *http.Request) {
+	if s.caKeyPath(w, r, r.PathValue("path"), "put") {
+		return
+	}
 	var in vault.Secret
 	if !readJSON(w, r, &in) {
 		return
@@ -101,6 +122,9 @@ func (s *Server) vaultPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) vaultDelete(w http.ResponseWriter, r *http.Request) {
+	if s.caKeyPath(w, r, r.PathValue("path"), "delete") {
+		return
+	}
 	if err := s.Vault.Delete(r.Context(), r.PathValue("path")); err != nil {
 		s.fail(w, err)
 		return

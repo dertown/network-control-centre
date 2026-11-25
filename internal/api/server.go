@@ -17,6 +17,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/assistant"
 	"github.com/dertown/network-control-centre/internal/audit"
 	"github.com/dertown/network-control-centre/internal/auth"
+	"github.com/dertown/network-control-centre/internal/ca"
 	"github.com/dertown/network-control-centre/internal/certdeploy"
 	"github.com/dertown/network-control-centre/internal/core"
 	"github.com/dertown/network-control-centre/internal/dnslog"
@@ -35,6 +36,7 @@ type Server struct {
 	Poller  *core.Poller
 	Hub     *core.Hub
 	Certs   *pki.Inventory
+	CA      *ca.Service         // internal certificate authority; nil makes one on Store, Vault and Certs
 	Deploy  *certdeploy.Service // certificate deployment to servers; nil disables it
 	Traffic *core.Traffic       // per-client traffic; nil disables the Traffic page data
 	DNSLog  *dnslog.Collector   // DNS query log receiver; nil when dns_log is not configured
@@ -60,6 +62,7 @@ type Server struct {
 	MetricsToken   string
 
 	limiter *loginLimiter
+	caOnce  sync.Once
 	aiState assistantState
 }
 
@@ -100,6 +103,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/setup", s.postSetup)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
+	// the internal CA's root certificates, CRLs and install guide are public by design
+	mux.HandleFunc("GET /pki/ca/{file}", s.pkiFile)
 
 	// any logged-in user
 	v := func(h http.HandlerFunc) http.Handler { return s.authed(auth.RoleViewer, h) }
@@ -209,6 +214,18 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/certs/{id}/pem", v(s.certPEM))
 	mux.Handle("DELETE /api/certs/{id}", a(s.deleteCert))
 	mux.Handle("PUT /api/certs/{id}/chain", a(s.setCertChain))
+
+	mux.Handle("GET /api/ca", v(s.listCAs))
+	mux.Handle("POST /api/ca", a(s.createCA))
+	mux.Handle("PATCH /api/ca/{id}", a(s.updateCA))
+	mux.Handle("DELETE /api/ca/{id}", a(s.deleteCA))
+	mux.Handle("POST /api/ca/{id}/intermediate", a(s.createIntermediate))
+	mux.Handle("GET /api/ca/{id}/install", v(s.caInstall))
+	mux.Handle("GET /api/ca/issued", v(s.listIssued))
+	mux.Handle("POST /api/ca/issue", a(s.issueCert))
+	mux.Handle("POST /api/ca/issued/{id}/renew", a(s.renewIssued))
+	mux.Handle("POST /api/ca/issued/{id}/revoke", a(s.revokeIssued))
+	mux.Handle("GET /api/ca/suggestions", v(s.caSuggestions))
 
 	mux.Handle("GET /api/certdeploy/kinds", v(s.deployKinds))
 	mux.Handle("GET /api/certdeploy/targets", v(s.deployTargets))
