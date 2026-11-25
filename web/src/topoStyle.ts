@@ -1,7 +1,7 @@
 // Cytoscape stylesheet for the topology map, built from the theme's CSS variables so the
 // map follows light and dark mode. Icons are drawn as SVG data URIs and memoised per colour.
 import cytoscape from "cytoscape";
-import { iconURI, kindIcon } from "./icons";
+import { iconURI, kindIcon, roleIcon } from "./icons";
 import { vlanStyle } from "./pages/topoVlan";
 import { TAXI_TURN } from "./pages/topoLayout";
 
@@ -42,7 +42,9 @@ export function topoStyle(): cytoscape.StylesheetStyle[] {
   const offline = (ele: cytoscape.NodeSingular) => ele.data("online") === false;
   const colorOf = (ele: cytoscape.NodeSingular) => (offline(ele) ? bad : tone[ele.data("kind")] ?? quiet);
   const tint = (ele: cytoscape.NodeSingular) => memo(`tint|${colorOf(ele)}`, () => mix(colorOf(ele), surface, 0.1));
-  const icon = (ele: cytoscape.NodeSingular) => memo(`icon|${ele.data("kind")}|${colorOf(ele)}`, () => iconURI(kindIcon[ele.data("kind")] ?? "unknown", colorOf(ele), 1.7));
+  // what NCC identified the node as (a Proxmox host behind an "unmanaged switch") picks the icon
+  const iconName = (ele: cytoscape.NodeSingular) => roleIcon[ele.data("role")] ?? kindIcon[ele.data("kind")] ?? "unknown";
+  const icon = (ele: cytoscape.NodeSingular) => memo(`icon|${iconName(ele)}|${colorOf(ele)}`, () => iconURI(iconName(ele), colorOf(ele), 1.7));
   const dot = (ele: cytoscape.NodeSingular) => memo(`dot|${offline(ele)}`, () => dotURI(offline(ele) ? bad : good, surface));
   const loopColor = (e: cytoscape.SingularElementArgument) => (e.data("loopSev") === "critical" ? bad : warn);
 
@@ -72,6 +74,8 @@ export function topoStyle(): cytoscape.StylesheetStyle[] {
     } },
     { selector: "node[kind = 'ap']", style: { shape: "ellipse" } },
     { selector: "node[kind = 'unmanaged-switch'], node[kind = 'unknown']", style: { "border-style": "dashed", "font-weight": 500, color: quiet } },
+    // identified for sure (high confidence, or a person said so): still not managed, but named
+    { selector: "node[kind = 'unmanaged-switch'][?idsure], node[kind = 'unknown'][?idsure]", style: { "font-weight": 600, color: ink } },
     { selector: "node[kind = 'client']", style: {
       shape: "ellipse", width: 20, height: 20, "border-width": 1.5,
       "background-image": ((ele: cytoscape.NodeSingular) => [icon(ele)]), "background-width": ["64%"], "background-height": ["64%"],

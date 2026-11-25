@@ -110,3 +110,19 @@ export const kindIcon: Record<string, IconName> = {
   unknown: "unknown",
   internet: "internet",
 };
+
+/** The icon for what NCC identified a node as; it wins over the kind's icon on the map. */
+export const roleIcon: Record<string, IconName> = {
+  switch: "switch",
+  router: "gateway",
+  ap: "ap",
+  hypervisor: "server",
+  nas: "nas",
+  server: "server",
+  vm: "vm",
+  container: "container",
+  dns: "dns",
+  iot: "plug",
+  computer: "monitor",
+  other: "unknown",
+};

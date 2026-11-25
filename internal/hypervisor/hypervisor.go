@@ -34,6 +34,7 @@ type VM struct {
 	DiskBytes  int64    `json:"disk_bytes"`     // provisioned disk
 	DiskUsed   int64    `json:"disk_used"`      // used disk, when known
 	IPs        []string `json:"ips,omitempty"`  // guest addresses, from the guest agent or VMware Tools
+	MACs       []string `json:"macs,omitempty"` // virtual NIC MAC addresses (lower case, colons), from the VM's config
 	OS         string   `json:"os,omitempty"`   // guest OS as the platform names it
 	UptimeS    int64    `json:"uptime_s"`       // seconds since power on
 	Tags       []string `json:"tags,omitempty"` // Proxmox tags
@@ -54,8 +55,10 @@ type Host struct {
 	UptimeS  int64   `json:"uptime_s"`
 	Version  string  `json:"version,omitempty"`
 	Model    string  `json:"model,omitempty"`
-	Target   string  `json:"target"`
-	Platform string  `json:"platform"`
+	// IPs are the host's own management addresses, when the platform reports them.
+	IPs      []string `json:"ips,omitempty"`
+	Target   string   `json:"target"`
+	Platform string   `json:"platform"`
 }
 
 // Inventory is what one collection from one platform returns.

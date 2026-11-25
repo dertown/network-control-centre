@@ -173,7 +173,7 @@ export default function App() {
             <SealedBanner status={vault} isAdmin={user.role === "admin"} onUnsealed={setVault} />
           )}
           {page === "dashboard" && <Dashboard tick={tick} />}
-          {page === "topology" && <Topology tick={tick} />}
+          {page === "topology" && <Topology tick={tick} user={user} />}
           {page === "devices" && <Devices tick={tick} />}
           {page === "vms" && <VirtualMachines tick={tick} user={user} />}
           {page === "storage" && <Storage tick={tick} user={user} />}

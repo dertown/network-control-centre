@@ -13,6 +13,8 @@
 // Home Assistant: http://localhost:9123    long-lived token "demo-ha-token"
 //
 // With -loops the pretend network has two switching loops cabled in, for loop detection.
+// With -homelab the Proxmox hosts and their VMs are plugged into the pretend switches, so the
+// topology map shows unmanaged "switches" that NCC identifies as Proxmox hosts.
 //
 // With -dnslog localhost:4242 it also plays a PowerDNS Recursor streaming query logs to
 // NCC's dns_log receiver, so the Traffic page shows sites per client.
@@ -42,6 +44,7 @@ func main() {
 	dnsTo := flag.String("dnslog", "", "send pretend DNS query logs to this NCC dns_log address, e.g. localhost:4242")
 	loops := flag.Bool("loops", false, "cable two switching loops into the pretend network, to try loop detection")
 	office := flag.Bool("office", false, "add an office's IoT devices (cameras, phones, door controller, UPS...) to the pretend network")
+	homelab := flag.Bool("homelab", false, "plug the pretend Proxmox hosts and their VMs into the pretend switches, to try topology identification")
 	flag.Parse()
 	if *dnsTo != "" {
 		go sendDNS(*dnsTo)
@@ -54,6 +57,10 @@ func main() {
 	if *office {
 		handler = mocklab.UniFiOffice()
 		log.Printf("pretend network has office IoT devices (-office)")
+	}
+	if *homelab {
+		handler = mocklab.UniFiHomelab()
+		log.Printf("pretend network has the Proxmox hosts and their VMs plugged in (-homelab)")
 	}
 	unifi := httptest.NewUnstartedServer(handler)
 	l, err := netListen(":9443")

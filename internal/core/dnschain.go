@@ -110,6 +110,7 @@ func (p *Poller) readResolver(ctx context.Context, t *Target, prov dns.Provider,
 	if err := SaveResolverStatus(ctx, p.DB, t.ID, st); err != nil && p.Log != nil {
 		p.Log.Warn("save resolver status", "target", t.Name, "err", err)
 	}
+	p.readDNSNames(ctx, t, prov, creds)
 }
 
 // forwardZone picks the zone to test internal lookups with: the shortest forward zone.

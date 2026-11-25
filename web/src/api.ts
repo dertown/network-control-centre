@@ -130,6 +130,26 @@ export interface GNode {
   id: string; label: string; kind: string; make?: string; model?: string; ip?: string; online: boolean; discovery?: string;
   clients?: number; parent?: string; network?: string; vlan?: number; zone?: string; ssid?: string; ports?: NodePort[];
   loops?: string[];
+  /** What NCC (or a person) found the node really is, from VMs, storage, DNS, IoT and connections. */
+  identity?: NodeIdentity;
+  /** What NCC's other sources know about the node. */
+  related?: NodeRelated;
+}
+export type NodeRole = "switch" | "router" | "ap" | "hypervisor" | "nas" | "server" | "vm" | "container" | "dns" | "iot" | "computer" | "other";
+export interface IdentityEvidence { source: string; text: string }
+export interface NodeIdentity {
+  role: NodeRole; name?: string; what: string; confidence: "high" | "medium" | "low" | "manual"; score: number;
+  evidence?: IdentityEvidence[]; source: "auto" | "confirmed" | "manual"; by?: string; at?: string;
+  guess?: NodeIdentity; label?: string; merged?: string;
+}
+export interface RelVM { id: string; name: string; type: string; state: string; host: string; ips?: string[]; os?: string; cpus?: number; mem_bytes?: number }
+export interface NodeRelated {
+  host?: { name: string; platform: string; target: string; online: boolean; version?: string; cpus?: number; cpu_usage: number; mem_bytes?: number; mem_used?: number; vms: number; running: number };
+  vms?: RelVM[]; vm?: RelVM;
+  storage?: { target_id: number; target: string; vendor: string; model?: string; health: string; volumes: number; shares: number; used: number; total: number; alerts: number };
+  dns?: { name: string; type: string; server: string }[];
+  connections?: { id: number; name: string; kind: string; category: string }[];
+  iot?: { type: string; owner?: string; location?: string };
 }
 export interface GEdge { id: string; source: string; target: string; label?: string; medium: string; speed_mbps?: number; origin: string; networks?: string[]; loops?: string[] }
 export interface GNetwork {

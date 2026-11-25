@@ -322,6 +322,8 @@ func (Provider) Collect(ctx context.Context, t hv.Target, creds map[string]strin
 		})
 	}
 
+	c.nodeIPs(ctx, inv)
+
 	var rs []resource
 	if err := c.get(ctx, "/cluster/resources?type=vm", &rs); err != nil {
 		return res, err
@@ -395,16 +397,23 @@ func (c *client) details(ctx context.Context, inv *hv.Inventory, rs []resource, 
 			vctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 			defer cancel()
 			base := fmt.Sprintf("/nodes/%s/%s/%d", url.PathEscape(r.Node), r.Type, int64(r.VMID))
-			var cfg struct {
-				OSType      string `json:"ostype"`
-				Agent       string `json:"agent"`
-				Description string `json:"description"`
-			}
-			if err := c.get(vctx, base+"/config", &cfg); err != nil {
+			var raw map[string]any
+			if err := c.get(vctx, base+"/config", &raw); err != nil {
 				if is403(err) {
 					warnOnce()
 				}
 			}
+			str := func(k string) string {
+				switch v := raw[k].(type) {
+				case string:
+					return v
+				case float64:
+					return strconv.FormatFloat(v, 'f', -1, 64)
+				}
+				return ""
+			}
+			cfg := struct{ OSType, Agent, Description string }{str("ostype"), str("agent"), str("description")}
+			vm.MACs = configMACs(raw)
 			vm.OS = osName(r.Type, cfg.OSType)
 			vm.Notes = strings.TrimSpace(cfg.Description)
 			if len(vm.Notes) > 8192 {
@@ -442,6 +451,64 @@ func (c *client) details(ctx context.Context, inv *hv.Inventory, rs []resource, 
 	}
 	wg.Wait()
 }
+
+// nodeIPs fills each host's management address from /cluster/status, which lists every
+// node with its IP (a single node answers too). It is best effort: a token without
+// Sys.Audit just leaves the addresses out.
+func (c *client) nodeIPs(ctx context.Context, inv *hv.Inventory) {
+	var st []struct {
+		Type string `json:"type"`
+		Name string `json:"name"`
+		IP   string `json:"ip"`
+	}
+	if c.get(ctx, "/cluster/status", &st) != nil {
+		return
+	}
+	for _, s := range st {
+		if s.Type != "node" || s.IP == "" {
+			continue
+		}
+		for i := range inv.Hosts {
+			if inv.Hosts[i].Name == s.Name {
+				inv.Hosts[i].IPs = appendIP(inv.Hosts[i].IPs, s.IP)
+			}
+		}
+	}
+}
+
+// configMACs reads the virtual NICs' MAC addresses from a VM or container config: QEMU's
+// "net0": "virtio=BC:24:11:AA:BB:CC,bridge=vmbr0" and LXC's "net0":
+// "name=eth0,bridge=vmbr0,hwaddr=BC:24:11:AA:BB:CC,ip=dhcp".
+func configMACs(cfg map[string]any) []string {
+	var keys []string
+	for k := range cfg {
+		if strings.HasPrefix(k, "net") {
+			if _, err := strconv.Atoi(k[3:]); err == nil {
+				keys = append(keys, k)
+			}
+		}
+	}
+	sort.Strings(keys)
+	var out []string
+	for _, k := range keys {
+		v, _ := cfg[k].(string)
+		for _, part := range strings.Split(v, ",") {
+			key, val, ok := strings.Cut(strings.TrimSpace(part), "=")
+			if !ok {
+				continue
+			}
+			if _, err := net.ParseMAC(val); err == nil && (key == "hwaddr" || key == "macaddr" || nicModel[key]) {
+				out = append(out, strings.ToLower(val))
+				break
+			}
+		}
+	}
+	return out
+}
+
+// nicModel are the QEMU NIC models whose value is the MAC address.
+var nicModel = map[string]bool{"virtio": true, "e1000": true, "e1000e": true, "rtl8139": true, "vmxnet3": true,
+	"i82551": true, "i82557b": true, "i82559er": true, "ne2k_isa": true, "ne2k_pci": true, "pcnet": true}
 
 func is403(err error) bool {
 	var he *httpError

@@ -140,6 +140,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/devices/{id}/ports", v(s.devicePorts))
 	mux.Handle("GET /api/clients", v(s.listClients))
 	mux.Handle("GET /api/topology", v(s.topology))
+	mux.Handle("PUT /api/topology/identity/{id}", o(s.setNodeIdentity))
+	mux.Handle("DELETE /api/topology/identity/{id}", o(s.clearNodeIdentity))
 	mux.Handle("GET /api/loops", v(s.loops))
 	mux.Handle("GET /api/firewall", v(s.firewall))
 	mux.Handle("GET /api/traffic", v(s.traffic))

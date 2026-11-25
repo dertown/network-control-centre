@@ -231,6 +231,9 @@ func convert(target string, v mo.VirtualMachine, hostName map[string]string, hos
 	}
 	if v.Guest != nil {
 		for _, n := range v.Guest.Net {
+			if n.MacAddress != "" {
+				out.MACs = append(out.MACs, strings.ToLower(n.MacAddress))
+			}
 			for _, a := range n.IpAddress {
 				out.IPs = appendIP(out.IPs, a)
 			}

@@ -2,6 +2,7 @@ package mocklab
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -90,6 +91,13 @@ func Proxmox(tokenSecret, password string) http.Handler {
 			{"node": "pve2", "status": "online", "cpu": 0.31, "maxcpu": 16, "mem": 21 * gib, "maxmem": 64 * gib, "uptime": 900_000},
 		})
 	}))
+	mux.HandleFunc("GET /api2/json/cluster/status", authed(func(w http.ResponseWriter, r *http.Request) {
+		data(w, []map[string]any{
+			{"type": "cluster", "name": "homelab", "nodes": 2, "quorate": 1},
+			{"type": "node", "name": "pve1", "ip": "192.168.1.12", "online": 1, "local": 1},
+			{"type": "node", "name": "pve2", "ip": "192.168.1.13", "online": 1},
+		})
+	}))
 	mux.HandleFunc("GET /api2/json/cluster/resources", authed(func(w http.ResponseWriter, r *http.Request) {
 		out := []map[string]any{}
 		for _, v := range vms {
@@ -108,6 +116,13 @@ func Proxmox(tokenSecret, password string) http.Handler {
 			return
 		}
 		cfg := map[string]any{"ostype": v.ostype, "description": v.description, "name": v.name}
+		// every guest has one NIC in Proxmox's MAC range, numbered by its VM id
+		mac := fmt.Sprintf("BC:24:11:00:%02X:%02X", v.vmid>>8, v.vmid&0xff)
+		if v.typ == "lxc" {
+			cfg["net0"] = "name=eth0,bridge=vmbr0,firewall=1,hwaddr=" + mac + ",ip=dhcp,type=veth"
+		} else {
+			cfg["net0"] = "virtio=" + mac + ",bridge=vmbr0,firewall=1"
+		}
 		if v.agent != "" {
 			cfg["agent"] = v.agent
 		}
