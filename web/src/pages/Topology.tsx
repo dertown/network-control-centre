@@ -2,9 +2,10 @@
 // highlighting, client clusters, search and a details panel for the selected node, link or network.
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, { Core } from "cytoscape";
-import { api, Graph, GEdge, GNetwork, GNode, Loop } from "../api";
+import { api, Graph, GEdge, GNetwork, GNode, Loop, User } from "../api";
 import { LoopList, worstLoop } from "../loops";
 import { discoveryLabel, kindLabel } from "../live";
+import { IdentityPanel, identityLine, identitySure, RelatedPanel } from "../identity";
 import { cssVar, topoStyle } from "../topoStyle";
 import { clusterID, clusterLinkID, INTERNET, planLayout, wanLinkID } from "./topoLayout";
 import { Icon } from "../icons";
@@ -27,7 +28,23 @@ function NetName({ id, nets, colors }: { id?: string; nets: Map<string, GNetwork
   );
 }
 
-export function Topology({ tick }: { tick: number }) {
+// nodeText is a node's label on the map: its name, then what it is (the identity NCC found,
+// else its model). Clients show their name only.
+function nodeText(n: GNode): string {
+  if (n.kind === "client") return n.label;
+  if (n.identity) return `${n.label}\n${identityLine(n.identity)}`;
+  return n.kind === "unmanaged-switch" || !n.model || n.model === n.label ? n.label : `${n.label}\n${n.model}`;
+}
+
+// clusterText names a device's block of clients: "3 VMs" when they are all its guests.
+function clusterText(members: string[], byID: Map<string, GNode>): string {
+  const n = members.length;
+  const virtual = members.every((m) => { const r = byID.get(m)?.identity?.role; return r === "vm" || r === "container"; });
+  if (virtual) return `${n} VM${n === 1 ? "" : "s"}`;
+  return `${n} client${n === 1 ? "" : "s"}`;
+}
+
+export function Topology({ tick, user }: { tick: number; user?: User }) {
   const ref = useRef<HTMLDivElement>(null);
   const cy = useRef<Core | null>(null);
   const [withClients, setWithClients] = useState(false);
@@ -42,6 +59,7 @@ export function Topology({ tick }: { tick: number }) {
   const [query, setQuery] = useState("");
   const [miss, setMiss] = useState(false);
   const [layoutRun, setLayoutRun] = useState(0);
+  const [reload, setReload] = useState(0);
   const showClients = withClients || grouped;
   const mode = `${grouped}|${showClients}`;
   const lastMode = useRef(mode);
@@ -49,7 +67,16 @@ export function Topology({ tick }: { tick: number }) {
 
   useEffect(() => {
     api<Graph>("GET", `/api/topology${showClients ? "?clients=1" : ""}`).then(setGraph).catch(() => {});
-  }, [tick, showClients]);
+  }, [tick, showClients, reload]);
+
+  // a fresh graph (new poll, or a saved identity) refreshes the node shown in the side panel
+  useEffect(() => {
+    setSelected((s) => {
+      if (s?.type !== "node" || !graph) return s;
+      const fresh = graph.nodes.find((n) => n.id === s.node.id);
+      return fresh ? { type: "node", node: fresh } : s;
+    });
+  }, [graph]);
 
   const nets = useMemo(() => new Map((graph?.networks ?? []).map((n) => [n.id, n])), [graph]);
   const colors = useMemo(() => networkColors(graph?.networks, cssVar("--muted")), [graph]);
@@ -80,6 +107,7 @@ export function Topology({ tick }: { tick: number }) {
     });
     const clusterOf = new Map(plan.clusters.flatMap((c) => c.members.map((m) => [m, clusterID(c.device)] as const)));
     const infra = new Set(graph.nodes.filter((n) => n.kind !== "client").map((n) => n.id));
+    const byID = new Map(graph.nodes.map((n) => [n.id, n]));
     const inst = cytoscape({
       container: ref.current,
       elements: [
@@ -87,7 +115,7 @@ export function Topology({ tick }: { tick: number }) {
         ...(plan.internet.length ? [{ data: { id: INTERNET, label: "Internet", kind: "internet", online: true, display: "Internet" } }] : []),
         ...plan.internet.map((g) => ({ data: { id: wanLinkID(g), source: INTERNET, target: g, origin: "wan", medium: "wired", label: "WAN" }, classes: "tree" })),
         ...plan.clusters.map((c) => ({
-          data: { id: clusterID(c.device), kind: "client-cluster", device: c.device, display: `${c.members.length} client${c.members.length === 1 ? "" : "s"}` },
+          data: { id: clusterID(c.device), kind: "client-cluster", device: c.device, display: clusterText(c.members, byID) },
           classes: "client-cluster",
         })),
         ...plan.clusters.map((c) => ({
@@ -100,7 +128,8 @@ export function Topology({ tick }: { tick: number }) {
           data: {
             ...n, netColor: n.network ? colors.get(n.network) : undefined,
             parent: n.kind === "client" ? boxOf(n) ?? clusterOf.get(n.id) : undefined,
-            display: n.kind === "client" || n.kind === "unmanaged-switch" || !n.model || n.model === n.label ? n.label : `${n.label}\n${n.model}`,
+            role: n.identity?.role, idsure: identitySure(n.identity) || undefined,
+            display: nodeText(n),
             loopSev: worstLoop(n.loops, loopsByID),
           },
         })),
@@ -213,7 +242,8 @@ export function Topology({ tick }: { tick: number }) {
     ev.preventDefault();
     const inst = cy.current, q = query.trim().toLowerCase();
     if (!inst || !q) return;
-    const hit = graph?.nodes.find((n) => n.label.toLowerCase().includes(q) || n.ip?.includes(q) || n.id.toLowerCase() === q || n.model?.toLowerCase().includes(q));
+    const hit = graph?.nodes.find((n) => n.label.toLowerCase().includes(q) || n.ip?.includes(q) || n.id.toLowerCase() === q || n.model?.toLowerCase().includes(q) ||
+      n.identity?.what.toLowerCase().includes(q) || n.identity?.label?.toLowerCase().includes(q));
     setMiss(!hit);
     if (hit) selectNode(hit);
   };
@@ -303,9 +333,9 @@ export function Topology({ tick }: { tick: number }) {
           <aside className="card topo-side">
             <h2>{sel.label}</h2>
             <dl className="kv">
-              <dt>Kind</dt><dd>{kindLabel[sel.kind] ?? sel.kind}</dd>
-              {sel.make && (<><dt>{sel.kind === "client" ? "Vendor" : "Make"}</dt><dd>{sel.make}</dd></>)}
-              {sel.model && (<><dt>Model</dt><dd>{sel.model}</dd></>)}
+              <dt>{sel.identity && sel.kind !== "client" ? "Router sees" : "Kind"}</dt><dd>{kindLabel[sel.kind] ?? sel.kind}</dd>
+              {sel.make && sel.make !== "unknown" && (<><dt>{sel.kind === "client" ? "Vendor" : "Make"}</dt><dd>{sel.make}</dd></>)}
+              {sel.model && !(sel.identity && sel.discovery === "inferred") && (<><dt>Model</dt><dd>{sel.model}</dd></>)}
               {sel.ip && (<><dt>IP</dt><dd className="mono">{sel.ip}</dd></>)}
               {sel.kind === "internet" ? (<><dt>Reached through</dt><dd>{graph?.nodes.filter((n) => n.kind === "gateway").map((n) => n.label).join(", ")}</dd></>)
                 : (<><dt>MAC / id</dt><dd className="mono small">{sel.id}</dd></>)}
@@ -316,6 +346,8 @@ export function Topology({ tick }: { tick: number }) {
               {sel.zone && (<><dt>Zone</dt><dd><span className={`pill ${zonePill[sel.zone] ?? ""}`}>{zoneText(nets.get(sel.network ?? "") ?? { zone: sel.zone })}</span></dd></>)}
               {sel.ssid && (<><dt>SSID</dt><dd>{sel.ssid}</dd></>)}
             </dl>
+            {sel.kind !== "internet" && <IdentityPanel node={sel} canEdit={!!user && user.role !== "viewer"} onSaved={() => setReload((r) => r + 1)} />}
+            <RelatedPanel related={sel.related} />
             {sel.loops?.length ? (
               <>
                 <h3 className="small">Loops on this device</h3>

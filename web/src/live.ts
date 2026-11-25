@@ -64,6 +64,22 @@ export const kindLabel: Record<string, string> = {
   internet: "Internet connection",
 };
 
+/** Human names for what NCC identified a map node as (see GNode.identity). */
+export const roleLabel: Record<string, string> = {
+  switch: "Switch",
+  router: "Router",
+  ap: "Access point",
+  hypervisor: "VM host (hypervisor)",
+  nas: "NAS / storage",
+  server: "Server",
+  vm: "Virtual machine",
+  container: "Container",
+  dns: "DNS server",
+  iot: "IoT device",
+  computer: "Computer",
+  other: "Something else",
+};
+
 /** How NCC found a device: adopted by the controller, seen over LLDP, or inferred. */
 export const discoveryLabel: Record<string, string> = {
   controller: "Adopted (controller)",
