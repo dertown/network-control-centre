@@ -61,7 +61,7 @@ export interface Client {
   parent_port?: string; network?: string; vlan?: number; network_id?: string; ssid?: string;
 }
 export interface Target {
-  id: number; kind: string; category: "device" | "dns" | "hypervisor" | "storage" | "smarthome"; name: string; address: string;
+  id: number; kind: string; category: "device" | "dns" | "hypervisor" | "storage" | "smarthome" | "siem"; name: string; address: string;
   options: Record<string, string>; secret_path: string; enabled: boolean; last_poll?: string; last_error: string;
 }
 /** One input of a connection form, described by the server (see internal/catalog). */
@@ -77,6 +77,21 @@ export interface CatalogVendor {
   address_default?: string; address_placeholder?: string; no_login?: boolean; fields: CatalogField[];
 }
 export interface CatalogGroup { id: string; label: string; summary: string }
+/** An event NCC sends to SIEMs: an audit log entry or a network event (see internal/siem). */
+export interface SIEMEvent {
+  id: number; source: "audit" | "network" | "test"; time: string; type: string; severity: number;
+  actor?: string; target?: string; message: string; detail?: string; fields?: Record<string, string>;
+}
+/** Delivery counters of one SIEM connection. */
+export interface SIEMStatus {
+  sent: number; failed: number; last_sent_at?: string; last_attempt_at?: string; last_error?: string; info?: string;
+  pending: Record<string, number>;
+}
+/** One SIEM connection on the SIEM Forwarding page. */
+export interface SIEMSource {
+  id: number; name: string; kind: string; vendor: string; address: string; enabled: boolean; last_poll?: string;
+  last_error?: string; options: Record<string, string>; status: SIEMStatus;
+}
 export interface Catalog { groups: CatalogGroup[]; vendors: CatalogVendor[] }
 /** One finding of the DNS chain check (router hands out the internal DNS server, which forwards to the ISP). */
 export interface DNSCheck {

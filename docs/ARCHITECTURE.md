@@ -19,7 +19,7 @@ database (plus the local vault, which lives in the same database, encrypted).
 
 1. **Connections** ("targets" in the code, table `targets`) are the things NCC talks to: a UniFi
    console, a PowerDNS server, a Proxmox cluster, a NAS, Home Assistant. Each has a `kind`, a
-   `category` (device, dns, hypervisor, storage, smarthome), an address, options, and a vault
+   `category` (device, dns, hypervisor, storage, smarthome, siem), an address, options, and a vault
    path for its login. `internal/core/targets.go` stores them.
 2. **The poller** (`internal/core/poller.go`) polls every enabled connection at once, every
    `poll` interval (30 s by default). Each category has its own collector: device snapshots
@@ -38,10 +38,11 @@ database (plus the local vault, which lives in the same database, encrypted).
    | `hypervisor.Provider` | `internal/hypervisor` | `proxmox`, `vmware`, `hyperv` |
    | `storage.Provider` | `internal/storage` | `qnap`, `synology`, `smb`, `nfs`, `snmpnas` |
    | `smarthome.Provider` | `internal/smarthome` | `homeassistant` |
+   | `siem.Provider` | `internal/siem` | `splunk`, `sentinel`, `elastic`, `graylog`, `syslog` (QRadar, ArcSight, any syslog receiver) |
 
    Each `Register` call also takes the provider's **catalog entries** (`internal/catalog`): the
    wizard group(s) it appears in (Virtualization, DNS, Routers & Gateways, Firewalls, Switches &
-   Access Points, Storage, Smart Home), its label and setup help, and its form fields with where
+   Access Points, Storage, Smart Home, SIEM), its label and setup help, and its form fields with where
    each value is kept (an option in the database, a secret in the vault, or only on the form).
    One provider can have several entries: the SNMP driver has one per vendor, each with its own
    setup steps and preset options. `GET /api/catalog` serves them; the server checks new and
@@ -61,10 +62,36 @@ database (plus the local vault, which lives in the same database, encrypted).
    lists every route with the role it needs (viewer, operator, admin). Changes go through the
    audit log (`internal/audit`, hash-chained so tampering shows).
 
+## SIEM forwarding
+
+SIEM connections (`category` siem) are polled like the others, but their poll is a connection
+test (`siem.Provider.Test`, which writes nothing into the SIEM where the product allows it) whose
+one-line result ("Splunk 9.3.1 · Enterprise Security 8.0.2 installed") goes into `siem_status.info`.
+
+Delivery is separate: `core.SIEMForwarder` (`internal/core/siem.go`) runs every 5 s and, for each
+enabled SIEM connection, reads up to 500 new rows from each source it forwards, filters them by
+the connection's settings (`siem.CommonFields`: audit log, network events, lowest severity,
+back-fill) and calls `siem.Provider.Send`. Two sources:
+
+- **The audit log** (`audit_log`), read directly; NCC rates each action's severity
+  (`siem.SeverityFor`: failed sign-ins high, deletions and power actions medium...).
+- **Network events** (`siem_events`), journalled by the poller when a watched condition changes
+  (`siem_state` keeps the last value per connection): `connection.down` / `connection.restored`
+  for every connection, `network.loop` / `network.loop_cleared` from device snapshots, and
+  `storage.health` from storage reads. A first look only raises an event for a problem, so adding a
+  connection or upgrading NCC doesn't report every healthy device. The journal keeps 30 days.
+
+Each connection has a cursor per source (`siem_cursors`), moved only after the SIEM accepted the
+batch (or the part of it a one-at-a-time provider delivered, `siem.PartialError`), so delivery is
+at least once. Failures back off from 10 s to 5 minutes. Counters and the last error are in
+`siem_status`; `GET /api/siem` serves them with the backlog for the SIEM Forwarding page, and
+`/metrics` exports them. The formats (CEF, LEEF 1.0, a CIM-style flat document, ECS, GELF and RFC 5424
+syslog) are in `internal/siem/format.go`, shared by the providers.
+
 ## Live updates
 
 The browser opens one Server-Sent Events stream, `GET /api/events`. The server sends one
-event per finished poll (`snapshot`, `vms`, `storage`, `smarthome`, `dns_status` or
+event per finished poll (`snapshot`, `vms`, `storage`, `smarthome`, `dns_status`, `siem_status` or
 `poll_error`) and a comment every 25 s to keep proxies from closing the stream.
 
 The UI does not use the event payloads. `useLive` (`web/src/live.ts`) turns the stream into a

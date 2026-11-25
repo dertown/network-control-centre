@@ -140,7 +140,7 @@ This first release (the MVP) covers:
   Try it with `go run ./cmd/ncc-mock` (Home Assistant on :9123, token `demo-ha-token`).
 - **Adding connections** (Settings → Add connection): a wizard asks what you are connecting
   (**Virtualization**, **DNS**, **Routers & Gateways**, **Firewalls**, **Switches & Access Points**,
-  **Storage**, **Smart Home**), then which platform, then shows that platform's setup steps and form. The
+  **Storage**, **Smart Home**, **SIEM**), then which platform, then shows that platform's setup steps and form. The
   Virtual Machines, Storage and Smart Home pages open the same wizard at their own group.
 - **More platforms**:
   - **DNS: BIND 9** (and Knot or any RFC 2136 server): zones are read with a TSIG-signed zone transfer
@@ -171,6 +171,19 @@ This first release (the MVP) covers:
   lives in the vault. Every deployment shows a preview of each file, edit and command first, keeps the old
   files as `.ncc-bak`, then checks that the server now serves the new certificate. See
   [Deploying certificates](#deploying-certificates).
+- **SIEM forwarding** (Administration → SIEM Forwarding; add a connection under the **SIEM** group): NCC
+  sends its audit log (sign-ins, failed sign-ins, every change and export) and the network events it notices
+  while polling (a connection going down and coming back, switching loops, storage health changes) to
+  **Splunk Enterprise Security** (HTTP Event Collector; the optional REST API shows the Splunk version and
+  whether Enterprise Security is installed; CIM-style fields, sourcetypes `ncc:audit` and `ncc:network`),
+  **Microsoft Sentinel** (Azure Monitor Logs Ingestion API with an Entra ID app), **Elastic Security**
+  (bulk API, Elastic Common Schema in `logs-ncc.events-default`), **IBM QRadar** (LEEF over syslog, optional
+  API check), **Graylog** (GELF HTTP), **OpenText ArcSight** (CEF over syslog) and any other SIEM over
+  syslog (UDP, TCP or TLS; CEF, LEEF or JSON). Each connection chooses what to send and the lowest
+  severity, can back-fill the existing audit log, and is tested on every poll without writing into the SIEM;
+  **Send Test Event** writes one. Delivery keeps a cursor per connection and retries with back-off until the
+  SIEM accepts the events (at least once). Tokens and secrets live in the vault; delivery counters and
+  backlog are also Prometheus metrics.
 - **Security**: HTTPS by default, Argon2id passwords, TOTP two-factor sign-in, roles
   (viewer, operator, admin), CSRF protection, login rate limiting, and a hash-chained audit log
   that admins can export as CSV or JSON Lines for a SIEM.
@@ -438,6 +451,7 @@ internal/dns/            DNS provider interface; powerdns/, bind/, windowsdns/, 
 internal/hypervisor/     virtual machine provider interface; proxmox/, vmware/, hyperv/
 internal/winps/          PowerShell over WinRM for the Windows providers
 internal/storage/        NAS provider interface; qnap/, synology/, smb/, nfs/, snmpnas/
+internal/siem/           SIEM provider interface and formats (CEF, LEEF, ECS, GELF, syslog); splunk/, sentinel/, elastic/, graylog/, syslog/
 internal/iot/            IoT inventory: device classification, locations, IoT network policy
 internal/smarthome/      smart home provider interface and Matter codes; homeassistant/
 internal/dnslog/         PowerDNS Recursor / dnsdist protobuf query-log receiver
@@ -453,7 +467,7 @@ deploy/                  Docker Compose, Proxmox Terraform, Home Assistant setup
 ### Adding a device driver or provider
 
 Implement the interface for the category (`drivers.Driver`, `dns.Provider`,
-`hypervisor.Provider`, `storage.Provider` or `smarthome.Provider`), call `Register` from
+`hypervisor.Provider`, `storage.Provider`, `smarthome.Provider` or `siem.Provider`), call `Register` from
 `init()` with its `catalog.Vendor` entry (label, wizard group, setup help, form fields), and
 import the package in `cmd/ncc/main.go`. The Add connection wizard and the edit form are built
 from the entry, so no UI code is needed. Details in

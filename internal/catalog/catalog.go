@@ -4,7 +4,7 @@
 //
 // Entries are registered by the provider packages themselves, through the category registry
 // they already call (drivers.Register, dns.Register, hypervisor.Register, storage.Register,
-// smarthome.Register): adding a vendor is one Register call with its entry, and the wizard,
+// smarthome.Register, siem.Register): adding a vendor is one Register call with its entry, and the wizard,
 // the edit form and the server-side checks pick it up. The UI has no per-vendor code.
 package catalog
 
@@ -24,6 +24,7 @@ var Groups = []Group{
 	{ID: GroupSwitch, Label: "Switches & Access Points", Summary: "Managed switches and Wi-Fi: ports, PoE, LLDP neighbours, clients."},
 	{ID: GroupStorage, Label: "Storage", Summary: "NAS and file servers: volumes, disks, shares."},
 	{ID: GroupSmartHome, Label: "Smart Home", Summary: "Smart home hubs: devices, rooms, Matter."},
+	{ID: GroupSIEM, Label: "SIEM", Summary: "Security monitoring: send NCC's audit log and network events to Splunk, Sentinel, Elastic, QRadar and others."},
 }
 
 // Group ids.
@@ -35,6 +36,7 @@ const (
 	GroupSwitch         = "switch"
 	GroupStorage        = "storage"
 	GroupSmartHome      = "smarthome"
+	GroupSIEM           = "siem"
 )
 
 // Group is one wizard category.

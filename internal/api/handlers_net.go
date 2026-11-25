@@ -16,6 +16,7 @@ import (
 	"github.com/dertown/network-control-centre/internal/drivers"
 	"github.com/dertown/network-control-centre/internal/hypervisor"
 	"github.com/dertown/network-control-centre/internal/inventory"
+	"github.com/dertown/network-control-centre/internal/siem"
 	"github.com/dertown/network-control-centre/internal/smarthome"
 	"github.com/dertown/network-control-centre/internal/storage"
 	"github.com/dertown/network-control-centre/internal/vault"
@@ -26,7 +27,7 @@ func (s *Server) bg() context.Context {
 }
 
 func (s *Server) listDrivers(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string][]string{"device": drivers.Kinds(), "dns": dns.Kinds(), "hypervisor": hypervisor.Kinds(), "storage": storage.Kinds(), "smarthome": smarthome.Kinds()})
+	writeJSON(w, 200, map[string][]string{"device": drivers.Kinds(), "dns": dns.Kinds(), "hypervisor": hypervisor.Kinds(), "storage": storage.Kinds(), "smarthome": smarthome.Kinds(), "siem": siem.Kinds()})
 }
 
 // ---- targets ----
@@ -63,8 +64,10 @@ func providerRegistered(category, kind string) error {
 		_, err = storage.Get(kind)
 	case core.CategorySmartHome:
 		_, err = smarthome.Get(kind)
+	case core.CategorySIEM:
+		_, err = siem.Get(kind)
 	default:
-		err = errors.New("category must be device, dns, hypervisor, storage or smarthome")
+		err = errors.New("category must be device, dns, hypervisor, storage, smarthome or siem")
 	}
 	return err
 }
@@ -279,7 +282,7 @@ func (s *Server) pollTarget(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	if snap == nil { // DNS server check or hypervisor
+	if snap == nil { // DNS server check, SIEM connection test, hypervisor...
 		writeJSON(w, 200, map[string]any{"ok": true})
 		return
 	}
